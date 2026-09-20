@@ -37,11 +37,25 @@ export function stripAnsi(text: string): string {
   return text.replace(/\u001b\[[0-9;]*m/g, '');
 }
 
-export function unityVersionFromFile(projectRoot: string): string | null {
+export interface EditorVersionInfo {
+  version: string | null;
+  revision: string | null;
+}
+
+// The Editor version lives in `ProjectSettings/ProjectVersion.txt`, so it is
+// readable offline — no Unity CLI or running Editor required:
+//   m_EditorVersion: 6000.1.3f1
+//   m_EditorVersionWithRevision: 6000.1.3f1 (f34db9734971)
+export function editorVersionInfo(projectRoot: string): EditorVersionInfo {
   const text = readText(join(projectRoot, 'ProjectSettings', 'ProjectVersion.txt'));
-  if (!text) return null;
-  const match = text.match(/m_EditorVersion:\s*(\S+)/);
-  return match ? match[1] : null;
+  if (!text) return { version: null, revision: null };
+  const version = text.match(/^\s*m_EditorVersion:\s*(\S+)\s*$/m)?.[1] ?? null;
+  const revision = text.match(/^\s*m_EditorVersionWithRevision:\s*\S+\s*\(([0-9a-fA-F]+)\)/m)?.[1] ?? null;
+  return { version, revision };
+}
+
+export function unityVersionFromFile(projectRoot: string): string | null {
+  return editorVersionInfo(projectRoot).version;
 }
 
 export function activeInputHandler(projectRoot: string): number | null {

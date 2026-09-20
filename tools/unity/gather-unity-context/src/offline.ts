@@ -9,7 +9,7 @@ import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { dirExists, nowIso, readJson, readText, toPosix, unique } from '../../../shared/io';
-import { activeInputHandler } from '../../../shared/toolchain';
+import { activeInputHandler, editorVersionInfo } from '../../../shared/toolchain';
 import { selectRoute, type Route } from '../../../shared/tool-routing';
 import { parseNUnit, type TestCounts } from './gate';
 
@@ -338,6 +338,8 @@ export function produceLogDigest(input: OfflineInput, logPaths: string[] = edito
 
 export interface ProjectSettings extends OfflineBase {
   settingsPath: string;
+  editorVersion: string | null;
+  editorVersionWithRevision: string | null;
   productName: string | null;
   companyName: string | null;
   scriptingBackend: Record<string, string>;
@@ -454,11 +456,14 @@ export function produceProjectSettings(input: OfflineInput): ProjectSettings {
   const errors: string[] = [];
   const settingsPath = join(input.projectRoot, 'ProjectSettings', 'ProjectSettings.asset');
   const text = readText(settingsPath);
+  const editor = editorVersionInfo(input.projectRoot);
 
   if (!text) {
     return {
       ...makeBase('unavailable', errors),
       settingsPath: toPosix(relative(input.projectRoot, settingsPath)),
+      editorVersion: editor.version,
+      editorVersionWithRevision: editor.revision,
       productName: null,
       companyName: null,
       scriptingBackend: {},
@@ -518,6 +523,8 @@ export function produceProjectSettings(input: OfflineInput): ProjectSettings {
   return {
     ...makeBase('observed_locally', errors),
     settingsPath: toPosix(relative(input.projectRoot, settingsPath)),
+    editorVersion: editor.version,
+    editorVersionWithRevision: editor.revision,
     productName,
     companyName,
     scriptingBackend,
