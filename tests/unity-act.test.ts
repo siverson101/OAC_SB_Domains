@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { ACT_ABILITIES, ACT_MODES, type ActOptions } from '../tools/unity/unity-act/src/types';
+import { ACT_ABILITIES, ACT_MODES, ACT_SAFETY_GATES, type ActOptions } from '../tools/unity/unity-act/src/types';
 import { decideEscalation } from '../tools/unity/unity-act/src/escalation';
 import { planActGate } from '../tools/unity/unity-act/src/gate';
 import { patternLibrary } from '../tools/unity/unity-act/src/patterns';
@@ -300,6 +300,24 @@ describe('act runtime safety gate', () => {
       opsJson: JSON.stringify(SINGLE_OPS),
     });
     expect(prefab.safetyGate.mutates).toBe(true);
+  });
+
+  test('ACT_SAFETY_GATES mirrors the declared frontmatter for each ability', () => {
+    const sharedKeys = ['mutates', 'dryRunFirst', 'requiresApproval'] as const;
+    for (const ability of ACT_ABILITIES) {
+      const fm = parseFrontmatter(readFileSync(join(commandDir, `${ability}.md`), 'utf8'));
+      const declared = fm.safetyGate as Record<string, unknown> | undefined;
+      if (!declared) continue;
+      const runtime = ACT_SAFETY_GATES[ability];
+      // The runtime gate carries mutates/dryRunFirst/requiresApproval; other
+      // declared flags (requiresEditor/writesState/advisory) are not mirrored.
+      for (const key of sharedKeys) {
+        const declaredValue = declared[key];
+        if (typeof declaredValue === 'boolean') {
+          expect(runtime[key]).toBe(declaredValue);
+        }
+      }
+    }
   });
 });
 
