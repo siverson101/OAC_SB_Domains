@@ -4,7 +4,7 @@
   "private": true,
   "description": "Build tooling for OAC_SB_Domains. Source lives under tools/ and is bundled into xdomains/scripts/ so the distributed xdomains tree is self-contained.",
   "scripts": {
-    "build": "bun run build:shared && bun run build:scan && bun run build:gather && bun run build:sense && bun run build:act && bun run build:verify && bun run build:run && bun run build:registry",
+    "build": "bun run build:shared && bun run build:scan && bun run build:gather && bun run build:sense && bun run build:act && bun run build:verify && bun run build:run && bun run build:compose && bun run build:registry",
     "build:shared": "bun build tools/shared/prompts/src/prompt.mjs --outfile xdomains/scripts/shared/prompt.mjs --target node",
     "build:scan": "bun build tools/unity/project-scan/src/index.ts --outfile xdomains/scripts/unity/scan-project.mjs --target node",
     "build:gather": "bun build tools/unity/gather-unity-context/src/index.ts --outfile xdomains/scripts/unity/gather-unity-context.mjs --target node",
@@ -12,6 +12,7 @@
     "build:act": "bun build tools/unity/unity-act/src/index.ts --outfile xdomains/scripts/unity/unity-act.mjs --target node",
     "build:verify": "bun build tools/unity/unity-verify/src/index.ts --outfile xdomains/scripts/unity/unity-verify.mjs --target node",
     "build:run": "bun build tools/unity/unity-run/src/index.ts --outfile xdomains/scripts/unity/unity-run.mjs --target node",
+    "build:compose": "bun build tools/unity/unity-compose/src/index.ts --outfile xdomains/scripts/unity/unity-compose.mjs --target node",
     "build:registry": "bun build tools/shared/registry/src/index.ts --outfile xdomains/scripts/shared/build-registry.mjs --target node",
     "build:watch": "bun build tools/shared/prompts/src/prompt.mjs --outfile xdomains/scripts/shared/prompt.mjs --target node --watch",
     "typecheck": "tsc --noEmit"

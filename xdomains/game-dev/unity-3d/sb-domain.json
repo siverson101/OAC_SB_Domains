@@ -69,7 +69,11 @@
     "runtime-debugging",
     "runtime-ui-validation",
     "performance-diagnostics",
-    "uitk-interaction"
+    "uitk-interaction",
+    "coordination-board",
+    "primitive-composition",
+    "contract-aware-design",
+    "ci-status-baseline"
   ],
     "skills": [],
     "tools": [
