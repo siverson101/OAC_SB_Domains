@@ -1,4 +1,7 @@
 // tools/shared/cli-bootstrap.ts
+function isThenable(value) {
+  return typeof value?.then === "function";
+}
 function runCli(config) {
   const argv = config.argv ?? process.argv.slice(2);
   const write = config.write ?? ((text) => process.stdout.write(text));
@@ -9,14 +12,25 @@ function runCli(config) {
 `);
     return;
   }
-  const result = config.run(options);
-  if (options.json) {
-    write(JSON.stringify(result, null, 2) + `
+  const emit = (result) => {
+    if (options.json) {
+      write(JSON.stringify(result, null, 2) + `
 `);
+      return;
+    }
+    write(config.render(result) + `
+`);
+  };
+  const result = config.run(options);
+  if (isThenable(result)) {
+    result.then(emit).catch((error) => {
+      write(`${error instanceof Error ? error.message : String(error)}
+`);
+      process.exitCode = 1;
+    });
     return;
   }
-  write(config.render(result) + `
-`);
+  emit(result);
 }
 
 // tools/unity/unity-compose/src/ci-status-baseline.ts
@@ -603,26 +617,20 @@ function success(action, summary, board, holder, expiresAt) {
   return { ok: true, status: "ok", action, summary, holder, expiresAt, errors: [], board };
 }
 var CLAIM_POLL_MS = 50;
-function sleepSync(ms) {
-  if (ms <= 0)
-    return;
-  try {
-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
-  } catch {
-    const end = Date.now() + ms;
-    while (Date.now() < end) {}
-  }
+var MAX_WAIT_SECONDS = 60;
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)));
 }
-function claimResourceWithWait(dir, input, now) {
+async function claimResourceWithWait(dir, input, now) {
   let board = readBoard(dir);
   let currentNow = now;
   let mutation = claimResource(board, input, currentNow);
-  const waitSeconds = input.waitSeconds ?? 0;
+  const waitSeconds = Math.min(input.waitSeconds ?? 0, MAX_WAIT_SECONDS);
   if (mutation.ok || mutation.status !== "conflict" || waitSeconds <= 0)
     return mutation;
   const deadline = Date.now() + waitSeconds * 1000;
   while (Date.now() < deadline) {
-    sleepSync(Math.min(CLAIM_POLL_MS, deadline - Date.now()));
+    await sleep(Math.min(CLAIM_POLL_MS, deadline - Date.now()));
     board = readBoard(dir);
     currentNow = nowIso();
     mutation = claimResource(board, input, currentNow);
@@ -763,7 +771,7 @@ function normalizeBoardVerb(value) {
     return { verb: normalized, errors: [] };
   return { verb: "status", errors: [`unknown board verb "${value}"; defaulted to status`] };
 }
-function runCoordinationBoard(options) {
+async function runCoordinationBoard(options) {
   const dir = join3(options.opencodeDir, "coordination");
   const now = options.now ?? nowIso();
   const { verb, errors } = normalizeBoardVerb(options.verb);
@@ -773,7 +781,7 @@ function runCoordinationBoard(options) {
       const base = makeResult("coordination-board", "refused", "claim requires --resource and --holder", ["claim requires --resource and --holder"]);
       return { ...base, action: "claim", holder: null, expiresAt: null, board };
     }
-    const mutation = claimResourceWithWait(dir, {
+    const mutation = await claimResourceWithWait(dir, {
       resource: options.resource,
       holder: options.holder,
       note: options.note,
@@ -1196,7 +1204,7 @@ function runPrimitiveComposition(options) {
 }
 
 // tools/unity/unity-compose/src/abilities.ts
-function runCompose(options) {
+async function runCompose(options) {
   switch (options.ability) {
     case "coordination-board":
       return runCoordinationBoard(options);

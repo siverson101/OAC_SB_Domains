@@ -1,4 +1,7 @@
 // tools/shared/cli-bootstrap.ts
+function isThenable(value) {
+  return typeof value?.then === "function";
+}
 function runCli(config) {
   const argv = config.argv ?? process.argv.slice(2);
   const write = config.write ?? ((text) => process.stdout.write(text));
@@ -9,14 +12,25 @@ function runCli(config) {
 `);
     return;
   }
-  const result = config.run(options);
-  if (options.json) {
-    write(JSON.stringify(result, null, 2) + `
+  const emit = (result) => {
+    if (options.json) {
+      write(JSON.stringify(result, null, 2) + `
 `);
+      return;
+    }
+    write(config.render(result) + `
+`);
+  };
+  const result = config.run(options);
+  if (isThenable(result)) {
+    result.then(emit).catch((error) => {
+      write(`${error instanceof Error ? error.message : String(error)}
+`);
+      process.exitCode = 1;
+    });
     return;
   }
-  write(config.render(result) + `
-`);
+  emit(result);
 }
 
 // tools/unity/unity-sense/src/cli.ts

@@ -167,6 +167,29 @@ describe('prefab-automation confirm gate', () => {
     expect(readFileSync(prefabPath, 'utf8')).toBe(prefabContent);
   });
 
+  test('applies the same ops after a dry run in a different key order', () => {
+    const dryOps = JSON.stringify([
+      { op: 'set_property', target: { path: 'Player' }, propertyName: 'm_Enabled', value: true },
+    ]);
+    const reorderedOps = JSON.stringify([
+      { value: true, propertyName: 'm_Enabled', target: { path: 'Player' }, op: 'set_property' },
+    ]);
+
+    const dry = prefabAutomation({ ...base, prefab: 'Assets/Prefabs/Player.prefab', opsJson: dryOps });
+    expect(dry.status).toBe('proposed');
+
+    const apply = prefabAutomation({
+      ...base,
+      dryRun: false,
+      confirm: true,
+      prefab: 'Assets/Prefabs/Player.prefab',
+      opsJson: reorderedOps,
+    });
+    expect(apply.status).toBe('ready');
+    expect(apply.patchId).toBe(dry.patchId);
+    expect(readFileSync(prefabPath, 'utf8')).toBe(prefabContent);
+  });
+
   test('refuses an apply whose payload differs from the recorded dry run', () => {
     const dryOps = JSON.stringify([
       { op: 'set_property', target: { path: 'Player' }, propertyName: 'm_Name', value: 'Hero' },
@@ -187,7 +210,7 @@ describe('prefab-automation confirm gate', () => {
     });
     expect(apply.status).toBe('refused');
     expect(apply.mutated).toBe(false);
-    expect(apply.errors.join(' ')).toContain('dry-run');
+    expect(apply.errors.join(' ')).toContain('changed since the dry-run');
     expect(readFileSync(prefabPath, 'utf8')).toBe(prefabContent);
   });
 });
@@ -218,6 +241,12 @@ describe('scene-editing escalation ladder', () => {
     expect(result.family).toBe('act');
     expect(result.mutated).toBe(false);
     expect(result.escalation.rung).toBe('prefab-patch');
+  });
+
+  test('an unknown change-kind is reported as unknown, not observed', () => {
+    const result = sceneEditing({ ...base, ability: 'scene-editing', changeKind: 'frobnicate' });
+    expect(result.status).toBe('unknown');
+    expect(result.errors.join(' ')).toContain('unknown --change-kind');
   });
 });
 

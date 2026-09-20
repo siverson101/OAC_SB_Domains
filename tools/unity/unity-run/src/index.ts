@@ -30,7 +30,7 @@ function render(result: RunResult): string {
   }
   if ('operation' in result) {
     lines.push(`  operation: ${result.operation} · transport: ${result.transport ?? 'none'}`);
-    lines.push(`  command: ${result.command.join(' ')}`);
+    if (result.command) lines.push(`  command: ${result.command.join(' ')}`);
   }
   for (const error of result.errors) lines.push(`  error: ${error}`);
   return lines.join('\n');

@@ -137,7 +137,6 @@ export function runRuntimeAbility(options: RunOptions): RuntimeResult {
       errors: [...errors, reason],
       operation: spec.operation,
       transport: null,
-      command,
       data: null,
       approval: null,
     };
@@ -154,7 +153,6 @@ export function runRuntimeAbility(options: RunOptions): RuntimeResult {
         errors: [...errors, approval.reason],
         operation: spec.operation,
         transport: null,
-        command,
         data: null,
         approval,
       };
@@ -174,7 +172,6 @@ export function runRuntimeAbility(options: RunOptions): RuntimeResult {
       route: 'offline',
       operation: spec.operation,
       transport,
-      command,
       data: null,
       approval,
     };
@@ -190,7 +187,6 @@ export function runRuntimeAbility(options: RunOptions): RuntimeResult {
       route: 'live',
       operation: spec.operation,
       transport,
-      command,
       data: null,
       approval,
     };
@@ -207,7 +203,6 @@ export function runRuntimeAbility(options: RunOptions): RuntimeResult {
         route: 'live',
         operation: spec.operation,
         transport,
-        command,
         data: response.data,
         approval,
       };
@@ -234,7 +229,6 @@ export function runRuntimeAbility(options: RunOptions): RuntimeResult {
       route: 'live',
       operation: spec.operation,
       transport,
-      command,
       data: null,
       approval,
     };

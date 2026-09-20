@@ -156,6 +156,20 @@ describe('compile-state producer', () => {
     touch(script, '2026-01-01T00:00:00.000Z');
   });
 
+  test('reports stale as not determinable without script evidence', () => {
+    const root = join(fixture, 'compile-no-scripts');
+    write(join(root, 'Library', 'ScriptAssemblies', 'Game.dll'), 'dll');
+    const result = produceCompileState(
+      { projectRoot: root, assetFolder: join(root, 'Assets') },
+      [join(fixture, 'missing-Editor.log')]
+    );
+    expect(result.status).toBe('observed_locally');
+    expect(result.newestAssembly?.name).toBe('Game.dll');
+    expect(result.newestScript).toBeNull();
+    expect(result.stale).toBeNull();
+    expect(result.staleReason).toContain('script');
+  });
+
   test('reports unavailable without a Library folder', () => {
     const result = produceCompileState({ projectRoot: fixture, assetFolder: join(fixture, 'missing') });
     expect(result.status).toBe('unavailable');

@@ -1,4 +1,7 @@
 // tools/shared/cli-bootstrap.ts
+function isThenable(value) {
+  return typeof value?.then === "function";
+}
 function runCli(config) {
   const argv = config.argv ?? process.argv.slice(2);
   const write = config.write ?? ((text) => process.stdout.write(text));
@@ -9,14 +12,25 @@ function runCli(config) {
 `);
     return;
   }
-  const result = config.run(options);
-  if (options.json) {
-    write(JSON.stringify(result, null, 2) + `
+  const emit = (result) => {
+    if (options.json) {
+      write(JSON.stringify(result, null, 2) + `
 `);
+      return;
+    }
+    write(config.render(result) + `
+`);
+  };
+  const result = config.run(options);
+  if (isThenable(result)) {
+    result.then(emit).catch((error) => {
+      write(`${error instanceof Error ? error.message : String(error)}
+`);
+      process.exitCode = 1;
+    });
     return;
   }
-  write(config.render(result) + `
-`);
+  emit(result);
 }
 
 // tools/unity/unity-run/src/change-loop.ts
@@ -507,7 +521,6 @@ function runRuntimeAbility(options) {
       errors: [...errors, reason],
       operation: spec.operation,
       transport: null,
-      command,
       data: null,
       approval: null
     };
@@ -523,7 +536,6 @@ function runRuntimeAbility(options) {
         errors: [...errors, approval.reason],
         operation: spec.operation,
         transport: null,
-        command,
         data: null,
         approval
       };
@@ -541,7 +553,6 @@ function runRuntimeAbility(options) {
       route: "offline",
       operation: spec.operation,
       transport,
-      command,
       data: null,
       approval
     };
@@ -556,7 +567,6 @@ function runRuntimeAbility(options) {
       route: "live",
       operation: spec.operation,
       transport,
-      command,
       data: null,
       approval
     };
@@ -572,7 +582,6 @@ function runRuntimeAbility(options) {
         route: "live",
         operation: spec.operation,
         transport,
-        command,
         data: response.data,
         approval
       };
@@ -599,7 +608,6 @@ function runRuntimeAbility(options) {
       route: "live",
       operation: spec.operation,
       transport,
-      command,
       data: null,
       approval
     };
@@ -693,7 +701,8 @@ function render(result) {
   }
   if ("operation" in result) {
     lines.push(`  operation: ${result.operation} · transport: ${result.transport ?? "none"}`);
-    lines.push(`  command: ${result.command.join(" ")}`);
+    if (result.command)
+      lines.push(`  command: ${result.command.join(" ")}`);
   }
   for (const error of result.errors)
     lines.push(`  error: ${error}`);

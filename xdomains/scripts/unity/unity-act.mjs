@@ -1,4 +1,7 @@
 // tools/shared/cli-bootstrap.ts
+function isThenable(value) {
+  return typeof value?.then === "function";
+}
 function runCli(config) {
   const argv = config.argv ?? process.argv.slice(2);
   const write = config.write ?? ((text) => process.stdout.write(text));
@@ -9,14 +12,25 @@ function runCli(config) {
 `);
     return;
   }
-  const result = config.run(options);
-  if (options.json) {
-    write(JSON.stringify(result, null, 2) + `
+  const emit = (result) => {
+    if (options.json) {
+      write(JSON.stringify(result, null, 2) + `
 `);
+      return;
+    }
+    write(config.render(result) + `
+`);
+  };
+  const result = config.run(options);
+  if (isThenable(result)) {
+    result.then(emit).catch((error) => {
+      write(`${error instanceof Error ? error.message : String(error)}
+`);
+      process.exitCode = 1;
+    });
     return;
   }
-  write(config.render(result) + `
-`);
+  emit(result);
 }
 
 // tools/shared/toolchain.ts
@@ -468,6 +482,18 @@ function normalizeOps(ops) {
   });
   return { normalized, unsupported, errors };
 }
+function canonicalize(value) {
+  if (Array.isArray(value))
+    return value.map(canonicalize);
+  if (value && typeof value === "object") {
+    const source = value;
+    const out = {};
+    for (const key of Object.keys(source).sort())
+      out[key] = canonicalize(source[key]);
+    return out;
+  }
+  return value;
+}
 function summarize(op, targetPath) {
   const where = targetPath ? ` on ${targetPath}` : "";
   switch (op) {
@@ -506,7 +532,12 @@ function prefabAutomation(options, cliAvailable = null) {
   const escalation = decideEscalation({ changeKind, opCount: normalized.length, hasUnsupportedOps: unsupported.length > 0 });
   const gate = planActGate(options.gate, cliAvailable);
   const prefabExists = prefab ? fileExists(resolveInputPath(options.projectRoot, prefab)) : false;
-  const patchId = prefab && allErrors.length === 0 ? createHash("sha256").update(JSON.stringify({ prefab, ops: normalized })).digest("hex") : null;
+  const canonicalOps = normalized.map((op) => ({
+    op: op.op,
+    targetPath: op.targetPath,
+    payload: canonicalize(op.payload)
+  }));
+  const patchId = prefab && allErrors.length === 0 ? createHash("sha256").update(JSON.stringify({ prefab, ops: canonicalOps })).digest("hex") : null;
   const path = receiptPath(options);
   const receipts = readReceipts(path);
   const receipt = patchId ? receipts[patchId] : undefined;
@@ -560,10 +591,16 @@ function prefabAutomation(options, cliAvailable = null) {
     return result;
   }
   if (!receipt) {
+    const priorForPrefab = Object.values(receipts).find((entry) => entry.prefab === prefab);
     result.status = "refused";
     result.mutated = false;
-    result.errors = ["no dry-run receipt for these ops; run --dryRun first"];
-    result.summary = "Refused: run --dryRun first (ADR-0018)";
+    if (priorForPrefab) {
+      result.errors = [`the ops changed since the dry-run for "${prefab}"; re-run --dryRun`];
+      result.summary = "Refused: ops changed since the dry run (ADR-0018)";
+    } else {
+      result.errors = ["no dry-run receipt for these ops; run --dryRun first"];
+      result.summary = "Refused: run --dryRun first (ADR-0018)";
+    }
     return result;
   }
   result.status = "ready";
@@ -588,6 +625,7 @@ function sceneEditing(options, cliAvailable = null) {
     gate: planActGate(options.gate, cliAvailable)
   };
   if (requested && !valid) {
+    result.status = "unknown";
     result.errors.push(`unknown --change-kind "${requested}"; defaulted to single-property`);
   }
   result.summary = `rung: ${escalation.rung} (${changeKind})${escalation.requiresDryRun ? " · dry run required" : ""}`;
@@ -1109,6 +1147,10 @@ function runAct(options) {
       return patternLibrary(options);
     case "input-automation":
       return inputAutomation(options);
+    default: {
+      const exhaustive = options.ability;
+      throw new Error(`unsupported Act ability: ${String(exhaustive)}`);
+    }
   }
 }
 

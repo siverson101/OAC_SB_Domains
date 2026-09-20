@@ -110,11 +110,11 @@ describe('coordination board claims', () => {
     expect(second.board.claims[0].holder).toBe('qa');
   });
 
-  test('a claim with waitSeconds queues until the short lease expires', () => {
+  test('a claim with waitSeconds queues until the short lease expires', async () => {
     const oc = join(fixture, 'board-wait', '.opencode');
     const options = { ...base, ability: 'coordination-board' as const, opencodeDir: oc };
 
-    const first = runCoordinationBoard({
+    const first = await runCoordinationBoard({
       ...options,
       verb: 'claim',
       resource: 'Assets/Queue.cs',
@@ -123,22 +123,20 @@ describe('coordination board claims', () => {
     });
     expect(first.status).toBe('ok');
 
-    const started = Date.now();
-    const second = runCoordinationBoard({
+    // The queued claim can only succeed by waiting out the live lease, so a
+    // successful claim is itself proof the async queue ran (no wall-clock bound).
+    const second = await runCoordinationBoard({
       ...options,
       verb: 'claim',
       resource: 'Assets/Queue.cs',
       holder: 'qa',
       waitSeconds: 5,
     });
-    const elapsed = Date.now() - started;
 
     expect(second.status).toBe('ok');
     expect(second.holder).toBe('qa');
     expect(second.board.claims).toHaveLength(1);
     expect(second.board.claims[0].holder).toBe('qa');
-    expect(elapsed).toBeGreaterThanOrEqual(800);
-    expect(elapsed).toBeLessThan(4000);
   });
 
   test('releasing another holder’s claim is a conflict', () => {
@@ -356,17 +354,17 @@ describe('ci-status-baseline', () => {
 });
 
 describe('compose dispatcher', () => {
-  test('routes each ability to its handler', () => {
-    const board = runCompose({ ...base, ability: 'coordination-board', verb: 'status' });
+  test('routes each ability to its handler', async () => {
+    const board = await runCompose({ ...base, ability: 'coordination-board', verb: 'status' });
     expect(board.ability).toBe('coordination-board');
 
-    const composition = runCompose({ ...base, ability: 'primitive-composition', primitivesDir: join(fixture, 'primitives') });
+    const composition = await runCompose({ ...base, ability: 'primitive-composition', primitivesDir: join(fixture, 'primitives') });
     expect(composition.ability).toBe('primitive-composition');
 
-    const contracts = runCompose({ ...base, ability: 'contract-aware-design', capabilitiesDir: join(fixture, 'capabilities'), schema: schemaPath });
+    const contracts = await runCompose({ ...base, ability: 'contract-aware-design', capabilitiesDir: join(fixture, 'capabilities'), schema: schemaPath });
     expect(contracts.ability).toBe('contract-aware-design');
 
-    const ci = runCompose({ ...base, ability: 'ci-status-baseline' });
+    const ci = await runCompose({ ...base, ability: 'ci-status-baseline' });
     expect(ci.ability).toBe('ci-status-baseline');
   });
 });

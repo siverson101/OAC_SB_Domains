@@ -11,7 +11,7 @@ export type ComposeResult =
   | ContractAwareResult
   | CiStatusBaselineResult;
 
-export function runCompose(options: ComposeOptions): ComposeResult {
+export async function runCompose(options: ComposeOptions): Promise<ComposeResult> {
   switch (options.ability) {
     case 'coordination-board':
       return runCoordinationBoard(options);

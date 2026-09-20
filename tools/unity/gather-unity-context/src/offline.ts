@@ -122,6 +122,9 @@ export interface CompileState extends OfflineBase {
   newestAssembly: { name: string; mtimeUtc: string } | null;
   newestScript: { path: string; mtimeUtc: string } | null;
   stale: boolean | null;
+  // Why `stale` is not determinable (null). Null when there is enough evidence
+  // to answer, so a `null` stale is never mistaken for "fresh".
+  staleReason: string | null;
   noOpRecompile: boolean | null;
   editorLogAuthorship: EditorLogAuthorship | null;
 }
@@ -210,14 +213,19 @@ export function produceCompileState(input: OfflineInput, logPaths: string[] = ed
   // produced no new assembly (assemblies exist, a script is newer, and the
   // Editor log records a compile); otherwise it is not determinable.
   let stale: boolean | null = null;
+  let staleReason: string | null = null;
   let noOpRecompile: boolean | null = null;
   if (newestAssembly && newestScript) {
     stale = newestScript.mtimeUtc > newestAssembly.mtimeUtc;
     noOpRecompile = stale && recentCompile ? true : null;
-  } else if (newestAssembly && !newestScript) {
-    stale = false;
   } else if (!newestAssembly && newestScript) {
     stale = true;
+  } else if (newestAssembly && !newestScript) {
+    // Assemblies exist but there is no script evidence, so freshness cannot be
+    // determined: report null with a reason instead of a false "fresh".
+    staleReason = 'no .cs script evidence under Assets; staleness not determinable';
+  } else {
+    staleReason = 'no assemblies and no script evidence; staleness not determinable';
   }
 
   const status: OfflineStatus = libraryPresent ? 'observed_locally' : 'unavailable';
@@ -230,6 +238,7 @@ export function produceCompileState(input: OfflineInput, logPaths: string[] = ed
     newestAssembly,
     newestScript,
     stale,
+    staleReason,
     noOpRecompile,
     editorLogAuthorship,
   };

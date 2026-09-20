@@ -114,7 +114,9 @@ export interface ApprovalDecision {
 export interface RuntimeResult extends RunBase {
   operation: string;
   transport: LiveTransport | null;
-  command: string[];
+  // Only present when the result is actually actionable (observed on the live
+  // channel). A refused/unavailable result carries no runnable command.
+  command?: string[];
   data: Json | null;
   approval: ApprovalDecision | null;
 }

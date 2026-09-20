@@ -1,4 +1,7 @@
 // tools/shared/cli-bootstrap.ts
+function isThenable(value) {
+  return typeof value?.then === "function";
+}
 function runCli(config) {
   const argv = config.argv ?? process.argv.slice(2);
   const write = config.write ?? ((text) => process.stdout.write(text));
@@ -9,14 +12,25 @@ function runCli(config) {
 `);
     return;
   }
-  const result = config.run(options);
-  if (options.json) {
-    write(JSON.stringify(result, null, 2) + `
+  const emit = (result) => {
+    if (options.json) {
+      write(JSON.stringify(result, null, 2) + `
 `);
+      return;
+    }
+    write(config.render(result) + `
+`);
+  };
+  const result = config.run(options);
+  if (isThenable(result)) {
+    result.then(emit).catch((error) => {
+      write(`${error instanceof Error ? error.message : String(error)}
+`);
+      process.exitCode = 1;
+    });
     return;
   }
-  write(config.render(result) + `
-`);
+  emit(result);
 }
 
 // tools/unity/unity-verify/src/abilities.ts
@@ -375,14 +389,17 @@ function produceCompileState(input, logPaths = editorLogPaths()) {
   const editorLogAuthorship = readEditorLogAuthorship(logPaths);
   const recentCompile = editorLogAuthorship?.lastCompileLine != null;
   let stale = null;
+  let staleReason = null;
   let noOpRecompile = null;
   if (newestAssembly && newestScript) {
     stale = newestScript.mtimeUtc > newestAssembly.mtimeUtc;
     noOpRecompile = stale && recentCompile ? true : null;
-  } else if (newestAssembly && !newestScript) {
-    stale = false;
   } else if (!newestAssembly && newestScript) {
     stale = true;
+  } else if (newestAssembly && !newestScript) {
+    staleReason = "no .cs script evidence under Assets; staleness not determinable";
+  } else {
+    staleReason = "no assemblies and no script evidence; staleness not determinable";
   }
   const status = libraryPresent ? "observed_locally" : "unavailable";
   return {
@@ -394,6 +411,7 @@ function produceCompileState(input, logPaths = editorLogPaths()) {
     newestAssembly,
     newestScript,
     stale,
+    staleReason,
     noOpRecompile,
     editorLogAuthorship
   };

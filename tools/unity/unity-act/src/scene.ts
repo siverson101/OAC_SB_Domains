@@ -33,6 +33,7 @@ export function sceneEditing(options: ActOptions, cliAvailable: boolean | null =
   };
 
   if (requested && !valid) {
+    result.status = 'unknown';
     result.errors.push(`unknown --change-kind "${requested}"; defaulted to single-property`);
   }
   result.summary = `rung: ${escalation.rung} (${changeKind})${escalation.requiresDryRun ? ' · dry run required' : ''}`;

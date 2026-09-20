@@ -144,32 +144,27 @@ export interface ClaimInput {
 }
 
 const CLAIM_POLL_MS = 50;
+// A queued claim never blocks the process for longer than a minute.
+export const MAX_WAIT_SECONDS = 60;
 
-function sleepSync(ms: number): void {
-  if (ms <= 0) return;
-  try {
-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
-  } catch {
-    const end = Date.now() + ms;
-    while (Date.now() < end) {
-      /* spin as a last resort */
-    }
-  }
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)));
 }
 
 // Claim with the optional queue path. The pure `claimResource` above decides the
 // fail-fast conflict; this wrapper re-reads the on-disk board while waiting so a
-// lease expiry or an explicit release by the holder frees the resource.
-export function claimResourceWithWait(dir: string, input: ClaimInput, now: string): BoardMutation {
+// lease expiry or an explicit release by the holder frees the resource. It polls
+// asynchronously so it never blocks the event loop.
+export async function claimResourceWithWait(dir: string, input: ClaimInput, now: string): Promise<BoardMutation> {
   let board = readBoard(dir);
   let currentNow = now;
   let mutation = claimResource(board, input, currentNow);
-  const waitSeconds = input.waitSeconds ?? 0;
+  const waitSeconds = Math.min(input.waitSeconds ?? 0, MAX_WAIT_SECONDS);
   if (mutation.ok || mutation.status !== 'conflict' || waitSeconds <= 0) return mutation;
 
   const deadline = Date.now() + waitSeconds * 1000;
   while (Date.now() < deadline) {
-    sleepSync(Math.min(CLAIM_POLL_MS, deadline - Date.now()));
+    await sleep(Math.min(CLAIM_POLL_MS, deadline - Date.now()));
     board = readBoard(dir);
     currentNow = nowIso();
     mutation = claimResource(board, input, currentNow);
@@ -362,7 +357,7 @@ export function normalizeBoardVerb(value: string | undefined): { verb: BoardVerb
   return { verb: 'status', errors: [`unknown board verb "${value}"; defaulted to status`] };
 }
 
-export function runCoordinationBoard(options: ComposeOptions): CoordinationBoardResult {
+export async function runCoordinationBoard(options: ComposeOptions): Promise<CoordinationBoardResult> {
   const dir = join(options.opencodeDir, 'coordination');
   const now = options.now ?? nowIso();
   const { verb, errors } = normalizeBoardVerb(options.verb);
@@ -373,7 +368,7 @@ export function runCoordinationBoard(options: ComposeOptions): CoordinationBoard
       const base = makeResult('coordination-board', 'refused', 'claim requires --resource and --holder', ['claim requires --resource and --holder']);
       return { ...base, action: 'claim', holder: null, expiresAt: null, board };
     }
-    const mutation = claimResourceWithWait(
+    const mutation = await claimResourceWithWait(
       dir,
       {
         resource: options.resource,

@@ -170,8 +170,15 @@ describe('runtime abilities fail soft without a live channel', () => {
       expect(result.data).toBeNull();
       expect(result.errors.length).toBeGreaterThan(0);
       expect(result.safetyGate.requiresEditor).toBe(true);
+      expect(result.command).toBeUndefined();
     });
   }
+
+  test('a runtime ability reports the live mode', () => {
+    const result = runRuntimeAbility({ ...base, ability: 'runtime-debugging' });
+    expect(result.mode).toBe(RUN_MODES['runtime-debugging']);
+    expect(result.mode).toBe('live');
+  });
 
   test('an available channel without an invoke transport stays unavailable', () => {
     const live: RuntimeChannel = { transport: 'cli', available: () => true };
@@ -231,6 +238,7 @@ describe('runtime code execution approval gate', () => {
     expect(result.approval?.required).toBe(true);
     expect(result.approval?.allowed).toBe(false);
     expect(result.errors.join(' ')).toContain('approval');
+    expect(result.command).toBeUndefined();
   });
 
   test('is unavailable (not executed) with approval but no channel', () => {
@@ -243,6 +251,7 @@ describe('runtime code execution approval gate', () => {
     });
     expect(result.status).toBe('unavailable');
     expect(result.approval?.allowed).toBe(true);
+    expect(result.command).toBeUndefined();
   });
 
   test('runs execute-code with approval and a live channel', () => {
@@ -269,6 +278,7 @@ describe('runtime code execution approval gate', () => {
     });
     expect(result.status).toBe('refused');
     expect(result.errors.join(' ')).toContain('--code');
+    expect(result.command).toBeUndefined();
   });
 });
 

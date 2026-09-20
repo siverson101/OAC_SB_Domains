@@ -30,5 +30,9 @@ export function runAct(options: ActOptions): ActResult {
       return patternLibrary(options);
     case 'input-automation':
       return inputAutomation(options);
+    default: {
+      const exhaustive: never = options.ability;
+      throw new Error(`unsupported Act ability: ${String(exhaustive)}`);
+    }
   }
 }

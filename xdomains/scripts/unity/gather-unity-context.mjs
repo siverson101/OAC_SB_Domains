@@ -666,14 +666,17 @@ function produceCompileState(input, logPaths = editorLogPaths()) {
   const editorLogAuthorship = readEditorLogAuthorship(logPaths);
   const recentCompile = editorLogAuthorship?.lastCompileLine != null;
   let stale = null;
+  let staleReason = null;
   let noOpRecompile = null;
   if (newestAssembly && newestScript) {
     stale = newestScript.mtimeUtc > newestAssembly.mtimeUtc;
     noOpRecompile = stale && recentCompile ? true : null;
-  } else if (newestAssembly && !newestScript) {
-    stale = false;
   } else if (!newestAssembly && newestScript) {
     stale = true;
+  } else if (newestAssembly && !newestScript) {
+    staleReason = "no .cs script evidence under Assets; staleness not determinable";
+  } else {
+    staleReason = "no assemblies and no script evidence; staleness not determinable";
   }
   const status = libraryPresent ? "observed_locally" : "unavailable";
   return {
@@ -685,6 +688,7 @@ function produceCompileState(input, logPaths = editorLogPaths()) {
     newestAssembly,
     newestScript,
     stale,
+    staleReason,
     noOpRecompile,
     editorLogAuthorship
   };

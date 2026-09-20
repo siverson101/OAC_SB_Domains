@@ -141,6 +141,19 @@ function normalizeOps(ops: Json[]): { normalized: NormalizedPatchOp[]; unsupport
   return { normalized, unsupported, errors };
 }
 
+// Recursively sort object keys so a hash is insensitive to key order (and to
+// whether the ops came from a file or `--opsJson`). Arrays keep their order.
+function canonicalize(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalize);
+  if (value && typeof value === 'object') {
+    const source = value as Record<string, unknown>;
+    const out: Record<string, unknown> = {};
+    for (const key of Object.keys(source).sort()) out[key] = canonicalize(source[key]);
+    return out;
+  }
+  return value;
+}
+
 function summarize(op: string, targetPath: string | null): string {
   const where = targetPath ? ` on ${targetPath}` : '';
   switch (op) {
@@ -183,9 +196,17 @@ export function prefabAutomation(options: ActOptions, cliAvailable: boolean | nu
   const gate = planActGate(options.gate, cliAvailable);
 
   const prefabExists = prefab ? fileExists(resolveInputPath(options.projectRoot, prefab)) : false;
+  // The canonical projection binds the full payload (so an apply is only
+  // authorised for payload-identical ops) but is key-order insensitive, so the
+  // same ops from a file or `--opsJson` produce the same dry-run receipt.
+  const canonicalOps = normalized.map((op) => ({
+    op: op.op,
+    targetPath: op.targetPath,
+    payload: canonicalize(op.payload),
+  }));
   const patchId =
     prefab && allErrors.length === 0
-      ? createHash('sha256').update(JSON.stringify({ prefab, ops: normalized })).digest('hex')
+      ? createHash('sha256').update(JSON.stringify({ prefab, ops: canonicalOps })).digest('hex')
       : null;
 
   const path = receiptPath(options);
@@ -248,10 +269,18 @@ export function prefabAutomation(options: ActOptions, cliAvailable: boolean | nu
   }
 
   if (!receipt) {
+    // A receipt for this prefab with a different patchId means the ops changed
+    // since the recorded dry run; no receipt at all means the dry run is missing.
+    const priorForPrefab = Object.values(receipts).find((entry) => entry.prefab === prefab);
     result.status = 'refused';
     result.mutated = false;
-    result.errors = ['no dry-run receipt for these ops; run --dryRun first'];
-    result.summary = 'Refused: run --dryRun first (ADR-0018)';
+    if (priorForPrefab) {
+      result.errors = [`the ops changed since the dry-run for "${prefab}"; re-run --dryRun`];
+      result.summary = 'Refused: ops changed since the dry run (ADR-0018)';
+    } else {
+      result.errors = ['no dry-run receipt for these ops; run --dryRun first'];
+      result.summary = 'Refused: run --dryRun first (ADR-0018)';
+    }
     return result;
   }
 

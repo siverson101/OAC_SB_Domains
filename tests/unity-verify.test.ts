@@ -151,6 +151,10 @@ describe('computeDelta honesty rules', () => {
     expect(delta.newIssues).toBeNull();
   });
 
+  test('a null stale (not determinable) is not compilePending', () => {
+    expect(compilePending({ status: 'observed_locally', stale: null, noOpRecompile: null, assemblyCount: 1 })).toBe(false);
+  });
+
   test('a failed validate scan reports null and validateScanFailed', () => {
     const delta = computeDelta(makeSnapshot(), makeSnapshot(), { ok: false, errors: ['boom'] });
     expect(delta.computed).toBe(false);
