@@ -1,0 +1,66 @@
+{
+    "name": "unity-3d",
+    "displayName": "Unity 3D",
+    "version": "0.2.0",
+    "domain": "game-dev",
+    "subdomain": "unity-3d",
+    "sharedContext": [
+      "context/domain/unity-common.md"
+    ],
+    "paths": {
+      "agent": "agent/",
+      "context": "context/",
+      "templates": "templates/",
+      "command": "command/",
+      "abilities": "abilities/",
+      "skills": "skills/",
+      "tools": "tools/",
+      "scripts": "scripts/"
+    },
+    "agents": [
+      "agent/unity-3d-orchestrator.md"
+    ],
+    "subagents": [
+      "agent/subagents/unity/implementer.md",
+      "agent/subagents/unity/scene.md",
+      "agent/subagents/unity/uitk.md",
+      "agent/subagents/unity/animator.md",
+      "agent/subagents/unity/shadervfx.md",
+      "agent/subagents/unity/artasset.md",
+      "agent/subagents/unity/qa.md"
+    ],
+    "commands": [
+      "command/unity-feature.md",
+      "command/unity-scene.md",
+      "command/unity-test.md",
+      "command/unity-build.md",
+      "command/unity-architecture.md",
+      "command/unity-animator.md",
+      "command/unity-vfx.md",
+      "command/unity-ase.md",
+      "command/uitk.md"
+    ],
+    "context": [
+      "context/domain/unity-3d.md",
+      "context/unity-3d/"
+    ],
+  "abilities": [
+    "unity-read-project",
+    "gather-unity-context",
+    "unity-build",
+    "unity-run-tests"
+  ],
+    "skills": [],
+    "tools": [
+      "unity-cli-wrapper"
+    ],
+    "scripts": [
+      "scripts/setup-unity-env.sh",
+      "scripts/build-project-context.js"
+    ],
+    "compatibility": {
+      "opencode_min_version": "1.0.0",
+      "unity_versions": ["6.0", "6.3", "6.5", "LTS+"]
+    },
+    "description": "Unity 3D sub-domain of the game-dev domain. Ships shared Unity common context plus a Unity 3D system: orchestrator, 7 specialist subagents, 9 commands, and a function-based context library (concepts, guides, lookup, examples, errors, workflows)."
+  }

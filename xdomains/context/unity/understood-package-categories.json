@@ -1,0 +1,92 @@
+{
+  "version": "1.0",
+  "description": "Maps Unity package ids (version-agnostic) to a general category and a pretty name. Used to translate a scanned project's unity_packages into project_capabilities so the System Builder and Unity sub-agents know which Unity features a project actually uses. Add rows freely; leave category blank when it is not yet known. Ids beginning with 'com.unity.builtin.' are synthetic: they are not in Packages/manifest.json and must be emitted by the scanner (for example from ProjectSettings) so built-in features that have no package can participate in package-choices decisions.",
+  "fields": {
+    "category": "General capability area this package belongs to (see categoryLegend). Blank = unknown, to be filled in later.",
+    "packageName": "Unity package id exactly as it appears in Packages/manifest.json, with any version, tag, or URL stripped.",
+    "prettyName": "Camel/Pascal-case rendering of the last segment after the final '.' of packageName (hyphenated segments are treated as one segment and camel-cased)."
+  },
+  "categoryLegend": {
+    "rendering": "Render pipelines, shaders, and graphics features.",
+    "ui": "Runtime UI systems and text rendering.",
+    "2d": "2D authoring, sprites, and the 2D import pipeline.",
+    "input": "Input handling and control schemes.",
+    "animation": "Animation, cutscene, and sequencing systems.",
+    "camera": "Camera behaviour and framing.",
+    "scripting": "Visual scripting and node-based logic authoring.",
+    "audio": "Audio playback and management.",
+    "ai": "Navigation, machine-learning inference, and AI-assisted tooling.",
+    "async": "Async/await and task composition.",
+    "dependency-injection": "DI containers and inversion of control.",
+    "content-management": "Asset loading, addressables, and bundles.",
+    "asset-management": "Asset bundles and low-level asset packaging.",
+    "xr": "XR/VR/AR platform support.",
+    "serialization": "JSON/object serialization.",
+    "testing": "Test framework and test running.",
+    "mobile": "Mobile platform and performance features.",
+    "level-design": "Level and geometry prototyping.",
+    "build": "Build pipeline and automation.",
+    "architecture": "Project-level architecture frameworks.",
+    "monetization": "Ratings, ads, and monetization.",
+    "editor-tooling": "Editor-only authoring tools.",
+    "native": "Native plugin integration."
+  },
+  "packages": [
+    { "category": "rendering", "packageName": "com.unity.render-pipelines.universal", "prettyName": "Universal" },
+    { "category": "rendering", "packageName": "com.unity.render-pipelines.core", "prettyName": "Core" },
+    { "category": "native", "packageName": "com.watanabe-koya.graphicscapture", "prettyName": "GraphicsCapture" },
+    { "category": "ui", "packageName": "com.unity.ugui", "prettyName": "UGUI" },
+    { "category": "ui", "packageName": "com.unity.textmeshpro", "prettyName": "TextMeshPro" },
+    { "category": "ui", "packageName": "com.flowframework.uicomposition", "prettyName": "UIComposition" },
+    { "category": "ui", "packageName": "com.unity.modules.imgui", "prettyName": "IMGUI" },
+    { "category": "ui", "packageName": "com.unity.modules.ui", "prettyName": "UIToolkit" },
+    { "category": "ui", "packageName": "com.unity.modules.uielements", "prettyName": "UIElements" },
+    { "category": "2d", "packageName": "com.unity.feature.2d", "prettyName": "2D" },
+    { "category": "2d", "packageName": "com.unity.2d.sprite", "prettyName": "Sprite" },
+    { "category": "2d", "packageName": "com.unity.2d.enhancers", "prettyName": "Enhancers" },
+    { "category": "2d", "packageName": "com.unity.2d.psdimporter", "prettyName": "PSDImporter" },
+    { "category": "asset-management", "packageName": "com.unity.modules.assetbundle", "prettyName": "AssetBundle" },
+    { "category": "xr", "packageName": "com.unity.modules.xr", "prettyName": "XR" },
+    { "category": "input", "packageName": "com.unity.inputsystem", "prettyName": "InputSystem" },
+    { "category": "input", "packageName": "com.unity.modules.input", "prettyName": "Input" },
+    { "category": "input", "packageName": "com.unity.builtin.input_manager", "prettyName": "InputManager" },
+    { "category": "animation", "packageName": "com.unity.timeline", "prettyName": "Timeline" },
+    { "category": "camera", "packageName": "com.unity.cinemachine", "prettyName": "Cinemachine" },
+    { "category": "camera", "packageName": "com.unity.builtin.camera", "prettyName": "Camera" },
+    { "category": "scripting", "packageName": "com.unity.visualscripting", "prettyName": "VisualScripting" },
+    { "category": "audio", "packageName": "com.brogrammist.jsam", "prettyName": "JSAM" },
+    { "category": "ai", "packageName": "com.unity.ai.navigation", "prettyName": "Navigation" },
+    { "category": "ai", "packageName": "com.unity.ai.inference", "prettyName": "Inference" },
+    { "category": "ai", "packageName": "com.unity.ai.assistant", "prettyName": "Assistant" },
+    { "category": "ai", "packageName": "com.unity.ai.generators", "prettyName": "Generators" },
+    { "category": "async", "packageName": "com.cysharp.unitask", "prettyName": "UniTask" },
+    { "category": "dependency-injection", "packageName": "com.svermeulen.extenject", "prettyName": "Extenject" },
+    { "category": "content-management", "packageName": "com.unity.addressables", "prettyName": "Addressables" },
+    { "category": "content-management", "packageName": "com.unity.addressables.android", "prettyName": "Android" },
+    { "category": "serialization", "packageName": "com.unity.nuget.newtonsoft-json", "prettyName": "NewtonsoftJson" },
+    { "category": "testing", "packageName": "com.unity.test-framework", "prettyName": "TestFramework" },
+    { "category": "mobile", "packageName": "com.unity.feature.mobile", "prettyName": "Mobile" },
+    { "category": "mobile", "packageName": "com.unity.adaptiveperformance", "prettyName": "AdaptivePerformance" },
+    { "category": "mobile", "packageName": "com.unity.adaptiveperformance.google.android", "prettyName": "Android" },
+    { "category": "level-design", "packageName": "com.unity.probuilder", "prettyName": "ProBuilder" },
+    { "category": "build", "packageName": "com.unity.pipeline", "prettyName": "Pipeline" },
+    { "category": "architecture", "packageName": "com.flowframework", "prettyName": "FlowFramework" },
+    { "category": "monetization", "packageName": "com.pflowr.unirate", "prettyName": "UniRate" },
+    { "category": "editor-tooling", "packageName": "com.alelievr.node-graph-processor", "prettyName": "NodeGraphProcessor" },
+    { "category": "editor-tooling", "packageName": "com.bjoerngit.transformhandle", "prettyName": "TransformHandle" }
+  ],
+  "excluded": [
+    {
+      "packageName": "com.unity.ide.*",
+      "reason": "IDE integration only (Rider/Visual Studio/VS Code). No runtime API or code-generation impact."
+    },
+    {
+      "packageName": "com.unity.collab-proxy",
+      "reason": "Unity Version Control integration. No runtime API or code-generation impact."
+    },
+    {
+      "packageName": "com.unity.multiplayer.center",
+      "reason": "Editor hub for installing multiplayer packages. Signals intent but ships no runtime API, so it does not drive code generation."
+    }
+  ]
+}

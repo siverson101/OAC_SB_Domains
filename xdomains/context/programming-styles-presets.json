@@ -1,0 +1,168 @@
+{
+  "version": "1.0",
+  "description": "Language and framework style presets. Each preset is a named, selectable bundle of flagIds from programming-style-types.json plus a summary rule and usage guidance. Presets are defaults the user can pick from and then override per flag.",
+  "fields": {
+    "id": "Stable snake_case preset identifier.",
+    "name": "Human-readable preset name.",
+    "language": "Primary language or format the preset targets.",
+    "description": "What the preset standardises.",
+    "flagIds": "Ordered list of style flagIds this preset enables. All ids must exist in programming-style-types.json.",
+    "llmRule": "Summary instruction the LLM must follow when this preset is active.",
+    "whenToUse": "Projects or situations this preset is intended for."
+  },
+  "presets": [
+    {
+      "id": "unity_csharp",
+      "name": "Unity C#",
+      "language": "csharp",
+      "description": "Microsoft/Unity C# conventions: PascalCase types and members, Allman braces, 4-space indent, XML docs, nullable reference types, and Unity inspector-field conventions.",
+      "flagIds": [
+        "classname_pascal", "funcname_pascal", "varname_camel", "constname_pascal",
+        "privatemember_prefix_underscore", "interfacename_prefix_I", "typename_pascal",
+        "enumname_pascal", "enummembers_pascal", "propertyname_pascal", "eventname_pascal",
+        "boolname_is_has_prefix", "async_suffix_async", "filename_matches_type",
+        "namespace_pascal", "genericparam_prefix_T", "callback_prefix_On",
+        "func_open_brace_next_line", "control_open_brace_next_line", "type_open_brace_next_line",
+        "braces_always", "indent_spaces_4", "line_length_120", "strip_trailing_whitespace",
+        "final_newline", "space_after_comma", "spaces_around_binary_operators",
+        "no_space_before_call_paren", "space_before_control_paren", "blank_line_between_members",
+        "blank_lines_max_two", "imports_sorted_alphabetically", "usings_outside_namespace",
+        "remove_unused_imports", "doc_comments_public_api", "xml_doc_comments",
+        "no_commented_out_code", "comments_explain_why", "immutable_by_default",
+        "csharp_nullable_reference_types", "csharp_expression_bodied_members",
+        "csharp_file_scoped_namespace", "csharp_sealed_by_default", "csharp_readonly_fields",
+        "csharp_nameof", "csharp_attributes_own_line", "csharp_string_interpolation",
+        "csharp_pattern_matching", "csharp_avoid_regions", "csharp_private_serialized_field"
+      ],
+      "llmRule": "Write Unity C# in Microsoft/Unity style: PascalCase types and members, camelCase locals, Allman braces, 4-space indent, XML docs on public API, nullable reference types, and [SerializeField] private inspector fields.",
+      "whenToUse": "Unity gameplay, editor, and tooling scripts written in C#."
+    },
+    {
+      "id": "cpp",
+      "name": "C++",
+      "language": "cpp",
+      "description": "Google-influenced C++ conventions: PascalCase types and functions, snake_case variables, 2-space indent, 80-column lines, attached braces, trailing-underscore members, and const-correct modern C++.",
+      "flagIds": [
+        "classname_pascal", "funcname_pascal", "varname_snake", "constname_upper_snake",
+        "privatemember_trailing_underscore", "typename_pascal", "enumname_pascal",
+        "enummembers_upper_snake", "namespace_snake", "filename_snake", "genericparam_prefix_T",
+        "func_open_brace_end_of_line", "control_open_brace_end_of_line", "type_open_brace_end_of_line",
+        "braces_always", "indent_spaces_2", "line_length_80", "strip_trailing_whitespace",
+        "final_newline", "space_after_comma", "spaces_around_binary_operators",
+        "no_space_before_call_paren", "space_before_control_paren", "blank_line_between_members",
+        "blank_lines_max_two", "imports_sorted_alphabetically", "imports_grouped",
+        "remove_unused_imports", "doc_comments_public_api", "no_commented_out_code",
+        "comments_explain_why", "immutable_by_default", "cpp_const_correctness", "cpp_use_auto",
+        "cpp_explicit_constructors", "cpp_override_specifier", "cpp_pragma_once",
+        "cpp_no_using_namespace_in_headers", "cpp_smart_pointers", "cpp_include_order",
+        "cpp_pointer_alignment"
+      ],
+      "llmRule": "Write modern, const-correct C++ in Google style: PascalCase types/functions, snake_case variables, trailing-underscore members, attached braces, 2-space indent, 80-column lines, #pragma once, and smart pointers over raw owning pointers.",
+      "whenToUse": "C++ codebases, including Unity native plugins, following Google or similar style guides."
+    },
+    {
+      "id": "python",
+      "name": "Python",
+      "language": "python",
+      "description": "PEP 8 / Black-aligned Python: snake_case functions and variables, PascalCase classes, 4-space indent, 80-column lines, grouped imports, type hints, and PEP 257 docstrings.",
+      "flagIds": [
+        "classname_pascal", "funcname_snake", "varname_snake", "constname_upper_snake",
+        "privatemember_prefix_underscore", "filename_snake", "namespace_snake", "boolname_is_has_prefix",
+        "testname_behavior_underscore", "indent_spaces_4", "line_length_80",
+        "strip_trailing_whitespace", "final_newline", "space_after_comma",
+        "spaces_around_binary_operators", "no_space_before_call_paren", "blank_line_between_members",
+        "blank_lines_max_two", "imports_sorted_alphabetically", "imports_grouped",
+        "no_wildcard_imports", "remove_unused_imports", "doc_comments_public_api",
+        "docstring_pep257", "docstring_google_style", "no_commented_out_code", "comments_explain_why",
+        "explicit_return_types", "python_pep8", "python_black_compatible", "python_type_hints",
+        "python_double_quotes", "python_fstrings", "python_main_guard", "python_private_underscore"
+      ],
+      "llmRule": "Write PEP 8 compliant, Black-compatible Python: snake_case functions and variables, PascalCase classes, 4-space indent, 80-column lines, grouped imports, type hints, f-strings, and PEP 257 docstrings.",
+      "whenToUse": "Python scripts, tooling, and pipelines, including Unity build and asset automation."
+    },
+    {
+      "id": "javascript",
+      "name": "JavaScript",
+      "language": "javascript",
+      "description": "Modern ES module JavaScript: camelCase functions and variables, attached braces, 2-space indent, 100-column lines, const over let, strict equality, arrow callbacks, and single quotes.",
+      "flagIds": [
+        "classname_pascal", "funcname_camel", "varname_camel", "constname_upper_snake",
+        "interfacename_no_prefix", "boolname_is_has_prefix", "async_suffix_async",
+        "func_open_brace_end_of_line", "control_open_brace_end_of_line", "braces_always",
+        "empty_block_braces_same_line", "indent_spaces_2", "line_length_100",
+        "strip_trailing_whitespace", "final_newline", "space_after_comma",
+        "spaces_around_binary_operators", "no_space_before_call_paren", "space_before_control_paren",
+        "blank_line_between_members", "blank_lines_max_two", "imports_sorted_alphabetically",
+        "imports_grouped", "no_wildcard_imports", "remove_unused_imports",
+        "doc_comments_public_api", "no_commented_out_code", "comments_explain_why",
+        "strict_equality", "const_over_let", "prefer_arrow_functions", "js_semicolons",
+        "js_single_quotes", "js_module_imports", "js_async_await"
+      ],
+      "llmRule": "Write modern ES module JavaScript: camelCase functions and variables, 2-space indent, 100-column lines, const over let, strict equality, arrow callbacks, async/await, single quotes, and semicolons.",
+      "whenToUse": "Node scripts, Unity WebGL/web tooling, and general JavaScript projects."
+    },
+    {
+      "id": "typescript",
+      "name": "TypeScript",
+      "language": "typescript",
+      "description": "Strict TypeScript: everything in the JavaScript preset plus explicit return types, strict null checks, no any, type aliases over interfaces, and literal unions over enums.",
+      "flagIds": [
+        "classname_pascal", "funcname_camel", "varname_camel", "constname_upper_snake",
+        "interfacename_no_prefix", "boolname_is_has_prefix", "async_suffix_async",
+        "func_open_brace_end_of_line", "control_open_brace_end_of_line", "braces_always",
+        "empty_block_braces_same_line", "indent_spaces_2", "line_length_100",
+        "strip_trailing_whitespace", "final_newline", "space_after_comma",
+        "spaces_around_binary_operators", "no_space_before_call_paren", "space_before_control_paren",
+        "blank_line_between_members", "blank_lines_max_two", "imports_sorted_alphabetically",
+        "imports_grouped", "no_wildcard_imports", "remove_unused_imports",
+        "doc_comments_public_api", "no_commented_out_code", "comments_explain_why",
+        "strict_equality", "const_over_let", "prefer_arrow_functions", "js_semicolons",
+        "js_single_quotes", "js_module_imports", "js_async_await", "explicit_return_types",
+        "strict_null_checks", "ts_type_over_interface", "ts_explicit_any_forbidden",
+        "ts_enum_vs_union", "ts_strict_mode"
+      ],
+      "llmRule": "Write strict TypeScript: camelCase functions and variables, 2-space indent, 100-column lines, const over let, explicit return types, strict null checks, no any, type aliases over interfaces, and literal unions over enums.",
+      "whenToUse": "TypeScript applications, libraries, and tooling."
+    },
+    {
+      "id": "uxml",
+      "name": "UXML",
+      "language": "uxml",
+      "description": "Unity UI Toolkit UXML markup: 2-space indent, one attribute per line, BEM-style USS classes, and classes instead of inline styles.",
+      "flagIds": [
+        "uxml_indent_2_spaces", "uxml_attributes_one_per_line", "uxml_class_naming_bem",
+        "uxml_style_class_over_inline", "indent_spaces_2", "strip_trailing_whitespace",
+        "final_newline", "no_commented_out_code", "comments_explain_why"
+      ],
+      "llmRule": "Write UXML with 2-space indent, one attribute per line for multi-attribute elements, BEM-style USS class names, and no inline styles.",
+      "whenToUse": "Unity UI Toolkit interface markup."
+    },
+    {
+      "id": "uss",
+      "name": "USS",
+      "language": "uss",
+      "description": "Unity UI Toolkit USS stylesheets: consistent property order, custom-property variables, low specificity, no !important, and consistent units.",
+      "flagIds": [
+        "uxml_class_naming_bem", "uss_property_order", "uss_use_variables", "uss_no_important",
+        "uss_selector_specificity_low", "uss_units_consistent", "indent_spaces_2",
+        "strip_trailing_whitespace", "final_newline", "no_commented_out_code"
+      ],
+      "llmRule": "Write USS with BEM-style class names, consistent box-model property order, custom-property variables for colours and spacing, low selector specificity, no !important, and consistent units.",
+      "whenToUse": "Unity UI Toolkit stylesheets."
+    },
+    {
+      "id": "shader",
+      "name": "Shader (ShaderLab/HLSL)",
+      "language": "shader",
+      "description": "Unity ShaderLab/HLSL conventions: 4-space indent, next-line braces, underscore-prefixed uniforms, PascalCase properties, section banners, half precision, and branch avoidance.",
+      "flagIds": [
+        "shader_indent_4_spaces", "shader_uniform_prefix_underscore", "shader_property_pascal",
+        "shader_hlsl_braces_next_line", "shader_comment_sections", "shader_prefer_half",
+        "shader_avoid_branching", "indent_spaces_4", "strip_trailing_whitespace", "final_newline",
+        "comments_explain_why", "no_commented_out_code"
+      ],
+      "llmRule": "Write ShaderLab/HLSL with 4-space indent, next-line braces, underscore-prefixed uniforms, PascalCase properties, section comment banners, half precision where safe, and no dynamic branching in fragment shaders.",
+      "whenToUse": "Unity ShaderLab, HLSL, and shader graph code export."
+    }
+  ]
+}

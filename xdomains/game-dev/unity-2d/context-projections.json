@@ -1,0 +1,120 @@
+{
+  "subdomain": "unity-2d",
+  "outputDir": "context/unity-2d/project",
+  "outputs": [
+    {
+      "file": "project-state.md",
+      "title": "Unity Project State",
+      "priority": "critical",
+      "sources": [
+        { "file": "unity-project.json", "fields": ["projectName", "projectPath", "unityVersion", "cliVersion", "pipelineVersion", "foundProject", "assetFolder"] },
+        { "file": "gate-state.json", "fields": ["gateResult", "reviewRequired", "hardFailures", "fingerprint", "lastVerificationUtc"] }
+      ]
+    },
+    {
+      "file": "packages.md",
+      "title": "Unity Packages",
+      "priority": "high",
+      "sources": [
+        { "file": "unity-package-list.json", "fields": ["packages", "status"] }
+      ]
+    },
+    {
+      "file": "testing.md",
+      "title": "Testing and Verification",
+      "priority": "high",
+      "sources": [
+        { "file": "unity-verification-report.json", "fields": ["status", "summary", "results"] },
+        { "file": "gate-state.json", "fields": ["lastVerificationUtc"] }
+      ]
+    },
+    {
+      "file": "native.md",
+      "title": "Native Plugin Build",
+      "priority": "medium",
+      "sources": [
+        { "file": "native-project-state.json", "fields": ["status", "solution", "solutionExists", "configuration", "platform", "artifacts"] }
+      ]
+    },
+    {
+      "file": "skills.md",
+      "title": "Available DevTools and Unity Skills",
+      "priority": "medium",
+      "sources": [
+        { "file": "unity-agent-skills.project.json", "fields": ["workflows", "defaultScenes"] }
+      ]
+    },
+    {
+      "file": "preferences.md",
+      "title": "Project Preferences",
+      "priority": "high",
+      "sources": [
+        { "file": "project-pref.json", "fields": ["packageChoices", "patterns", "deferredChoices", "usesInputSystem", "usesLegacyInput"] }
+      ]
+    },
+    {
+      "file": "files.md",
+      "title": "Project Files",
+      "priority": "medium",
+      "sources": [
+        { "file": "project-files.json", "fields": ["assetFolder", "filetypeToFolder"] }
+      ]
+    },
+    {
+      "file": "structure.md",
+      "title": "Project Structure",
+      "priority": "high",
+      "sources": [
+        { "file": "project-structure.json", "fields": ["assetFolder", "baseFolder", "baseFolderConfident", "counts", "thirdPartyFolders"] }
+      ]
+    },
+    {
+      "file": "commands.md",
+      "title": "Unity Commands",
+      "priority": "medium",
+      "sources": [
+        { "file": "unity-command-list.json", "fields": ["status", "count", "commands"] },
+        { "file": "unity-command-schema.json", "fields": ["status", "help"] }
+      ]
+    },
+    {
+      "file": "pipeline.md",
+      "title": "Unity Pipeline",
+      "priority": "medium",
+      "sources": [
+        { "file": "unity-pipeline-status.json", "fields": ["status", "summary", "latestVersion"] }
+      ]
+    },
+    {
+      "file": "mcp.md",
+      "title": "Unity MCP",
+      "priority": "low",
+      "sources": [
+        { "file": "unity-mcp-status.json", "fields": ["status", "supportedClients", "configuredClients"] }
+      ]
+    },
+    {
+      "file": "gate.md",
+      "title": "Verification Gate",
+      "priority": "high",
+      "sources": [
+        { "file": "gate-state.json", "fields": ["gateResult", "hardFailures", "reviewRequired", "fingerprint", "lastVerificationUtc"] },
+        { "file": "unity-verification-report.json", "fields": ["status", "summary", "results"] }
+      ]
+    }
+  ],
+  "consumers": {
+    "unity-2d-orchestrator": ["project-state.md", "skills.md", "preferences.md", "structure.md", "gate.md"],
+    "subagents/unity/implementer": ["project-state.md", "packages.md", "preferences.md", "structure.md", "gate.md"],
+    "subagents/unity/scene": ["project-state.md", "files.md", "structure.md"],
+    "subagents/unity/uitk": ["project-state.md"],
+    "subagents/unity/animator": ["project-state.md"],
+    "subagents/unity/shadervfx": ["packages.md"],
+    "subagents/unity/artasset": ["packages.md", "files.md", "structure.md"],
+    "subagents/unity/qa": ["testing.md", "project-state.md", "preferences.md", "gate.md", "commands.md"],
+    "command/unity-feature": ["project-state.md"],
+    "command/unity-test": ["testing.md", "commands.md"],
+    "command/unity-build": ["testing.md", "native.md", "gate.md", "commands.md"],
+    "command/unity-architecture": ["project-state.md", "packages.md", "structure.md"]
+  }
+}

@@ -1,0 +1,551 @@
+{
+  "version": "1.0",
+  "description": "Catalog of test methodologies and programming patterns used to map a project's projectPatterns to projectCapabilities and to steer LLM code generation. Every pattern belongs to exactly one category; categories describe how patterns may be combined and which are mutually exclusive. Each pattern carries a description, when-to-use guidance, and concrete rules an LLM must follow when the pattern is enabled.",
+  "usage": {
+    "selection": "Categories with selection 'single' allow at most one pattern; 'multiple' allows any compatible subset. 'mutuallyExclusive' means patterns in the category cannot be combined. Cross-category conflicts are listed per pattern in conflictsWith.",
+    "generation": "Only generate code for enabled patterns. If a requested pattern conflicts with an enabled one, surface the conflict and ask the user to resolve it instead of silently choosing.",
+    "rule_precedence": "A pattern's rules are constraints, not suggestions. If a rule cannot be satisfied, report why rather than violating it."
+  },
+  "categories": [
+    {
+      "id": "test-methodology",
+      "name": "Test methodology",
+      "selection": "single",
+      "mutuallyExclusive": true,
+      "deferToStage4": true,
+      "description": "How tests drive the development workflow. Choose at most one.",
+      "guidance": [
+        "TDD is best for developers who want to build clean, testable code incrementally.",
+        "BDD is ideal when you need strong collaboration between technical and non-technical teams.",
+        "ATDD is useful when aligning development with clear business acceptance criteria.",
+        "SDD is good for projects where plain-language specs are a key part of the process.",
+        "None specified / I don't know."
+      ],
+      "patterns": ["tdd", "bdd", "atdd", "sdd", "none"]
+    },
+    {
+      "id": "object-creation",
+      "name": "Object creation",
+      "selection": "multiple",
+      "mutuallyExclusive": false,
+      "description": "How objects are constructed and managed. Most projects use a Factory; add a Builder, Prototype, Singleton, or Object Pool only when the design calls for it.",
+      "patterns": ["factory", "abstract-factory", "builder", "prototype", "singleton", "object-pool"]
+    },
+    {
+      "id": "state-and-behavior",
+      "name": "State and behaviour",
+      "selection": "multiple",
+      "mutuallyExclusive": false,
+      "description": "How an object's behaviour is structured and varied. State Machine and Strategy can coexist when modes and algorithms vary independently.",
+      "patterns": ["command", "state-machine", "strategy", "template-method", "visitor"]
+    },
+    {
+      "id": "communication",
+      "name": "Communication",
+      "selection": "multiple",
+      "mutuallyExclusive": false,
+      "description": "How components notify and interact with each other. Prefer a single primary notification style: a local Observer or a global Event Bus, not both.",
+      "patterns": ["observer", "event-bus", "mediator"]
+    },
+    {
+      "id": "dependency-resolution",
+      "name": "Dependency resolution",
+      "selection": "single",
+      "mutuallyExclusive": true,
+      "description": "How components obtain their dependencies. Choose Dependency Injection or Service Locator, not both.",
+      "patterns": ["dependency-injection", "service-locator"]
+    },
+    {
+      "id": "structure",
+      "name": "Structure",
+      "selection": "multiple",
+      "mutuallyExclusive": false,
+      "description": "Structural patterns that shape how objects are composed and accessed. These generally compose freely.",
+      "patterns": ["facade", "adapter", "decorator", "composite", "proxy"]
+    },
+    {
+      "id": "architecture",
+      "name": "Application architecture",
+      "selection": "single",
+      "mutuallyExclusive": true,
+      "description": "Top-level separation of concerns. ECS and the view-model architectures (MVC/MVP/MVVM) are competing paradigms; choose one.",
+      "patterns": ["ecs", "mvc", "mvp", "mvvm"]
+    },
+    {
+      "id": "persistence",
+      "name": "Persistence",
+      "selection": "multiple",
+      "mutuallyExclusive": false,
+      "description": "How domain state is read from and written to storage. Repository and Unit of Work are designed to work together.",
+      "patterns": ["repository", "unit-of-work"]
+    },
+    {
+      "id": "concurrency",
+      "name": "Concurrency",
+      "selection": "multiple",
+      "mutuallyExclusive": false,
+      "description": "How concurrent work is coordinated. These patterns compose.",
+      "patterns": ["producer-consumer", "actor"]
+    }
+  ],
+  "patterns": [
+    {
+      "id": "tdd",
+      "name": "Test-Driven Development (TDD / FTF)",
+      "aliases": ["FTF", "Failing Test First", "Red-Green-Refactor"],
+      "category": "test-methodology",
+      "description": "Drive design with a failing test first: write a test that captures the next behaviour, make it pass with the minimum production code, then refactor. FTF (Failing Test First) is the red step of the cycle.",
+      "whenToUse": "Incremental work on logic-heavy code with clear inputs and outputs, when clean testable code and fast feedback are priorities.",
+      "rules": [
+        "Never write production code without a failing test that requires it.",
+        "Cycle red -> green -> refactor in small steps; keep the code compiling at each step.",
+        "Confirm the new test fails for the expected reason before implementing.",
+        "Test behaviour through public contracts, not private implementation details.",
+        "Keep tests fast, deterministic, and independent of execution order."
+      ],
+      "conflictsWith": ["bdd", "atdd", "sdd"],
+      "pairsWellWith": ["dependency-injection", "factory", "strategy"]
+    },
+    {
+      "id": "bdd",
+      "name": "Behavior-Driven Development (BDD)",
+      "category": "test-methodology",
+      "description": "Specify behaviour as shared Given/When/Then scenarios that technical and non-technical stakeholders can both read.",
+      "whenToUse": "When collaboration between developers, QA, and business stakeholders matters and requirements are best expressed as examples.",
+      "rules": [
+        "Express each scenario as Given (context), When (action), Then (observable outcome).",
+        "Write scenarios in the project's ubiquitous language; avoid implementation detail.",
+        "Automate scenarios so they run as executable acceptance tests.",
+        "Keep one behaviour per scenario; avoid chained When/Then sequences."
+      ],
+      "conflictsWith": ["tdd", "atdd", "sdd"],
+      "pairsWellWith": ["atdd", "strategy", "state-machine"]
+    },
+    {
+      "id": "atdd",
+      "name": "Acceptance-Test-Driven Development (ATDD)",
+      "category": "test-methodology",
+      "description": "Derive implementation from acceptance criteria agreed with the customer before coding; the acceptance test defines done.",
+      "whenToUse": "When clear business acceptance criteria exist and development must align to them.",
+      "rules": [
+        "Agree the acceptance criteria and a failing acceptance test before implementation.",
+        "Treat the acceptance test as the definition of done for the feature.",
+        "Use unit-level TDD inside the acceptance test where useful.",
+        "Keep acceptance tests at the user-visible boundary."
+      ],
+      "conflictsWith": ["tdd", "bdd", "sdd"],
+      "pairsWellWith": ["bdd", "tdd"]
+    },
+    {
+      "id": "sdd",
+      "name": "Specification-Driven Development (SDD)",
+      "category": "test-methodology",
+      "description": "Write a precise, plain-language specification first and guide or generate the implementation from it.",
+      "whenToUse": "When a written spec is a first-class artefact and implementation must track it closely.",
+      "rules": [
+        "Write the specification before code and treat it as the source of truth.",
+        "Make requirements unambiguous, testable, and free of implementation detail.",
+        "Update the spec in the same change as the code it describes.",
+        "Trace each implemented behaviour back to a spec clause."
+      ],
+      "conflictsWith": ["tdd", "bdd", "atdd"],
+      "pairsWellWith": ["repository", "dependency-injection"]
+    },
+    {
+      "id": "none",
+      "name": "No prescribed test methodology",
+      "category": "test-methodology",
+      "description": "Tests are still written and run, but they do not drive the order of development.",
+      "whenToUse": "When the team explicitly opts out of a test-first methodology, or for throwaway prototypes.",
+      "rules": [
+        "Tests are still required before claiming a task complete.",
+        "Do not describe the workflow as TDD/BDD/ATDD/SDD when this option is selected.",
+        "Add a regression test for every bug fix."
+      ],
+      "conflictsWith": ["tdd", "bdd", "atdd", "sdd"]
+    },
+    {
+      "id": "factory",
+      "name": "Factory / Factory Method",
+      "category": "object-creation",
+      "description": "Delegate object creation to a method or type so callers depend on an abstraction rather than a concrete constructor.",
+      "whenToUse": "When creation logic is conditional, needs configuration, or must be swapped (platform variants, test doubles).",
+      "rules": [
+        "Return interfaces or base types, not concrete classes.",
+        "Keep creation logic in one place; do not scatter new calls across the codebase.",
+        "Do not let the factory become a god object; split by product family."
+      ],
+      "pairsWellWith": ["dependency-injection", "strategy", "object-pool"]
+    },
+    {
+      "id": "abstract-factory",
+      "name": "Abstract Factory",
+      "category": "object-creation",
+      "description": "Create families of related objects through a single interface without naming their concrete classes.",
+      "whenToUse": "When the system must be independent of how its products are created and needs consistent product families (theme, platform).",
+      "rules": [
+        "Define one factory interface per product family.",
+        "Never reference concrete product classes outside the factory implementations.",
+        "Prefer a plain Factory unless multiple related products vary together."
+      ],
+      "conflictsWith": ["service-locator"],
+      "pairsWellWith": ["dependency-injection"]
+    },
+    {
+      "id": "builder",
+      "name": "Builder",
+      "category": "object-creation",
+      "description": "Construct complex objects step by step, separating construction from representation.",
+      "whenToUse": "When an object has many optional parts or a construction sequence that should read clearly.",
+      "rules": [
+        "Expose a fluent, order-independent API where possible.",
+        "Return the built object only from a terminal Build() call.",
+        "Validate required parts before building."
+      ],
+      "pairsWellWith": ["factory", "prototype"]
+    },
+    {
+      "id": "prototype",
+      "name": "Prototype",
+      "category": "object-creation",
+      "description": "Create new objects by cloning an existing instance instead of constructing from scratch.",
+      "whenToUse": "When creation is expensive or configuration is easier to copy than to specify.",
+      "rules": [
+        "Make cloning explicit and deep-copy mutable state to avoid aliasing bugs.",
+        "Do not use Prototype when constructors are cheap and configuration is simple."
+      ],
+      "pairsWellWith": ["factory", "object-pool"]
+    },
+    {
+      "id": "singleton",
+      "name": "Singleton",
+      "category": "object-creation",
+      "description": "Guarantee a single instance of a type and provide a global access point.",
+      "whenToUse": "Only for genuinely global, self-managing services where a single instance is a hard requirement.",
+      "rules": [
+        "Prefer dependency injection over the global access point; inject the instance instead of calling Instance.",
+        "Make the instance thread-safe, and lazy only if construction is expensive.",
+        "Never use Singleton to pass data between systems; that is a design smell.",
+        "Avoid mutable global state; keep the singleton stateless or explicitly synchronised."
+      ],
+      "conflictsWith": ["service-locator"],
+      "pairsWellWith": ["facade", "object-pool"],
+      "notes": "Frequently abused; require an explicit justification before generating one."
+    },
+    {
+      "id": "object-pool",
+      "name": "Object Pool",
+      "category": "object-creation",
+      "description": "Reuse a fixed set of pre-allocated objects instead of allocating and freeing them repeatedly.",
+      "whenToUse": "When allocation is frequent and costly (projectiles, particles, enemies) or GC spikes are unacceptable.",
+      "rules": [
+        "Reset object state on release and on acquire.",
+        "Return objects to the pool on every path so they are never leaked.",
+        "Cap the pool size and define behaviour when exhausted (grow, block, or recycle oldest).",
+        "Do not pool cheap, short-lived objects; measure first."
+      ],
+      "pairsWellWith": ["factory", "prototype"]
+    },
+    {
+      "id": "command",
+      "name": "Command",
+      "category": "state-and-behavior",
+      "description": "Encapsulate a request as an object so it can be queued, logged, undone, or executed by a different component.",
+      "whenToUse": "When you need undo/redo, input remapping, queued actions, or to decouple invokers from receivers.",
+      "rules": [
+        "Give each command a single, well-named Execute (and Undo where needed) operation.",
+        "Commands must be self-contained; do not reach into global state.",
+        "Keep presentation logic out of commands."
+      ],
+      "pairsWellWith": ["object-pool", "event-bus", "state-machine"]
+    },
+    {
+      "id": "state-machine",
+      "name": "State Machine",
+      "category": "state-and-behavior",
+      "description": "Model an object's behaviour as a finite set of states with explicit transitions.",
+      "whenToUse": "When behaviour changes with mode and transitions are non-trivial (AI, UI flow, game flow).",
+      "rules": [
+        "Define states and transitions explicitly; do not scatter mode flags through the code.",
+        "Keep entry and exit actions in one place per state.",
+        "Reject invalid transitions and log them; never ignore silently.",
+        "Keep state classes free of unrelated responsibilities."
+      ],
+      "pairsWellWith": ["strategy", "command", "observer"]
+    },
+    {
+      "id": "strategy",
+      "name": "Strategy",
+      "category": "state-and-behavior",
+      "description": "Define a family of interchangeable algorithms behind a common interface and select one at runtime.",
+      "whenToUse": "When behaviour varies independently of the context and you want to avoid large conditionals.",
+      "rules": [
+        "Program to the strategy interface; the context must not branch on concrete strategies.",
+        "Keep strategies stateless where possible.",
+        "Select the strategy through a Factory or DI, not a switch in the context."
+      ],
+      "pairsWellWith": ["factory", "dependency-injection", "state-machine"]
+    },
+    {
+      "id": "template-method",
+      "name": "Template Method",
+      "category": "state-and-behavior",
+      "description": "Define an algorithm skeleton in a base class and let subclasses override specific steps.",
+      "whenToUse": "When several algorithms share an identical structure but differ in a few steps.",
+      "rules": [
+        "Keep the skeleton non-overridable; expose only the intended hook steps.",
+        "Prefer composition over inheritance when the hierarchy would deepen."
+      ],
+      "pairsWellWith": ["strategy", "factory"]
+    },
+    {
+      "id": "visitor",
+      "name": "Visitor",
+      "category": "state-and-behavior",
+      "description": "Add operations to an object structure without changing the element classes.",
+      "whenToUse": "When a stable set of element types needs many unrelated operations.",
+      "rules": [
+        "Keep the element hierarchy stable; a new element type requires updating every visitor.",
+        "Do not use Visitor when double dispatch is not actually needed."
+      ],
+      "pairsWellWith": ["composite", "command"]
+    },
+    {
+      "id": "observer",
+      "name": "Observer",
+      "category": "communication",
+      "description": "Let subjects notify a dynamic list of subscribers when their state changes.",
+      "whenToUse": "When one-to-many change notification is needed and publishers should not know their subscribers.",
+      "rules": [
+        "Always unsubscribe on teardown to prevent leaks and callbacks into destroyed objects.",
+        "Do not assume notification order.",
+        "Keep handlers small and scoped to their side effects."
+      ],
+      "conflictsWith": ["event-bus"],
+      "pairsWellWith": ["state-machine", "mvvm"]
+    },
+    {
+      "id": "event-bus",
+      "name": "Event Bus / Event Channel",
+      "category": "communication",
+      "description": "A shared publish/subscribe hub that decouples emitters from listeners across the application.",
+      "whenToUse": "When many unrelated systems must react to the same events without holding direct references.",
+      "rules": [
+        "Use typed event types; never pass untyped payloads.",
+        "Document each event's meaning, publisher, and expected subscribers.",
+        "Unsubscribe on teardown; the bus must not keep dead listeners alive.",
+        "Do not use the bus for request/response or ordered command flow."
+      ],
+      "conflictsWith": ["observer", "service-locator"],
+      "pairsWellWith": ["command", "dependency-injection"]
+    },
+    {
+      "id": "mediator",
+      "name": "Mediator",
+      "category": "communication",
+      "description": "Centralise complex communication between colleagues so they do not reference each other directly.",
+      "whenToUse": "When many-to-many interactions would otherwise create a tangled dependency graph.",
+      "rules": [
+        "Keep the mediator free of business logic; it only coordinates.",
+        "Do not let the mediator become a god object; split by interaction domain."
+      ],
+      "pairsWellWith": ["observer", "event-bus"]
+    },
+    {
+      "id": "dependency-injection",
+      "name": "Dependency Injection (DI)",
+      "category": "dependency-resolution",
+      "description": "Supply a component's dependencies from the outside rather than letting it construct or locate them.",
+      "whenToUse": "Almost always; it makes code testable and explicit about its dependencies.",
+      "rules": [
+        "Depend on abstractions, not concrete implementations.",
+        "Inject through constructors; avoid service location and static access.",
+        "Keep the composition root at the application edge.",
+        "Do not inject the container itself."
+      ],
+      "conflictsWith": ["service-locator", "singleton"],
+      "pairsWellWith": ["factory", "strategy", "tdd"]
+    },
+    {
+      "id": "service-locator",
+      "name": "Service Locator",
+      "category": "dependency-resolution",
+      "description": "A global registry that resolves dependencies on demand from inside a component.",
+      "whenToUse": "Only as a last resort for legacy code or engine constraints where DI is impossible.",
+      "rules": [
+        "Prefer constructor injection; do not introduce a new Service Locator.",
+        "If one already exists, hide it behind explicit dependencies at the boundary.",
+        "Never call the locator from deep within domain logic."
+      ],
+      "conflictsWith": ["dependency-injection"],
+      "notes": "Widely considered an anti-pattern; treat existing usage as a migration target."
+    },
+    {
+      "id": "facade",
+      "name": "Facade",
+      "category": "structure",
+      "description": "Provide a simplified interface to a complex subsystem.",
+      "whenToUse": "When callers should not know about many collaborating classes.",
+      "rules": [
+        "The facade must not add business rules; it only simplifies access.",
+        "Do not let the facade expose the entire subsystem."
+      ],
+      "pairsWellWith": ["singleton", "mediator"]
+    },
+    {
+      "id": "adapter",
+      "name": "Adapter",
+      "category": "structure",
+      "description": "Convert one interface into another that the client expects.",
+      "whenToUse": "When integrating third-party or legacy APIs you do not control.",
+      "rules": [
+        "Keep the adapter thin: translate calls and data only.",
+        "Do not leak the adapted type's interface to clients."
+      ],
+      "pairsWellWith": ["facade", "dependency-injection"]
+    },
+    {
+      "id": "decorator",
+      "name": "Decorator",
+      "category": "structure",
+      "description": "Attach additional behaviour to an object dynamically by wrapping it.",
+      "whenToUse": "When responsibilities should be combinable at runtime without a subclass explosion.",
+      "rules": [
+        "Keep each decorator focused on one added responsibility.",
+        "Preserve the wrapped interface exactly."
+      ],
+      "pairsWellWith": ["strategy", "proxy"]
+    },
+    {
+      "id": "composite",
+      "name": "Composite",
+      "category": "structure",
+      "description": "Treat individual objects and compositions of objects uniformly through a tree structure.",
+      "whenToUse": "When part-whole hierarchies are needed (UI trees, scene graphs, ability trees).",
+      "rules": [
+        "Leaf and composite must share the same interface.",
+        "Guard against cycles and unbounded depth."
+      ],
+      "pairsWellWith": ["visitor", "decorator"]
+    },
+    {
+      "id": "proxy",
+      "name": "Proxy",
+      "category": "structure",
+      "description": "Provide a surrogate that controls access to another object.",
+      "whenToUse": "When you need lazy loading, access control, caching, or remote indirection.",
+      "rules": [
+        "The proxy and the real subject must be interchangeable.",
+        "Do not put business logic in the proxy."
+      ],
+      "pairsWellWith": ["decorator", "facade"]
+    },
+    {
+      "id": "ecs",
+      "name": "Entity-Component-System (ECS)",
+      "category": "architecture",
+      "description": "Model state as data components on entities and behaviour as systems that process them, favouring composition over inheritance.",
+      "whenToUse": "When performance and data locality matter and there are many similar objects with varied combinations of behaviour.",
+      "rules": [
+        "Keep components as plain data with no logic.",
+        "Systems own all behaviour and iterate over component queries.",
+        "Prefer composition; do not reintroduce deep inheritance."
+      ],
+      "conflictsWith": ["mvc", "mvp", "mvvm"],
+      "pairsWellWith": ["object-pool", "event-bus"]
+    },
+    {
+      "id": "mvc",
+      "name": "Model-View-Controller (MVC)",
+      "category": "architecture",
+      "description": "Separate domain state (Model), presentation (View), and input/coordination (Controller).",
+      "whenToUse": "When UI and domain logic must be separated and input handling is non-trivial.",
+      "rules": [
+        "The Model must not reference the View.",
+        "Keep the Controller thin: coordinate, do not compute domain rules.",
+        "Give each piece of state a single clear owner."
+      ],
+      "conflictsWith": ["ecs", "mvp", "mvvm"],
+      "pairsWellWith": ["observer", "command"]
+    },
+    {
+      "id": "mvp",
+      "name": "Model-View-Presenter (MVP)",
+      "category": "architecture",
+      "description": "A presenter mediates between a passive view and the model, driving all view updates explicitly.",
+      "whenToUse": "When you want highly testable presentation logic and a passive view.",
+      "rules": [
+        "The View exposes an interface and contains no logic.",
+        "The Presenter must not reference concrete view types.",
+        "Test the Presenter without a UI."
+      ],
+      "conflictsWith": ["ecs", "mvc", "mvvm"],
+      "pairsWellWith": ["observer", "command"]
+    },
+    {
+      "id": "mvvm",
+      "name": "Model-View-ViewModel (MVVM)",
+      "category": "architecture",
+      "description": "A view model exposes observable state and commands that the view binds to declaratively.",
+      "whenToUse": "When the UI framework supports data binding and you want two-way binding with testable view models.",
+      "rules": [
+        "The ViewModel must not reference the View.",
+        "Expose state through observables and actions through commands.",
+        "Keep the ViewModel free of framework-specific view code."
+      ],
+      "conflictsWith": ["ecs", "mvc", "mvp"],
+      "pairsWellWith": ["observer", "command"]
+    },
+    {
+      "id": "repository",
+      "name": "Repository",
+      "category": "persistence",
+      "description": "Mediate between the domain and data-mapping layers using a collection-like interface.",
+      "whenToUse": "When domain code should be independent of persistence details.",
+      "rules": [
+        "Return domain objects, never raw storage records or queries.",
+        "Keep query logic behind the repository interface.",
+        "Do not leak an ORM or session abstraction through the interface."
+      ],
+      "pairsWellWith": ["unit-of-work", "dependency-injection"]
+    },
+    {
+      "id": "unit-of-work",
+      "name": "Unit of Work",
+      "category": "persistence",
+      "description": "Track changes during a business transaction and commit them as one unit.",
+      "whenToUse": "When several repositories must change atomically.",
+      "rules": [
+        "Commit once per logical transaction.",
+        "Do not share a unit of work across unrelated transactions or threads."
+      ],
+      "pairsWellWith": ["repository", "dependency-injection"]
+    },
+    {
+      "id": "producer-consumer",
+      "name": "Producer-Consumer",
+      "category": "concurrency",
+      "description": "Decouple producers and consumers through a shared, bounded queue.",
+      "whenToUse": "When work arrives faster than it can be processed or must be processed on another thread.",
+      "rules": [
+        "Always bound the queue and define back-pressure behaviour.",
+        "Make the queue thread-safe; never share mutable state without synchronisation.",
+        "Handle shutdown by draining or cancelling deterministically."
+      ],
+      "pairsWellWith": ["command", "object-pool", "actor"]
+    },
+    {
+      "id": "actor",
+      "name": "Actor",
+      "category": "concurrency",
+      "description": "Isolate state inside an actor that processes messages one at a time, communicating only by messages.",
+      "whenToUse": "When concurrency must be safe by construction across many independent units of state.",
+      "rules": [
+        "Never access an actor's state from outside; send messages instead.",
+        "Process one message at a time per actor; do not block the actor loop.",
+        "Design for message ordering and idempotency."
+      ],
+      "pairsWellWith": ["command", "producer-consumer"]
+    }
+  ]
+}

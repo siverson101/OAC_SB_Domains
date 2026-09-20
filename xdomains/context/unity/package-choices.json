@@ -1,0 +1,44 @@
+{
+  "version": "1.0",
+  "description": "Decision points where a scanned Unity project can support more than one competing package for the same job. Each row lists the packageNames that signal the decision. If a project has two or more of a row's packages installed, the LLM should ask the user the row's prompt and present the prettyName of each installed package (looked up in understood-package-categories.json) as the choices. If only one is installed, no question is needed. Synthetic 'com.unity.builtin.*' ids are emitted by the scanner for built-in features that have no package.",
+  "usage": {
+    "trigger": "Ask the question when the project has at least two packageNames from the row present.",
+    "choices": "Resolve each present package_name to its prettyName via understood-package-categories.json and offer those as the options.",
+    "prompt_placeholders": "<project_name> is replaced with the scanned Unity project's name.",
+    "results": "The user's selection must be persisted with the project context keyed by the row's category (storage mechanism defined separately)."
+  },
+  "fields": {
+    "category": "Stable snake_case decision id; also the key under which the answer is saved.",
+    "name": "Human-readable decision name.",
+    "packageNames": "Package ids that can trigger this question. More than one present means the user must choose.",
+    "prompt": "Question shown to the user, with <project_name> substituted."
+  },
+  "choices": [
+    {
+      "category": "ui",
+      "name": "UI",
+      "packageNames": ["com.unity.modules.ui", "com.unity.ugui"],
+      "prompt": "What UI do you want to use when making new UI for <project_name>?",
+      "deferToStage4": true
+    },
+    {
+      "category": "editor_ui",
+      "name": "EditorUI",
+      "packageNames": ["com.unity.modules.imgui", "com.unity.modules.ui", "com.unity.ugui"],
+      "prompt": "What Editor UI do you want to use when making new Editor UI for <project_name>?",
+      "deferToStage4": true
+    },
+    {
+      "category": "input",
+      "name": "InputSystem",
+      "packageNames": ["com.unity.builtin.input_manager", "com.unity.modules.input", "com.unity.inputsystem"],
+      "prompt": "Which input system should new input code use for <project_name>: the legacy Input Manager or the new Input System?"
+    },
+    {
+      "category": "camera",
+      "name": "Camera",
+      "packageNames": ["com.unity.builtin.camera", "com.unity.cinemachine"],
+      "prompt": "Which camera system should new cameras use for <project_name>: the built-in Unity Camera or Cinemachine?"
+    }
+  ]
+}

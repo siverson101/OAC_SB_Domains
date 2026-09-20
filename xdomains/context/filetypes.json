@@ -1,0 +1,27 @@
+{
+  "version": "1.0",
+  "description": "Maps a file extension (lowercase, without the leading dot) to the display name of the language or asset type. Used by the project scanner to classify files discovered under the Assets root.",
+  "filetypes": {
+    "cs": "C#",
+    "js": "JavaScript",
+    "ts": "TypeScript",
+    "json": "Json",
+    "uxml": "UXML",
+    "uss": "USS",
+    "md": "Markdown",
+    "txt": "Text",
+    "cpp": "C++",
+    "h": "CHeader",
+    "lib": "Library",
+    "dll": "DynLinkLib",
+    "py": "Python",
+    "pl": "Perl",
+    "pm": "PerlModule",
+    "java": "JavaSrc",
+    "class": "JavaClass",
+    "shader": "Shader",
+    "unity": "Scene",
+    "asset": "Asset",
+    "inputactions": "ActionMap"
+  }
+}
