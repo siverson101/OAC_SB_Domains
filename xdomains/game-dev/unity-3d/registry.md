@@ -101,6 +101,17 @@ matching command is reported as a warning, never silently invented.
 
 External sources
 ----------------
-None yet. When importing MIT-licensed repos, add: repo name, author, license, and which parts of
-the sub-domain use it. Also update the central attribution file and add copyright + MIT notices to
-any adapted source files.
+The central attribution record is `docs/Attribution.md` (LR1–LR3). Imported primitives live under
+`primitives/<id>/` with their `source_repo` + `license` in each `primitive.yaml`; the skip ledger is
+`primitive-not-imported.md`. The seven analysed upstream repositories, the 12 imported primitives,
+the gated-out copyleft set, and the required license texts are all recorded in that central file.
+
+| Source | Holder | License | Used by |
+|--------|--------|---------|---------|
+| `unity-skills` | Pravesh Koirala | MIT | `primitives/` (12 imported primitives); `primitive-composition`, `contract-aware-design` |
+| `claude-unity-game-studio` | Ido Cohen | MIT | Full-studio hierarchy (design reference; Phase 4) |
+| `UnityCLI.AgenticExtensions` | Thomas Moore | MIT | Coordination board, profiling, UI Toolkit (design reference) |
+| `Unity-Open-MCP` | Alexey Perov | MIT | Verify family, offline reads; `unity-open-mcp-missing-tools.md` (design reference) |
+| `AIBridge` | liyingsong | MIT | Prefab/scene automation, runtime workflows (design reference) |
+| `unity-coding-skills` | Koji Hasegawa | Unlicense | TDD workflow and test subagents (design reference) |
+| `Unity-Developer-Tools` | TM Hospitality Strategies | CC-BY-NC-ND-4.0 | Design reference only — no verbatim copy |
