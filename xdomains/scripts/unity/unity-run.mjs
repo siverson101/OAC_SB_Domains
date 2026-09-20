@@ -29,7 +29,15 @@ function runCli(config) {
     write(config.render(result) + `
 `);
   };
-  const result = config.run(options);
+  let result;
+  try {
+    result = config.run(options);
+  } catch (error) {
+    write(`${error instanceof Error ? error.message : String(error)}
+`);
+    process.exitCode = 1;
+    return;
+  }
   if (isThenable(result)) {
     result.then(emit).catch((error) => {
       write(`${error instanceof Error ? error.message : String(error)}
@@ -520,7 +528,6 @@ function errorMessage(err) {
 async function runRuntimeAbility(options) {
   const ability = options.ability;
   const { spec, errors } = resolveOperation(ability, options.operation);
-  const command = buildCommand(options, spec);
   const base = makeResult(ability, "unavailable", `${spec.operation} unavailable`, [], {
     route: "offline",
     requiresEditor: true,
@@ -588,6 +595,7 @@ async function runRuntimeAbility(options) {
     };
   }
   try {
+    const command = buildCommand(options, spec);
     const response = await channel.invoke({ operation: spec.operation, args: command });
     if (!response.ok) {
       return {

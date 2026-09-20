@@ -385,6 +385,14 @@ describe('Act command contracts', () => {
     const fm = parseFrontmatter(readFileSync(join(commandDir, 'prefab-automation.md'), 'utf8'));
     expect((fm.safetyGate as Record<string, unknown>).writesState).toBe(true);
   });
+
+  test('scene-editing declares a decision-only gate (the rung performs the mutation)', () => {
+    const fm = parseFrontmatter(readFileSync(join(commandDir, 'scene-editing.md'), 'utf8'));
+    const gate = fm.safetyGate as Record<string, unknown>;
+    expect(gate.mutates).toBe(false);
+    expect(gate.requiresApproval).toBe(true);
+    expect(gate.dryRunFirst).toBe(true);
+  });
 });
 
 describe('unity-act bundle', () => {

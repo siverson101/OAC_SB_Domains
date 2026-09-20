@@ -87,6 +87,8 @@ export interface CodeNavigationResult extends SenseBase {
   truncated: boolean;
   // The file the walk aborted on when `truncated` is true, so a caller can
   // resume from there or narrow the query. Null when nothing was truncated.
+  // Relative to the **project root** (not the asset folder), so it may contain
+  // `../` when `--asset-folder` points outside the project root.
   stoppedAtFile: string | null;
   assemblies: { count: number; testCount: number; names: string[] };
   matches: SymbolMatch[];

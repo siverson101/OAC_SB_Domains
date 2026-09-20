@@ -124,7 +124,6 @@ function errorMessage(err: unknown): string {
 export async function runRuntimeAbility(options: RunOptions): Promise<RuntimeResult> {
   const ability = options.ability as RuntimeAbility;
   const { spec, errors } = resolveOperation(ability, options.operation);
-  const command = buildCommand(options, spec);
 
   const base = makeResult(ability, 'unavailable', `${spec.operation} unavailable`, [], {
     route: 'offline',
@@ -199,6 +198,9 @@ export async function runRuntimeAbility(options: RunOptions): Promise<RuntimeRes
   }
 
   try {
+    // Build the command only on the path that can actually invoke the channel;
+    // a refused/unavailable ability never constructs one (no dead empty-code arg).
+    const command = buildCommand(options, spec);
     const response = await channel.invoke({ operation: spec.operation, args: command });
     if (!response.ok) {
       return {

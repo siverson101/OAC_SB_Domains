@@ -11,6 +11,7 @@ export type ComposeResult =
   | ContractAwareResult
   | CiStatusBaselineResult;
 
+// async because the coordination board queues on --wait-seconds.
 export async function runCompose(options: ComposeOptions): Promise<ComposeResult> {
   switch (options.ability) {
     case 'coordination-board':

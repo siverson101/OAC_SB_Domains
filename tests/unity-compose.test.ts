@@ -7,7 +7,10 @@ import {
   acquireEditorHold,
   boardStatus,
   claimResource,
+  claimResourceWithWait,
+  clampWaitSeconds,
   emptyBoard,
+  MAX_WAIT_SECONDS,
   readBoard,
   releaseEditorHold,
   releaseResource,
@@ -137,6 +140,28 @@ describe('coordination board claims', () => {
     expect(second.holder).toBe('qa');
     expect(second.board.claims).toHaveLength(1);
     expect(second.board.claims[0].holder).toBe('qa');
+  });
+
+  test('a requested wait is clamped to MAX_WAIT_SECONDS (pure)', () => {
+    expect(MAX_WAIT_SECONDS).toBe(60);
+    expect(clampWaitSeconds(3600)).toBe(MAX_WAIT_SECONDS);
+    expect(clampWaitSeconds(5)).toBe(5);
+    expect(clampWaitSeconds(undefined)).toBe(0);
+    expect(clampWaitSeconds(0)).toBe(0);
+    expect(clampWaitSeconds(-5)).toBe(0);
+  });
+
+  test('a zero or negative wait fails fast without waiting', async () => {
+    const dir = join(fixture, 'board-fail-fast', 'coordination');
+    writeBoard(dir, claimResource(emptyBoard(T0), { resource: 'Assets/FF.cs', holder: 'implementer' }, T0).board);
+
+    const zero = await claimResourceWithWait(dir, { resource: 'Assets/FF.cs', holder: 'qa', waitSeconds: 0 }, T0);
+    expect(zero.ok).toBe(false);
+    expect(zero.status).toBe('conflict');
+
+    const negative = await claimResourceWithWait(dir, { resource: 'Assets/FF.cs', holder: 'qa', waitSeconds: -5 }, T0);
+    expect(negative.ok).toBe(false);
+    expect(negative.status).toBe('conflict');
   });
 
   test('releasing another holder’s claim is a conflict', () => {

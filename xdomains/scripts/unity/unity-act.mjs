@@ -29,7 +29,15 @@ function runCli(config) {
     write(config.render(result) + `
 `);
   };
-  const result = config.run(options);
+  let result;
+  try {
+    result = config.run(options);
+  } catch (error) {
+    write(`${error instanceof Error ? error.message : String(error)}
+`);
+    process.exitCode = 1;
+    return;
+  }
   if (isThenable(result)) {
     result.then(emit).catch((error) => {
       write(`${error instanceof Error ? error.message : String(error)}

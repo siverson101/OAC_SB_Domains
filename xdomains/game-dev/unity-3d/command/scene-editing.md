@@ -7,7 +7,7 @@ description: Choose the safest rung for a scene or prefab change and hand the ca
 inputs: { projectRoot: "string", opencodeDir: "string", changeKind: "single-property|multi-property|structural|unsupported", gate: "boolean" }
 outputs: { rung: "string", ladder: "array", requiresDryRun: "boolean", fallback: "string", steps: "array", gate: "object" }
 sideEffects: []
-safetyGate: { mutates: true, requiresApproval: true, dryRunFirst: true }
+safetyGate: { mutates: false, requiresApproval: true, dryRunFirst: true }
 uses: [inspector, prefab-automation]
 provides: [scene-editing]
 requires: [unity-project]
@@ -26,7 +26,9 @@ the correct rung of the ADR-0018 ladder instead of guessing:
 3. **unity-yaml-editing** — the last-resort fallback when neither can express the edit.
 
 The decision helper mutates nothing; it returns the rung, the required dry run, the fallback and the
-ordered steps. Use `--change-kind` to describe the edit.
+ordered steps. `scene-editing` returns that decision only — the actual mutation is performed by the
+selected rung (`prefab-automation`), which carries `writesState: true`. Use `--change-kind` to describe
+the edit.
 
 ## Runs offline (decision)
 

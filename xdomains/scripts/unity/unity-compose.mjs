@@ -29,7 +29,15 @@ function runCli(config) {
     write(config.render(result) + `
 `);
   };
-  const result = config.run(options);
+  let result;
+  try {
+    result = config.run(options);
+  } catch (error) {
+    write(`${error instanceof Error ? error.message : String(error)}
+`);
+    process.exitCode = 1;
+    return;
+  }
   if (isThenable(result)) {
     result.then(emit).catch((error) => {
       write(`${error instanceof Error ? error.message : String(error)}
@@ -628,6 +636,9 @@ function success(action, summary, board, holder, expiresAt) {
 }
 var CLAIM_POLL_MS = 50;
 var MAX_WAIT_SECONDS = 60;
+function clampWaitSeconds(waitSeconds) {
+  return Math.max(0, Math.min(waitSeconds ?? 0, MAX_WAIT_SECONDS));
+}
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)));
 }
@@ -635,7 +646,7 @@ async function claimResourceWithWait(dir, input, now) {
   let board = readBoard(dir);
   let currentNow = now;
   let mutation = claimResource(board, input, currentNow);
-  const waitSeconds = Math.min(input.waitSeconds ?? 0, MAX_WAIT_SECONDS);
+  const waitSeconds = clampWaitSeconds(input.waitSeconds);
   if (mutation.ok || mutation.status !== "conflict" || waitSeconds <= 0)
     return mutation;
   const deadline = Date.now() + waitSeconds * 1000;

@@ -147,6 +147,12 @@ const CLAIM_POLL_MS = 50;
 // A queued claim never blocks the process for longer than a minute.
 export const MAX_WAIT_SECONDS = 60;
 
+// Clamp a requested wait to MAX_WAIT_SECONDS. Absent/0/negative means "do not
+// queue" (fail fast), which is why the result is never negative.
+export function clampWaitSeconds(waitSeconds: number | undefined): number {
+  return Math.max(0, Math.min(waitSeconds ?? 0, MAX_WAIT_SECONDS));
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)));
 }
@@ -159,7 +165,7 @@ export async function claimResourceWithWait(dir: string, input: ClaimInput, now:
   let board = readBoard(dir);
   let currentNow = now;
   let mutation = claimResource(board, input, currentNow);
-  const waitSeconds = Math.min(input.waitSeconds ?? 0, MAX_WAIT_SECONDS);
+  const waitSeconds = clampWaitSeconds(input.waitSeconds);
   if (mutation.ok || mutation.status !== 'conflict' || waitSeconds <= 0) return mutation;
 
   const deadline = Date.now() + waitSeconds * 1000;

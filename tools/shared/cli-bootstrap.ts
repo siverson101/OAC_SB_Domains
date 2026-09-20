@@ -46,7 +46,16 @@ export function runCli<Options extends { list: boolean; json: boolean }, Result>
     write(config.render(result) + '\n');
   };
 
-  const result = config.run(options);
+  let result: Result | Promise<Result>;
+  try {
+    result = config.run(options);
+  } catch (error) {
+    // A synchronous throw (e.g. an unknown ability) is reported like an async
+    // rejection rather than escaping as an uncaught exception.
+    write(`${error instanceof Error ? error.message : String(error)}\n`);
+    process.exitCode = 1;
+    return;
+  }
   if (isThenable(result)) {
     // The pending timer inside an async handler keeps the process alive until
     // the result is ready; errors are surfaced rather than swallowed.
