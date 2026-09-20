@@ -7,10 +7,17 @@ Gate: `tools/unity/primitives/src/license-gate.ts` — only `MIT`, `Apache-2.0`,
 unrecognised license are skipped. A primitive is only imported when its `primitive.yaml` satisfies
 `unity-skills/schema/primitive_schema.yaml` and every declared `code_files` path exists.
 
-**Imported: 12. Skipped: 547** (of 559 source primitives).
+**Imported: 12. Skipped: 547** (of 559 source primitives; 12 + 547 = 559).
 
 Every skipped id is enumerated below under its reason (Phase 3 Step 3.3 requires a reason + revisit
 note per primitive). The lists are disjoint and cover the full skipped set.
+
+> Reconciliation: the per-section enumerations total **551** skipped entries, not 547. Three of those
+> ids are absent from the local 559-primitive snapshot — `unity.rendering.npr.starrail` (recorded for
+> provenance completeness), `unity.networking.lmtdownload`, and `csharp.snapshot_interpolation` (the
+> real id, `csharp.networking.snapshot_interpolation`, is listed under "no usable signal") — and one
+> entry, `unity.ecs.* (family)`, is a wildcard rather than a single primitive. The snapshot-present
+> skipped set is therefore 551 − 3 − 1 = 547, which reconciles the header with the source total.
 
 ## Imported
 

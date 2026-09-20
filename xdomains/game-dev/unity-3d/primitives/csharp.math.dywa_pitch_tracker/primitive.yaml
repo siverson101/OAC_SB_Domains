@@ -28,11 +28,17 @@ conflicts_with: []
 setup_steps:
 - Feed an array of raw audio float samples (usually from `AudioClip.GetData` or `Microphone`) into `ComputePitch`.
 - The output frequency is in Hz.
+- Call `ClearPitchHistory()` between independent streams; `ComputePitch` mutates the tracker's
+  `prevPitch`/`pitchConfidence` history (see failure_modes).
 test_plan:
 - Generate a sine wave array at 440Hz.
 - Pass the array to `ComputePitch`.
 - Verify the result is approximately 440.0.
 failure_modes:
+- `ComputePitch` mutates instance state: `DynamicPostProcessing` updates `prevPitch` and
+  `pitchConfidence` on every call. A single tracker therefore carries pitch history across calls, so
+  the first frames of a new, independent stream are post-processed against the previous stream's pitch.
+  Call `ClearPitchHistory()` (or use a fresh instance) between streams.
 - Returns 0.0 if the pitch is unidentifiable or the signal is pure noise.
 code_files:
 - DywaPitchTracker.cs

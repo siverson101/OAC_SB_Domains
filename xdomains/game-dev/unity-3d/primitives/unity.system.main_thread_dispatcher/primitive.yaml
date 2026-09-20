@@ -31,6 +31,10 @@ test_plan:
 - Spawn a `System.Threading.Thread` and call `Enqueue()` from inside it.
 - Verify the queued action modifies a GameObject successfully without throwing a thread-access exception.
 failure_modes:
+- `Enqueue(IEnumerator)` still allocates a closure per call
+  (`_executionQueue.Enqueue(() => { StartCoroutine(action); })`) despite the class comment claiming the
+  Coroutine allocation overhead was fixed; only the `Action` overload enqueues without a wrapper. The
+  residual closure allocation is per-call and inherent to the current API shape.
 - Forgetting to add the Dispatcher to the scene will result in exceptions when `Instance()` is called.
 code_files:
 - UnityMainThreadDispatcher.cs

@@ -33,7 +33,18 @@ test_plan:
 - Create a byte array of 10,000 repeating characters.
 - Compress it with FastLZ and assert the returned compressed length is vastly smaller than 10,000.
 - Decompress it and assert the output bytes exactly match the original string.
+- Scope: this only exercises `CompressLevel` (level 1) on highly repetitive input. Treat it as a smoke
+  test, not a correctness proof — `MemCompare`'s bound handling is wrong in general and `CompressLevel2`
+  is unverified (see failure_modes).
 failure_modes:
+- `CompressLevel2` ends with `output[inputOffset] |= (1 << 5)`, which reads and writes the byte at
+  `inputOffset` of the *output* buffer instead of the level-2 header byte. Unless the output buffer is
+  already zeroed at that position this corrupts an output byte, and the level-2 marker is not set
+  reliably. Treat `CompressLevel2` as unverified.
+- `MemCompare` is passed `r = ip_bound`, an absolute bound, but compares it against the absolute
+  `qOffset` (and guards its 4-byte fast path with `4 <= r`). The original FastLZ contract expects a
+  remaining-length bound, so match lengths are wrong in general and the fast path can read past the
+  intended bound.
 - If the allocated output array for decompression is smaller than the required size, it will throw an
   `IndexOutOfRangeException`.
 code_files:

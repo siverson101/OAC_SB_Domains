@@ -37,6 +37,10 @@ test_plan:
 - Run `GameBoardSolver` with `HorizontalLineDetector`.
 - Assert sequences are detected.
 failure_modes:
+- `Match3SDK.cs` is a single concatenated artifact. Its only `using System.Runtime.CompilerServices;`
+  lives in the `Match3.Core` section, but `[MethodImpl(MethodImplOptions.AggressiveInlining)]` is also
+  used in the `Match3.App` and `Match3.Infrastructure` sections. Splitting the file back into its
+  original per-file layout requires re-adding that using to those sections or they will not compile.
 - N/A
 - Both declare `Match3.Core.GridMath`. Copying both causes a CS0101 duplicate-definition error; these
   are overlapping extractions of the same match-3 core.

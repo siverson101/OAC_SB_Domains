@@ -29,9 +29,16 @@ setup_steps:
 - Place CsvParser.cs in your project.
 - Instantiate `using (var parser = new CsvParser(stream)) { var data = parser.GetListCsvData(); }`
 test_plan:
-- Create a CSV file containing `123, "A string, with a comma"`.
-- Parse it with CsvParser and verify the second column is not split into two pieces.
+- Smoke-test single-column input (e.g. a file containing only `alpha`) and assert a non-empty row list
+  is returned.
+- Do not assert correct multi-column or quoted-comma splitting; the upstream field loop is known-broken
+  (see failure_modes), so `123, "A string, with a comma"` will not parse as two columns.
 failure_modes:
+- The upstream `ParseLine` field-splitting loop is broken. It adds a field on every character while a
+  column is open (rather than every separator) and only appends the character that opened the column,
+  so a row is emitted as roughly one field per character. Quoted commas (e.g.
+  `"A string, with a comma"`) are therefore not handled despite the summary/when_to_use wording, and
+  `test_plan` must not assert multi-column parsing.
 - Attempting to load large CSV files directly using string paths on Android without using UnityWebRequest
   (since streaming assets are inside a jar).
 code_files:
