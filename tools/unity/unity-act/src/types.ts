@@ -6,22 +6,18 @@
 // (ADR-0015, ADR-0018).
 import type { Route } from '../../../shared/tool-routing';
 
-export type ActAbility =
-  | 'scene-editing'
-  | 'prefab-automation'
-  | 'script-scaffolding'
-  | 'shader-helper'
-  | 'pattern-library'
-  | 'input-automation';
-
-export const ACT_ABILITIES: ActAbility[] = [
+const ACT_ABILITY_NAMES = [
   'scene-editing',
   'prefab-automation',
   'script-scaffolding',
   'shader-helper',
   'pattern-library',
   'input-automation',
-];
+] as const;
+
+export type ActAbility = (typeof ACT_ABILITY_NAMES)[number];
+
+export const ACT_ABILITIES: ActAbility[] = [...ACT_ABILITY_NAMES];
 
 export type ActMode = 'offline' | 'both' | 'live';
 

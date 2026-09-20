@@ -1,3 +1,24 @@
+// tools/shared/cli-bootstrap.ts
+function runCli(config) {
+  const argv = config.argv ?? process.argv.slice(2);
+  const write = config.write ?? ((text) => process.stdout.write(text));
+  const options = config.resolveOptions(argv);
+  if (options.list) {
+    write(config.abilities.join(`
+`) + `
+`);
+    return;
+  }
+  const result = config.run(options);
+  if (options.json) {
+    write(JSON.stringify(result, null, 2) + `
+`);
+    return;
+  }
+  write(config.render(result) + `
+`);
+}
+
 // tools/shared/toolchain.ts
 import { spawnSync } from "node:child_process";
 
@@ -129,7 +150,7 @@ import { dirname as dirname2, join as join2 } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // tools/unity/unity-act/src/types.ts
-var ACT_ABILITIES = [
+var ACT_ABILITY_NAMES = [
   "scene-editing",
   "prefab-automation",
   "script-scaffolding",
@@ -137,27 +158,8 @@ var ACT_ABILITIES = [
   "pattern-library",
   "input-automation"
 ];
-
-// tools/unity/unity-act/src/shared.ts
-import { join } from "node:path";
-function projectDataDir(options) {
-  return join(options.opencodeDir, "project-data");
-}
-function makeResult(ability, status, summary, errors, route = "offline") {
-  return {
-    schemaVersion: 1,
-    generatedAt: nowIso(),
-    ability,
-    family: "act",
-    mode: "offline",
-    route,
-    status,
-    summary,
-    errors,
-    mutated: false,
-    safetyGate: { dryRunFirst: true, requireConfirm: true }
-  };
-}
+var ACT_ABILITIES = [...ACT_ABILITY_NAMES];
+// tools/shared/json-helpers.ts
 function asRecord(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? value : null;
 }
@@ -183,6 +185,36 @@ function parseBool(value, fallback) {
   if (["false", "0", "no", "off"].includes(text))
     return false;
   return fallback;
+}
+
+// tools/unity/unity-act/src/shared.ts
+import { join } from "node:path";
+
+// tools/shared/result-envelope.ts
+function makeEnvelope(input) {
+  return {
+    schemaVersion: 1,
+    generatedAt: nowIso(),
+    ability: input.ability,
+    family: input.family,
+    mode: input.mode,
+    route: input.route ?? "offline",
+    status: input.status,
+    summary: input.summary,
+    errors: input.errors
+  };
+}
+
+// tools/unity/unity-act/src/shared.ts
+function projectDataDir(options) {
+  return join(options.opencodeDir, "project-data");
+}
+function makeResult(ability, status, summary, errors, route = "offline") {
+  return {
+    ...makeEnvelope({ ability, family: "act", mode: "offline", status, summary, errors, route }),
+    mutated: false,
+    safetyGate: { dryRunFirst: true, requireConfirm: true }
+  };
 }
 
 // tools/unity/unity-act/src/patterns.ts
@@ -432,7 +464,7 @@ function normalizeOps(ops) {
     if ((name === "ensure_component" || name === "set_property") && !targetPath) {
       errors.push(`op #${index + 1} (${name}) needs a target path`);
     }
-    normalized.push({ index, op: name, targetPath, summary: summarize(name, targetPath) });
+    normalized.push({ index, op: name, targetPath, summary: summarize(name, targetPath), payload: op });
   });
   return { normalized, unsupported, errors };
 }
@@ -1082,6 +1114,8 @@ function runAct(options) {
 
 // tools/unity/unity-act/src/cli.ts
 import { join as join5, resolve } from "node:path";
+
+// tools/shared/cli-args.ts
 function parseArgs(argv) {
   const out = {};
   let i = 0;
@@ -1117,12 +1151,17 @@ function firstString(args, keys) {
   }
   return;
 }
+function resolveAbility(requested, abilities, fallback) {
+  return abilities.includes(requested) ? requested : fallback;
+}
+
+// tools/unity/unity-act/src/cli.ts
 function resolveOptions(argv) {
   const args = parseArgs(argv);
   const projectRoot = resolve(String(args["project-root"] || process.cwd()));
   const opencodeDir = resolve(String(args["opencode-dir"] || join5(projectRoot, ".opencode")));
   const requested = String(args.ability || "scene-editing");
-  const ability = ACT_ABILITIES.includes(requested) ? requested : "scene-editing";
+  const ability = resolveAbility(requested, ACT_ABILITIES, "scene-editing");
   const dryRunRaw = args.dryRun ?? args["dry-run"] ?? args.dryrun;
   const enabled = firstString(args, ["enabled"]);
   return {
@@ -1168,21 +1207,4 @@ function render(result) {
   return lines.join(`
 `);
 }
-function main() {
-  const options = resolveOptions(process.argv.slice(2));
-  if (options.list) {
-    process.stdout.write(ACT_ABILITIES.join(`
-`) + `
-`);
-    return;
-  }
-  const result = runAct(options);
-  if (options.json) {
-    process.stdout.write(JSON.stringify(result, null, 2) + `
-`);
-    return;
-  }
-  process.stdout.write(render(result) + `
-`);
-}
-main();
+runCli({ abilities: ACT_ABILITIES, resolveOptions, run: runAct, render });

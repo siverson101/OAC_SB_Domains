@@ -137,6 +137,45 @@ export interface ClaimInput {
   holder: string;
   note?: string | null;
   leaseSeconds?: number;
+  // When > 0, a conflicting live claim is queued on: wait up to this many
+  // seconds for the lease to expire or the claim to be released, then claim.
+  // When 0/absent, a conflict fails fast naming the holder (ADR-0011).
+  waitSeconds?: number;
+}
+
+const CLAIM_POLL_MS = 50;
+
+function sleepSync(ms: number): void {
+  if (ms <= 0) return;
+  try {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+  } catch {
+    const end = Date.now() + ms;
+    while (Date.now() < end) {
+      /* spin as a last resort */
+    }
+  }
+}
+
+// Claim with the optional queue path. The pure `claimResource` above decides the
+// fail-fast conflict; this wrapper re-reads the on-disk board while waiting so a
+// lease expiry or an explicit release by the holder frees the resource.
+export function claimResourceWithWait(dir: string, input: ClaimInput, now: string): BoardMutation {
+  let board = readBoard(dir);
+  let currentNow = now;
+  let mutation = claimResource(board, input, currentNow);
+  const waitSeconds = input.waitSeconds ?? 0;
+  if (mutation.ok || mutation.status !== 'conflict' || waitSeconds <= 0) return mutation;
+
+  const deadline = Date.now() + waitSeconds * 1000;
+  while (Date.now() < deadline) {
+    sleepSync(Math.min(CLAIM_POLL_MS, deadline - Date.now()));
+    board = readBoard(dir);
+    currentNow = nowIso();
+    mutation = claimResource(board, input, currentNow);
+    if (mutation.ok) return mutation;
+  }
+  return mutation;
 }
 
 export function claimResource(board: CoordinationBoard, input: ClaimInput, now: string): BoardMutation {
@@ -334,7 +373,17 @@ export function runCoordinationBoard(options: ComposeOptions): CoordinationBoard
       const base = makeResult('coordination-board', 'refused', 'claim requires --resource and --holder', ['claim requires --resource and --holder']);
       return { ...base, action: 'claim', holder: null, expiresAt: null, board };
     }
-    const mutation = claimResource(board, { resource: options.resource, holder: options.holder, note: options.note, leaseSeconds: options.leaseSeconds }, now);
+    const mutation = claimResourceWithWait(
+      dir,
+      {
+        resource: options.resource,
+        holder: options.holder,
+        note: options.note,
+        leaseSeconds: options.leaseSeconds,
+        waitSeconds: options.waitSeconds,
+      },
+      now
+    );
     if (mutation.ok) writeBoard(dir, mutation.board);
     return toResult(mutation, errors, options);
   }

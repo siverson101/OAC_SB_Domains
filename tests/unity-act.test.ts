@@ -153,6 +153,30 @@ describe('prefab-automation confirm gate', () => {
     expect(apply.command).toContain('--dryRun false');
     expect(readFileSync(prefabPath, 'utf8')).toBe(prefabContent);
   });
+
+  test('refuses an apply whose payload differs from the recorded dry run', () => {
+    const dryOps = JSON.stringify([
+      { op: 'set_property', target: { path: 'Player' }, propertyName: 'm_Name', value: 'Hero' },
+    ]);
+    const applyOps = JSON.stringify([
+      { op: 'set_property', target: { path: 'Player' }, propertyName: 'm_Name', value: 'Villain' },
+    ]);
+
+    const dry = prefabAutomation({ ...base, prefab: 'Assets/Prefabs/Player.prefab', opsJson: dryOps });
+    expect(dry.status).toBe('proposed');
+
+    const apply = prefabAutomation({
+      ...base,
+      dryRun: false,
+      confirm: true,
+      prefab: 'Assets/Prefabs/Player.prefab',
+      opsJson: applyOps,
+    });
+    expect(apply.status).toBe('refused');
+    expect(apply.mutated).toBe(false);
+    expect(apply.errors.join(' ')).toContain('dry-run');
+    expect(readFileSync(prefabPath, 'utf8')).toBe(prefabContent);
+  });
 });
 
 describe('scene-editing escalation ladder', () => {

@@ -12,6 +12,7 @@ import {
   releaseEditorHold,
   releaseResource,
   renderBoardMarkdown,
+  runCoordinationBoard,
   writeBoard,
   type CoordinationBoard,
 } from '../tools/unity/unity-compose/src/coordination-board';
@@ -94,6 +95,37 @@ describe('coordination board claims', () => {
     const second = claimResource(first.board, { resource: 'Assets/Player.cs', holder: 'qa', leaseSeconds: 60 }, T2);
     expect(second.ok).toBe(true);
     expect(second.board.claims[0].holder).toBe('qa');
+  });
+
+  test('a claim with waitSeconds queues until the short lease expires', () => {
+    const oc = join(fixture, 'board-wait', '.opencode');
+    const options = { ...base, ability: 'coordination-board' as const, opencodeDir: oc };
+
+    const first = runCoordinationBoard({
+      ...options,
+      verb: 'claim',
+      resource: 'Assets/Queue.cs',
+      holder: 'implementer',
+      leaseSeconds: 1,
+    });
+    expect(first.status).toBe('ok');
+
+    const started = Date.now();
+    const second = runCoordinationBoard({
+      ...options,
+      verb: 'claim',
+      resource: 'Assets/Queue.cs',
+      holder: 'qa',
+      waitSeconds: 5,
+    });
+    const elapsed = Date.now() - started;
+
+    expect(second.status).toBe('ok');
+    expect(second.holder).toBe('qa');
+    expect(second.board.claims).toHaveLength(1);
+    expect(second.board.claims[0].holder).toBe('qa');
+    expect(elapsed).toBeGreaterThanOrEqual(800);
+    expect(elapsed).toBeLessThan(4000);
   });
 
   test('releasing another holder’s claim is a conflict', () => {

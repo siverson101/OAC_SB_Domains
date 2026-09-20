@@ -1,3 +1,24 @@
+// tools/shared/cli-bootstrap.ts
+function runCli(config) {
+  const argv = config.argv ?? process.argv.slice(2);
+  const write = config.write ?? ((text) => process.stdout.write(text));
+  const options = config.resolveOptions(argv);
+  if (options.list) {
+    write(config.abilities.join(`
+`) + `
+`);
+    return;
+  }
+  const result = config.run(options);
+  if (options.json) {
+    write(JSON.stringify(result, null, 2) + `
+`);
+    return;
+  }
+  write(config.render(result) + `
+`);
+}
+
 // tools/unity/unity-compose/src/ci-status-baseline.ts
 import { join } from "node:path";
 
@@ -38,18 +59,46 @@ function toPosix(path) {
 }
 
 // tools/unity/unity-compose/src/types.ts
-var COMPOSE_ABILITIES = [
+var COMPOSE_ABILITY_NAMES = [
   "coordination-board",
   "primitive-composition",
   "contract-aware-design",
   "ci-status-baseline"
 ];
+var COMPOSE_ABILITIES = [...COMPOSE_ABILITY_NAMES];
 var COMPOSE_MODES = {
   "coordination-board": "offline",
   "primitive-composition": "offline",
   "contract-aware-design": "offline",
   "ci-status-baseline": "both"
 };
+// tools/shared/json-helpers.ts
+function asRecord(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? value : null;
+}
+function str(obj, key) {
+  const value = obj?.[key];
+  return typeof value === "string" ? value : null;
+}
+function num(obj, key) {
+  const value = obj?.[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+// tools/shared/result-envelope.ts
+function makeEnvelope(input) {
+  return {
+    schemaVersion: 1,
+    generatedAt: nowIso(),
+    ability: input.ability,
+    family: input.family,
+    mode: input.mode,
+    route: input.route ?? "offline",
+    status: input.status,
+    summary: input.summary,
+    errors: input.errors
+  };
+}
+
 // tools/unity/unity-compose/src/shared.ts
 var DEFAULT_LEASE_SECONDS = 900;
 var DEFAULT_HOLD_SECONDS = 1800;
@@ -65,32 +114,21 @@ function isExpired(expiresAt, now) {
 }
 function makeResult(ability, status, summary, errors, options = {}) {
   return {
-    schemaVersion: 1,
-    generatedAt: nowIso(),
-    ability,
-    family: "compose",
-    mode: COMPOSE_MODES[ability],
-    route: options.route ?? "offline",
-    status,
-    summary,
-    errors,
+    ...makeEnvelope({
+      ability,
+      family: "compose",
+      mode: COMPOSE_MODES[ability],
+      status,
+      summary,
+      errors,
+      route: options.route ?? "offline"
+    }),
     safetyGate: {
       requiresEditor: options.requiresEditor ?? false,
       requiresApproval: options.requiresApproval ?? false,
       approved: options.approved ?? false
     }
   };
-}
-function asRecord(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value) ? value : null;
-}
-function str(obj, key) {
-  const value = obj?.[key];
-  return typeof value === "string" ? value : null;
-}
-function num(obj, key) {
-  const value = obj?.[key];
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 function parsePositiveInt(value, fallback) {
   const parsed = typeof value === "number" ? value : Number.parseInt(String(value ?? ""), 10);
@@ -563,6 +601,35 @@ function conflict(action, summary, board, holder, expiresAt) {
 function success(action, summary, board, holder, expiresAt) {
   return { ok: true, status: "ok", action, summary, holder, expiresAt, errors: [], board };
 }
+var CLAIM_POLL_MS = 50;
+function sleepSync(ms) {
+  if (ms <= 0)
+    return;
+  try {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+  } catch {
+    const end = Date.now() + ms;
+    while (Date.now() < end) {}
+  }
+}
+function claimResourceWithWait(dir, input, now) {
+  let board = readBoard(dir);
+  let currentNow = now;
+  let mutation = claimResource(board, input, currentNow);
+  const waitSeconds = input.waitSeconds ?? 0;
+  if (mutation.ok || mutation.status !== "conflict" || waitSeconds <= 0)
+    return mutation;
+  const deadline = Date.now() + waitSeconds * 1000;
+  while (Date.now() < deadline) {
+    sleepSync(Math.min(CLAIM_POLL_MS, deadline - Date.now()));
+    board = readBoard(dir);
+    currentNow = nowIso();
+    mutation = claimResource(board, input, currentNow);
+    if (mutation.ok)
+      return mutation;
+  }
+  return mutation;
+}
 function claimResource(board, input, now) {
   const leaseSeconds = input.leaseSeconds && input.leaseSeconds > 0 ? input.leaseSeconds : DEFAULT_LEASE_SECONDS;
   const pruned = pruneBoard(board, now);
@@ -705,7 +772,13 @@ function runCoordinationBoard(options) {
       const base = makeResult("coordination-board", "refused", "claim requires --resource and --holder", ["claim requires --resource and --holder"]);
       return { ...base, action: "claim", holder: null, expiresAt: null, board };
     }
-    const mutation = claimResource(board, { resource: options.resource, holder: options.holder, note: options.note, leaseSeconds: options.leaseSeconds }, now);
+    const mutation = claimResourceWithWait(dir, {
+      resource: options.resource,
+      holder: options.holder,
+      note: options.note,
+      leaseSeconds: options.leaseSeconds,
+      waitSeconds: options.waitSeconds
+    }, now);
     if (mutation.ok)
       writeBoard(dir, mutation.board);
     return toResult(mutation, errors, options);
@@ -1139,6 +1212,8 @@ function runCompose(options) {
 
 // tools/unity/unity-compose/src/cli.ts
 import { join as join5, resolve } from "node:path";
+
+// tools/shared/cli-args.ts
 function parseArgs(argv) {
   const out = {};
   let i = 0;
@@ -1174,14 +1249,21 @@ function firstString(args, keys) {
   }
   return;
 }
+function resolveAbility(requested, abilities, fallback) {
+  return abilities.includes(requested) ? requested : fallback;
+}
+
+// tools/unity/unity-compose/src/cli.ts
 function resolveOptions(argv) {
   const args = parseArgs(argv);
   const projectRoot = resolve(String(args["project-root"] || process.cwd()));
   const opencodeDir = resolve(String(args["opencode-dir"] || join5(projectRoot, ".opencode")));
   const requested = String(args.ability || "coordination-board");
-  const ability = COMPOSE_ABILITIES.includes(requested) ? requested : "coordination-board";
+  const ability = resolveAbility(requested, COMPOSE_ABILITIES, "coordination-board");
   const leaseRaw = args["lease-seconds"] ?? args.leaseSeconds;
   const leaseSeconds = leaseRaw === undefined ? undefined : parsePositiveInt(leaseRaw, 0);
+  const waitRaw = args["wait-seconds"] ?? args.waitSeconds;
+  const waitSeconds = waitRaw === undefined ? undefined : parsePositiveInt(waitRaw, 0);
   return {
     projectRoot,
     opencodeDir,
@@ -1192,7 +1274,8 @@ function resolveOptions(argv) {
     resource: firstString(args, ["resource", "scope"]),
     holder: firstString(args, ["holder", "agent"]),
     note: firstString(args, ["note"]),
-    leaseSeconds: leaseSeconds && leaseSeconds > 0 ? leaseSeconds : undefined,
+    leaseSeconds: leaseSeconds || undefined,
+    waitSeconds: waitSeconds || undefined,
     now: firstString(args, ["now"]),
     primitivesDir: firstString(args, ["primitives-dir", "primitivesDir"]),
     capabilitiesDir: firstString(args, ["capabilities-dir", "capabilitiesDir"]),
@@ -1237,21 +1320,4 @@ function render(result) {
   return lines.join(`
 `);
 }
-function main() {
-  const options = resolveOptions(process.argv.slice(2));
-  if (options.list) {
-    process.stdout.write(COMPOSE_ABILITIES.join(`
-`) + `
-`);
-    return;
-  }
-  const result = runCompose(options);
-  if (options.json) {
-    process.stdout.write(JSON.stringify(result, null, 2) + `
-`);
-    return;
-  }
-  process.stdout.write(render(result) + `
-`);
-}
-main();
+runCli({ abilities: COMPOSE_ABILITIES, resolveOptions, run: runCompose, render });

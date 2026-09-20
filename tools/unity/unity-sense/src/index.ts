@@ -7,6 +7,7 @@
 //
 // Every ability is read-only and offline: missing files report
 // `unavailable`/`unknown` rather than throwing.
+import { runCli } from '../../../shared/cli-bootstrap';
 import { resolveOptions } from './cli';
 import { runSense, type SenseResult } from './abilities';
 import { SENSE_ABILITIES } from './types';
@@ -17,18 +18,4 @@ function render(result: SenseResult): string {
   return lines.join('\n');
 }
 
-function main(): void {
-  const options = resolveOptions(process.argv.slice(2));
-  if (options.list) {
-    process.stdout.write(SENSE_ABILITIES.join('\n') + '\n');
-    return;
-  }
-  const result = runSense(options);
-  if (options.json) {
-    process.stdout.write(JSON.stringify(result, null, 2) + '\n');
-    return;
-  }
-  process.stdout.write(render(result) + '\n');
-}
-
-main();
+runCli({ abilities: SENSE_ABILITIES, resolveOptions, run: runSense, render });

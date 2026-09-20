@@ -410,10 +410,10 @@ used. The MCP status reporter reads the CLI's MCP client config (`unity mcp conf
 |--------|------------------|-------------|
 | Unity CLI + pipeline | CLI verbs, UAX tools | Commands: `unity-build`, `unity-test`, `unity-run`, `unity-command`, `unity-status`, `unity-list`. Abilities: `gather-unity-context`, `unity-run-tests`, `performance-diagnostics`, `uitk-interaction`, `input-automation`. |
 | DevTools `.cmd`/`.ps1` | compile, test, gate, native build | Commands: `devtools-*` invocations. Abilities: `compile-and-verify-project`, `run-edit-mode-tests`, `run-play-mode-tests`, `gate-review`, `build-native-sub-project`, `project-status`. |
-| Unity-Open-MCP | asset intelligence, offline reads | Abilities: `asset-intelligence`, `offline-project-inspection`, `gate-and-verify-changes`. |
+| Unity-Open-MCP | asset intelligence, offline reads | Abilities: `asset-intelligence`, `offline-project-inspection`, `compile-and-verify-project`, `gate-review`. |
 | AIBridge | runtime bridge, workflows | Abilities: `unity-change-loop`, `prefab-automation`, `runtime-debugging`, `runtime-ui-validation` (run through the Unity CLI runtime). |
 | unity-coding-skills | skills + TDD | Abilities: `test-design`, `test-writing`, `failing-test-first`, `test-deduplication`. SubAgents: `UnityTestEngineer`, `UnityTddSpecialist`. |
-| Unity-Developer-Tools | tools, rules, snippets | Abilities: `script-scaffolding`, `unity-api-lookup`, `shader-helper`, `platform-targeting`, `pattern-library`. |
+| Unity-Developer-Tools | tools, rules, snippets | Abilities: `script-scaffolding`, `unity-api-lookup`, `shader-helper`, `platform-info`, `pattern-library`. |
 
 ## Unity CLI & Pipeline setup (prerequisites)
 

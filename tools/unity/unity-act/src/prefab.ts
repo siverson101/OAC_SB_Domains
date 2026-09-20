@@ -40,6 +40,9 @@ export interface NormalizedPatchOp {
   op: string;
   targetPath: string | null;
   summary: string;
+  // The full op payload. The dry-run receipt hash covers this so a recorded dry
+  // run only authorises an apply of exactly the same ops (ADR-0018).
+  payload: Json;
 }
 
 export interface PrefabAutomationResult extends ActBase {
@@ -132,7 +135,7 @@ function normalizeOps(ops: Json[]): { normalized: NormalizedPatchOp[]; unsupport
       errors.push(`op #${index + 1} (${name}) needs a target path`);
     }
 
-    normalized.push({ index, op: name, targetPath, summary: summarize(name, targetPath) });
+    normalized.push({ index, op: name, targetPath, summary: summarize(name, targetPath), payload: op });
   });
 
   return { normalized, unsupported, errors };

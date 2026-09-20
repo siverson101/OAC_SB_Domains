@@ -1,39 +1,28 @@
+// tools/shared/cli-bootstrap.ts
+function runCli(config) {
+  const argv = config.argv ?? process.argv.slice(2);
+  const write = config.write ?? ((text) => process.stdout.write(text));
+  const options = config.resolveOptions(argv);
+  if (options.list) {
+    write(config.abilities.join(`
+`) + `
+`);
+    return;
+  }
+  const result = config.run(options);
+  if (options.json) {
+    write(JSON.stringify(result, null, 2) + `
+`);
+    return;
+  }
+  write(config.render(result) + `
+`);
+}
+
 // tools/unity/unity-sense/src/cli.ts
 import { join, resolve } from "node:path";
 
-// tools/unity/unity-sense/src/types.ts
-var SENSE_ABILITIES = [
-  "project-status",
-  "asset-intelligence",
-  "offline-project-inspection",
-  "unity-api-lookup",
-  "platform-info",
-  "code-navigation"
-];
-function asRecord(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value) ? value : null;
-}
-function asArray(value) {
-  return Array.isArray(value) ? value : [];
-}
-function str(obj, key) {
-  const value = obj?.[key];
-  return typeof value === "string" ? value : null;
-}
-function num(obj, key) {
-  const value = obj?.[key];
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
-function bool(obj, key) {
-  const value = obj?.[key];
-  return typeof value === "boolean" ? value : null;
-}
-function stringArray(obj, key) {
-  const value = obj?.[key];
-  return Array.isArray(value) ? value.filter((item) => typeof item === "string") : [];
-}
-
-// tools/unity/unity-sense/src/cli.ts
+// tools/shared/cli-args.ts
 function parseArgs(argv) {
   const out = {};
   let i = 0;
@@ -61,12 +50,28 @@ function parseArgs(argv) {
   }
   return out;
 }
+function resolveAbility(requested, abilities, fallback) {
+  return abilities.includes(requested) ? requested : fallback;
+}
+
+// tools/unity/unity-sense/src/types.ts
+var SENSE_ABILITY_NAMES = [
+  "project-status",
+  "asset-intelligence",
+  "offline-project-inspection",
+  "unity-api-lookup",
+  "platform-info",
+  "code-navigation"
+];
+var SENSE_ABILITIES = [...SENSE_ABILITY_NAMES];
+
+// tools/unity/unity-sense/src/cli.ts
 function resolveOptions(argv) {
   const args = parseArgs(argv);
   const projectRoot = resolve(String(args["project-root"] || process.cwd()));
   const opencodeDir = resolve(String(args["opencode-dir"] || join(projectRoot, ".opencode")));
   const requested = String(args.ability || "project-status");
-  const ability = SENSE_ABILITIES.includes(requested) ? requested : "project-status";
+  const ability = resolveAbility(requested, SENSE_ABILITIES, "project-status");
   return {
     projectRoot,
     opencodeDir,
@@ -196,7 +201,7 @@ function walkFiles(root, match, maxDepth = 16) {
   walk(root, 0);
   return out;
 }
-function stringArray2(value) {
+function stringArray(value) {
   return Array.isArray(value) ? value.filter((item) => typeof item === "string") : [];
 }
 function ownerAsmdef(dir, dirs) {
@@ -248,14 +253,14 @@ function scanAsmdefs(assetFolder) {
   const nodes = [];
   const edges = [];
   for (const [path, entry] of byPath) {
-    const references = stringArray2(entry.json.references);
-    const includePlatforms = stringArray2(entry.json.includePlatforms);
-    const excludePlatforms = stringArray2(entry.json.excludePlatforms);
-    const optional = stringArray2(entry.json.optionalUnityReferences);
+    const references = stringArray(entry.json.references);
+    const includePlatforms = stringArray(entry.json.includePlatforms);
+    const excludePlatforms = stringArray(entry.json.excludePlatforms);
+    const optional = stringArray(entry.json.optionalUnityReferences);
     const testAssemblies = entry.json.testAssemblies === true || optional.includes("TestAssemblies");
     const isTest = testAssemblies || /\.Tests(\.|$)/.test(entry.name) || /\.Tests\.asmdef$/i.test(path);
     const editorOnly = includePlatforms.length === 1 && includePlatforms[0].toLowerCase() === "editor";
-    const ivt = new Set(stringArray2(entry.json.internalsVisibleTo));
+    const ivt = new Set(stringArray(entry.json.internalsVisibleTo));
     for (const value of ivtByAsmdef.get(path) ?? [])
       ivt.add(value);
     nodes.push({
@@ -291,23 +296,56 @@ function produceAsmdefMap(input) {
     edges
   };
 }
+// tools/shared/json-helpers.ts
+function asRecord(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? value : null;
+}
+function asArray(value) {
+  return Array.isArray(value) ? value : [];
+}
+function str(obj, key) {
+  const value = obj?.[key];
+  return typeof value === "string" ? value : null;
+}
+function num(obj, key) {
+  const value = obj?.[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+function bool(obj, key) {
+  const value = obj?.[key];
+  return typeof value === "boolean" ? value : null;
+}
+function stringArray2(obj, key) {
+  const value = obj?.[key];
+  return Array.isArray(value) ? value.filter((item) => typeof item === "string") : [];
+}
 
 // tools/unity/unity-sense/src/shared.ts
 import { join as join3 } from "node:path";
+
+// tools/shared/result-envelope.ts
+function makeEnvelope(input) {
+  return {
+    schemaVersion: 1,
+    generatedAt: nowIso(),
+    ability: input.ability,
+    family: input.family,
+    mode: input.mode,
+    route: input.route ?? "offline",
+    status: input.status,
+    summary: input.summary,
+    errors: input.errors
+  };
+}
+
+// tools/unity/unity-sense/src/shared.ts
 function projectDataDir(options) {
   return join3(options.opencodeDir, "project-data");
 }
 function makeResult(ability, status, summary, errors) {
   return {
-    schemaVersion: 1,
-    generatedAt: nowIso(),
-    ability,
-    family: "sense",
-    mode: "offline",
-    route: "offline",
-    status,
-    summary,
-    errors
+    ...makeEnvelope({ ability, family: "sense", mode: "offline", status, summary, errors }),
+    route: "offline"
   };
 }
 
@@ -583,7 +621,7 @@ function assetIntelligence(options) {
     ...makeResult("asset-intelligence", statusFromFlags(sources), "Asset usage deduced from structure, packages and preferences", []),
     assetCounts,
     totalAssets: Object.values(assetCounts).reduce((sum, value) => sum + value, 0),
-    thirdPartyFolders: stringArray(structure, "thirdPartyFolders"),
+    thirdPartyFolders: stringArray2(structure, "thirdPartyFolders"),
     packages: { status: str(packages, "status"), count: packageEntries.length, names },
     input: { usesInputSystem, usesLegacyInput, activeInputHandlerName },
     platform: { targetPlatform, il2cpp, colorSpace },
@@ -723,21 +761,4 @@ function render(result) {
   return lines.join(`
 `);
 }
-function main() {
-  const options = resolveOptions(process.argv.slice(2));
-  if (options.list) {
-    process.stdout.write(SENSE_ABILITIES.join(`
-`) + `
-`);
-    return;
-  }
-  const result = runSense(options);
-  if (options.json) {
-    process.stdout.write(JSON.stringify(result, null, 2) + `
-`);
-    return;
-  }
-  process.stdout.write(render(result) + `
-`);
-}
-main();
+runCli({ abilities: SENSE_ABILITIES, resolveOptions, run: runSense, render });

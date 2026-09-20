@@ -1,3 +1,24 @@
+// tools/shared/cli-bootstrap.ts
+function runCli(config) {
+  const argv = config.argv ?? process.argv.slice(2);
+  const write = config.write ?? ((text) => process.stdout.write(text));
+  const options = config.resolveOptions(argv);
+  if (options.list) {
+    write(config.abilities.join(`
+`) + `
+`);
+    return;
+  }
+  const result = config.run(options);
+  if (options.json) {
+    write(JSON.stringify(result, null, 2) + `
+`);
+    return;
+  }
+  write(config.render(result) + `
+`);
+}
+
 // tools/unity/unity-run/src/change-loop.ts
 import { join as join2 } from "node:path";
 
@@ -15,13 +36,14 @@ function nowIso() {
 }
 
 // tools/unity/unity-run/src/types.ts
-var RUN_ABILITIES = [
+var RUN_ABILITY_NAMES = [
   "unity-change-loop",
   "runtime-debugging",
   "runtime-ui-validation",
   "performance-diagnostics",
   "uitk-interaction"
 ];
+var RUN_ABILITIES = [...RUN_ABILITY_NAMES];
 var RUNTIME_ABILITIES = [
   "runtime-debugging",
   "runtime-ui-validation",
@@ -35,33 +57,7 @@ var RUN_MODES = {
   "performance-diagnostics": "live",
   "uitk-interaction": "live"
 };
-
-// tools/unity/unity-run/src/shared.ts
-import { join } from "node:path";
-function projectDataDir(options) {
-  return join(options.opencodeDir, "project-data");
-}
-function runDataDir(options) {
-  return join(projectDataDir(options), "run");
-}
-function makeResult(ability, status, summary, errors, options = {}) {
-  return {
-    schemaVersion: 1,
-    generatedAt: nowIso(),
-    ability,
-    family: "run",
-    mode: "offline",
-    route: options.route ?? "offline",
-    status,
-    summary,
-    errors,
-    safetyGate: {
-      requiresEditor: options.requiresEditor ?? false,
-      requiresApproval: options.requiresApproval ?? false,
-      approved: options.approved ?? false
-    }
-  };
-}
+// tools/shared/json-helpers.ts
 function asRecord(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? value : null;
 }
@@ -88,6 +84,50 @@ function parseBool(value, fallback) {
   if (["false", "0", "no", "off"].includes(text))
     return false;
   return fallback;
+}
+
+// tools/unity/unity-run/src/shared.ts
+import { join } from "node:path";
+
+// tools/shared/result-envelope.ts
+function makeEnvelope(input) {
+  return {
+    schemaVersion: 1,
+    generatedAt: nowIso(),
+    ability: input.ability,
+    family: input.family,
+    mode: input.mode,
+    route: input.route ?? "offline",
+    status: input.status,
+    summary: input.summary,
+    errors: input.errors
+  };
+}
+
+// tools/unity/unity-run/src/shared.ts
+function projectDataDir(options) {
+  return join(options.opencodeDir, "project-data");
+}
+function runDataDir(options) {
+  return join(projectDataDir(options), "run");
+}
+function makeResult(ability, status, summary, errors, options = {}) {
+  return {
+    ...makeEnvelope({
+      ability,
+      family: "run",
+      mode: "offline",
+      status,
+      summary,
+      errors,
+      route: options.route ?? "offline"
+    }),
+    safetyGate: {
+      requiresEditor: options.requiresEditor ?? false,
+      requiresApproval: options.requiresApproval ?? false,
+      approved: options.approved ?? false
+    }
+  };
 }
 
 // tools/unity/unity-run/src/change-loop.ts
@@ -318,7 +358,7 @@ function selectRoute(caps) {
 }
 
 // tools/unity/gather-unity-context/src/producers.ts
-function runCli(cliCommand, args, timeout = 30000) {
+function runCli2(cliCommand, args, timeout = 30000) {
   const res = run(cliCommand, args, { timeout });
   let parsed = null;
   try {
@@ -339,7 +379,7 @@ function runCli(cliCommand, args, timeout = 30000) {
 
 // tools/unity/gather-unity-context/src/editor.ts
 function findLiveInstance(projectRoot, cliCommand) {
-  const env = runCli(cliCommand, [
+  const env = runCli2(cliCommand, [
     "status",
     "--json",
     "--no-banner",
@@ -577,6 +617,8 @@ function runRun(options) {
 
 // tools/unity/unity-run/src/cli.ts
 import { join as join3, resolve } from "node:path";
+
+// tools/shared/cli-args.ts
 function parseArgs(argv) {
   const out = {};
   let i = 0;
@@ -612,12 +654,17 @@ function firstString(args, keys) {
   }
   return;
 }
+function resolveAbility(requested, abilities, fallback) {
+  return abilities.includes(requested) ? requested : fallback;
+}
+
+// tools/unity/unity-run/src/cli.ts
 function resolveOptions(argv) {
   const args = parseArgs(argv);
   const projectRoot = resolve(String(args["project-root"] || process.cwd()));
   const opencodeDir = resolve(String(args["opencode-dir"] || join3(projectRoot, ".opencode")));
   const requested = String(args.ability || "unity-change-loop");
-  const ability = RUN_ABILITIES.includes(requested) ? requested : "unity-change-loop";
+  const ability = resolveAbility(requested, RUN_ABILITIES, "unity-change-loop");
   return {
     projectRoot,
     opencodeDir,
@@ -629,7 +676,6 @@ function resolveOptions(argv) {
     operation: firstString(args, ["operation"]),
     code: firstString(args, ["code"]),
     approveCodeExecution: parseBool(args["approve-code-execution"] ?? args.approveCodeExecution ?? args["approve-code"], false),
-    live: undefined,
     cliCommand: firstString(args, ["unity-cli", "unityCli"]) ?? "unity"
   };
 }
@@ -654,21 +700,4 @@ function render(result) {
   return lines.join(`
 `);
 }
-function main() {
-  const options = resolveOptions(process.argv.slice(2));
-  if (options.list) {
-    process.stdout.write(RUN_ABILITIES.join(`
-`) + `
-`);
-    return;
-  }
-  const result = runRun(options);
-  if (options.json) {
-    process.stdout.write(JSON.stringify(result, null, 2) + `
-`);
-    return;
-  }
-  process.stdout.write(render(result) + `
-`);
-}
-main();
+runCli({ abilities: RUN_ABILITIES, resolveOptions, run: runRun, render });

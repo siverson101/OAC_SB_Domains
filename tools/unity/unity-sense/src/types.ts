@@ -4,22 +4,18 @@
 // and never needs a running Editor. Results are fail-soft — a missing file or
 // folder yields `unavailable`/`unknown`, never a thrown error.
 
-export type SenseAbility =
-  | 'project-status'
-  | 'asset-intelligence'
-  | 'offline-project-inspection'
-  | 'unity-api-lookup'
-  | 'platform-info'
-  | 'code-navigation';
-
-export const SENSE_ABILITIES: SenseAbility[] = [
+const SENSE_ABILITY_NAMES = [
   'project-status',
   'asset-intelligence',
   'offline-project-inspection',
   'unity-api-lookup',
   'platform-info',
   'code-navigation',
-];
+] as const;
+
+export type SenseAbility = (typeof SENSE_ABILITY_NAMES)[number];
+
+export const SENSE_ABILITIES: SenseAbility[] = [...SENSE_ABILITY_NAMES];
 
 export type SenseStatus = 'observed_locally' | 'available_but_unverified' | 'unavailable' | 'unknown';
 
@@ -47,31 +43,3 @@ export interface SenseOptions {
 }
 
 export type Json = Record<string, unknown>;
-
-export function asRecord(value: unknown): Json | null {
-  return value !== null && typeof value === 'object' && !Array.isArray(value) ? (value as Json) : null;
-}
-
-export function asArray(value: unknown): unknown[] {
-  return Array.isArray(value) ? value : [];
-}
-
-export function str(obj: Json | null, key: string): string | null {
-  const value = obj?.[key];
-  return typeof value === 'string' ? value : null;
-}
-
-export function num(obj: Json | null, key: string): number | null {
-  const value = obj?.[key];
-  return typeof value === 'number' && Number.isFinite(value) ? value : null;
-}
-
-export function bool(obj: Json | null, key: string): boolean | null {
-  const value = obj?.[key];
-  return typeof value === 'boolean' ? value : null;
-}
-
-export function stringArray(obj: Json | null, key: string): string[] {
-  const value = obj?.[key];
-  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
-}

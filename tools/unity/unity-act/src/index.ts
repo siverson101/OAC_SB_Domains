@@ -10,6 +10,7 @@
 //
 // Mutating paths default to a dry run and refuse to write without --confirm.
 // Every ability is fail-soft: a missing table or template is reported, never thrown.
+import { runCli } from '../../../shared/cli-bootstrap';
 import { runAct, type ActResult } from './abilities';
 import { resolveOptions } from './cli';
 import { ACT_ABILITIES } from './types';
@@ -26,18 +27,4 @@ function render(result: ActResult): string {
   return lines.join('\n');
 }
 
-function main(): void {
-  const options = resolveOptions(process.argv.slice(2));
-  if (options.list) {
-    process.stdout.write(ACT_ABILITIES.join('\n') + '\n');
-    return;
-  }
-  const result = runAct(options);
-  if (options.json) {
-    process.stdout.write(JSON.stringify(result, null, 2) + '\n');
-    return;
-  }
-  process.stdout.write(render(result) + '\n');
-}
-
-main();
+runCli({ abilities: ACT_ABILITIES, resolveOptions, run: runAct, render });

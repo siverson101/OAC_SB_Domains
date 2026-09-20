@@ -1,8 +1,17 @@
 // Shared helpers for the offline Sense family.
 export * from './types';
+export {
+  asArray,
+  asRecord,
+  bool,
+  num,
+  parseBool,
+  str,
+  stringArray,
+} from '../../../shared/json-helpers';
 
 import { join } from 'node:path';
-import { nowIso } from '../../../shared/io';
+import { makeEnvelope } from '../../../shared/result-envelope';
 import type { SenseAbility, SenseBase, SenseOptions, SenseStatus } from './types';
 
 export function projectDataDir(options: SenseOptions): string {
@@ -16,14 +25,7 @@ export function makeResult(
   errors: string[]
 ): SenseBase {
   return {
-    schemaVersion: 1,
-    generatedAt: nowIso(),
-    ability,
-    family: 'sense',
-    mode: 'offline',
+    ...makeEnvelope({ ability, family: 'sense', mode: 'offline', status, summary, errors }),
     route: 'offline',
-    status,
-    summary,
-    errors,
   };
 }

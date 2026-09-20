@@ -10,20 +10,17 @@
 //     `unavailable` when no channel/Editor is present.
 import type { LiveEditorChannel, LiveTransport, Route } from '../../../shared/tool-routing';
 
-export type RunAbility =
-  | 'unity-change-loop'
-  | 'runtime-debugging'
-  | 'runtime-ui-validation'
-  | 'performance-diagnostics'
-  | 'uitk-interaction';
-
-export const RUN_ABILITIES: RunAbility[] = [
+const RUN_ABILITY_NAMES = [
   'unity-change-loop',
   'runtime-debugging',
   'runtime-ui-validation',
   'performance-diagnostics',
   'uitk-interaction',
-];
+] as const;
+
+export type RunAbility = (typeof RUN_ABILITY_NAMES)[number];
+
+export const RUN_ABILITIES: RunAbility[] = [...RUN_ABILITY_NAMES];
 
 export type RuntimeAbility = Exclude<RunAbility, 'unity-change-loop'>;
 

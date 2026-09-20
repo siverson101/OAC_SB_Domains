@@ -1,3 +1,24 @@
+// tools/shared/cli-bootstrap.ts
+function runCli(config) {
+  const argv = config.argv ?? process.argv.slice(2);
+  const write = config.write ?? ((text) => process.stdout.write(text));
+  const options = config.resolveOptions(argv);
+  if (options.list) {
+    write(config.abilities.join(`
+`) + `
+`);
+    return;
+  }
+  const result = config.run(options);
+  if (options.json) {
+    write(JSON.stringify(result, null, 2) + `
+`);
+    return;
+  }
+  write(config.render(result) + `
+`);
+}
+
 // tools/unity/unity-verify/src/abilities.ts
 import { join as join6 } from "node:path";
 
@@ -89,7 +110,7 @@ function selectRoute(caps) {
 }
 
 // tools/unity/gather-unity-context/src/producers.ts
-function runCli(cliCommand, args, timeout = 30000) {
+function runCli2(cliCommand, args, timeout = 30000) {
   const res = run(cliCommand, args, { timeout });
   let parsed = null;
   try {
@@ -110,7 +131,7 @@ function runCli(cliCommand, args, timeout = 30000) {
 
 // tools/unity/gather-unity-context/src/editor.ts
 function findLiveInstance(projectRoot, cliCommand) {
-  const env = runCli(cliCommand, [
+  const env = runCli2(cliCommand, [
     "status",
     "--json",
     "--no-banner",
@@ -167,7 +188,7 @@ function parseNUnit(xml) {
   };
 }
 function runLiveTest(options, mode) {
-  const env = runCli(options.cliCommand, [
+  const env = runCli2(options.cliCommand, [
     "command",
     "run_tests",
     "--mode",
@@ -450,35 +471,60 @@ function produceLogDigest(input, logPaths = editorLogPaths()) {
 }
 
 // tools/unity/unity-verify/src/types.ts
-var VERIFY_ABILITIES = [
+var VERIFY_ABILITY_NAMES = [
   "compile-and-verify-project",
   "run-edit-mode-tests",
   "run-play-mode-tests",
   "gate-review"
 ];
+var VERIFY_ABILITIES = [...VERIFY_ABILITY_NAMES];
 var VERIFY_MODES = {
   "compile-and-verify-project": "both",
   "run-edit-mode-tests": "both",
   "run-play-mode-tests": "both",
   "gate-review": "offline"
 };
+// tools/shared/json-helpers.ts
+function asRecord(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? value : null;
+}
+function asArray(value) {
+  return Array.isArray(value) ? value : [];
+}
+function str(obj, key) {
+  const value = obj?.[key];
+  return typeof value === "string" ? value : null;
+}
+function bool(obj, key) {
+  const value = obj?.[key];
+  return typeof value === "boolean" ? value : null;
+}
 
 // tools/unity/unity-verify/src/shared.ts
 import { join as join4 } from "node:path";
+
+// tools/shared/result-envelope.ts
+function makeEnvelope(input) {
+  return {
+    schemaVersion: 1,
+    generatedAt: nowIso(),
+    ability: input.ability,
+    family: input.family,
+    mode: input.mode,
+    route: input.route ?? "offline",
+    status: input.status,
+    summary: input.summary,
+    errors: input.errors
+  };
+}
+
+// tools/unity/unity-verify/src/shared.ts
 function projectDataDir(options) {
   return join4(options.opencodeDir, "project-data");
 }
 function makeResult(ability, status, summary, errors, route, requiresEditor = false) {
   return {
-    schemaVersion: 1,
-    generatedAt: nowIso(),
-    ability,
-    family: "verify",
-    mode: "offline",
-    route,
-    status,
-    summary,
-    errors,
+    ...makeEnvelope({ ability, family: "verify", mode: "offline", status, summary, errors, route }),
     safetyGate: { mutates: false, requiresEditor },
     checkpoint: null,
     delta: {
@@ -507,20 +553,6 @@ function makeSnapshot(overrides = {}) {
     tests: { editMode: null, playMode: null, ...overrides.tests ?? {} },
     gateResult: overrides.gateResult ?? null
   };
-}
-function asRecord(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value) ? value : null;
-}
-function asArray(value) {
-  return Array.isArray(value) ? value : [];
-}
-function str(obj, key) {
-  const value = obj?.[key];
-  return typeof value === "string" ? value : null;
-}
-function bool(obj, key) {
-  const value = obj?.[key];
-  return typeof value === "boolean" ? value : null;
 }
 function issueKey(issue) {
   return `${issue.kind}:${issue.id}`;
@@ -927,6 +959,8 @@ function runVerify(options) {
 
 // tools/unity/unity-verify/src/cli.ts
 import { join as join7, resolve } from "node:path";
+
+// tools/shared/cli-args.ts
 function parseArgs(argv) {
   const out = {};
   let i = 0;
@@ -962,6 +996,11 @@ function firstString(args, keys) {
   }
   return;
 }
+function resolveAbility(requested, abilities, fallback) {
+  return abilities.includes(requested) ? requested : fallback;
+}
+
+// tools/unity/unity-verify/src/cli.ts
 var PHASES = ["checkpoint", "validate"];
 var INTENSITIES = ["full", "lean", "solo"];
 function resolveOptions(argv) {
@@ -969,7 +1008,7 @@ function resolveOptions(argv) {
   const projectRoot = resolve(String(args["project-root"] || process.cwd()));
   const opencodeDir = resolve(String(args["opencode-dir"] || join7(projectRoot, ".opencode")));
   const requested = String(args.ability || "compile-and-verify-project");
-  const ability = VERIFY_ABILITIES.includes(requested) ? requested : "compile-and-verify-project";
+  const ability = resolveAbility(requested, VERIFY_ABILITIES, "compile-and-verify-project");
   const phaseRaw = firstString(args, ["phase"]);
   const intensityRaw = firstString(args, ["review-intensity", "reviewIntensity"]);
   return {
@@ -1004,21 +1043,4 @@ function render(result) {
   return lines.join(`
 `);
 }
-function main() {
-  const options = resolveOptions(process.argv.slice(2));
-  if (options.list) {
-    process.stdout.write(VERIFY_ABILITIES.join(`
-`) + `
-`);
-    return;
-  }
-  const result = runVerify(options);
-  if (options.json) {
-    process.stdout.write(JSON.stringify(result, null, 2) + `
-`);
-    return;
-  }
-  process.stdout.write(render(result) + `
-`);
-}
-main();
+runCli({ abilities: VERIFY_ABILITIES, resolveOptions, run: runVerify, render });

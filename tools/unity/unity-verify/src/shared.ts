@@ -1,8 +1,18 @@
 // Shared helpers for the Verify family.
 export * from './types';
+export {
+  asArray,
+  asRecord,
+  bool,
+  num,
+  parseBool,
+  str,
+  stringArray,
+} from '../../../shared/json-helpers';
 
 import { join } from 'node:path';
 import { nowIso } from '../../../shared/io';
+import { makeEnvelope } from '../../../shared/result-envelope';
 import type { Route } from '../../../shared/tool-routing';
 import type {
   SnapshotOverrides,
@@ -13,7 +23,6 @@ import type {
   VerifyOptions,
   VerifySnapshot,
   VerifyStatus,
-  Json,
 } from './types';
 
 export function projectDataDir(options: VerifyOptions): string {
@@ -37,15 +46,7 @@ export function makeResult(
   requiresEditor = false
 ): VerifyBase {
   return {
-    schemaVersion: 1,
-    generatedAt: nowIso(),
-    ability,
-    family: 'verify',
-    mode: 'offline',
-    route,
-    status,
-    summary,
-    errors,
+    ...makeEnvelope({ ability, family: 'verify', mode: 'offline', status, summary, errors, route }),
     safetyGate: { mutates: false, requiresEditor },
     checkpoint: null,
     delta: {
@@ -76,29 +77,6 @@ export function makeSnapshot(overrides: SnapshotOverrides = {}): VerifySnapshot 
     tests: { editMode: null, playMode: null, ...(overrides.tests ?? {}) },
     gateResult: overrides.gateResult ?? null,
   };
-}
-
-export function asRecord(value: unknown): Json | null {
-  return value !== null && typeof value === 'object' && !Array.isArray(value) ? (value as Json) : null;
-}
-
-export function asArray(value: unknown): unknown[] {
-  return Array.isArray(value) ? value : [];
-}
-
-export function str(obj: Json | null, key: string): string | null {
-  const value = obj?.[key];
-  return typeof value === 'string' ? value : null;
-}
-
-export function num(obj: Json | null, key: string): number | null {
-  const value = obj?.[key];
-  return typeof value === 'number' && Number.isFinite(value) ? value : null;
-}
-
-export function bool(obj: Json | null, key: string): boolean | null {
-  const value = obj?.[key];
-  return typeof value === 'boolean' ? value : null;
 }
 
 export function issueKey(issue: VerifyIssue): string {

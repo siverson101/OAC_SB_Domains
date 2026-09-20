@@ -13,6 +13,7 @@
 //
 // Every ability is offline and fail-soft: it reads/writes plain files under
 // `.opencode/` and never launches the Editor.
+import { runCli } from '../../../shared/cli-bootstrap';
 import { runCompose, type ComposeResult } from './abilities';
 import { resolveOptions } from './cli';
 import { COMPOSE_ABILITIES } from './types';
@@ -44,18 +45,4 @@ function render(result: ComposeResult): string {
   return lines.join('\n');
 }
 
-function main(): void {
-  const options = resolveOptions(process.argv.slice(2));
-  if (options.list) {
-    process.stdout.write(COMPOSE_ABILITIES.join('\n') + '\n');
-    return;
-  }
-  const result = runCompose(options);
-  if (options.json) {
-    process.stdout.write(JSON.stringify(result, null, 2) + '\n');
-    return;
-  }
-  process.stdout.write(render(result) + '\n');
-}
-
-main();
+runCli({ abilities: COMPOSE_ABILITIES, resolveOptions, run: runCompose, render });

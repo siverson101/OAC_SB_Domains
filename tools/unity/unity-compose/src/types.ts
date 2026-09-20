@@ -7,18 +7,16 @@
 // writes plain files under `.opencode/` and never needs the Editor.
 import type { Route } from '../../../shared/tool-routing';
 
-export type ComposeAbility =
-  | 'coordination-board'
-  | 'primitive-composition'
-  | 'contract-aware-design'
-  | 'ci-status-baseline';
-
-export const COMPOSE_ABILITIES: ComposeAbility[] = [
+const COMPOSE_ABILITY_NAMES = [
   'coordination-board',
   'primitive-composition',
   'contract-aware-design',
   'ci-status-baseline',
-];
+] as const;
+
+export type ComposeAbility = (typeof COMPOSE_ABILITY_NAMES)[number];
+
+export const COMPOSE_ABILITIES: ComposeAbility[] = [...COMPOSE_ABILITY_NAMES];
 
 export type ComposeMode = 'offline' | 'live' | 'both';
 
@@ -73,6 +71,7 @@ export interface ComposeOptions {
   holder?: string;
   note?: string;
   leaseSeconds?: number;
+  waitSeconds?: number;
   now?: string;
   primitivesDir?: string;
   capabilitiesDir?: string;

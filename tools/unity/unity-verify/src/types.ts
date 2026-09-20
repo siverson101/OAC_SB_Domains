@@ -10,18 +10,16 @@
 import type { Route } from '../../../shared/tool-routing';
 import type { TestCounts } from '../../gather-unity-context/src/gate';
 
-export type VerifyAbility =
-  | 'compile-and-verify-project'
-  | 'run-edit-mode-tests'
-  | 'run-play-mode-tests'
-  | 'gate-review';
-
-export const VERIFY_ABILITIES: VerifyAbility[] = [
+const VERIFY_ABILITY_NAMES = [
   'compile-and-verify-project',
   'run-edit-mode-tests',
   'run-play-mode-tests',
   'gate-review',
-];
+] as const;
+
+export type VerifyAbility = (typeof VERIFY_ABILITY_NAMES)[number];
+
+export const VERIFY_ABILITIES: VerifyAbility[] = [...VERIFY_ABILITY_NAMES];
 
 export type VerifyMode = 'offline' | 'live' | 'both';
 
