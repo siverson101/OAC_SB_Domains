@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "description": "Unity API deprecations scanned offline by gather-unity-context (deprecation-scan producer). Each entry maps a deprecated member to its replacement.",
+  "patterns": [
+    {
+      "id": "object-find-object-of-type",
+      "match": "Object.FindObjectOfType",
+      "replacement": "Object.FindFirstObjectByType",
+      "kind": "method",
+      "since": "2023.1",
+      "message": "Object.FindObjectOfType is obsolete; use Object.FindFirstObjectByType."
+    },
+    {
+      "id": "find-objects-of-type-all",
+      "match": "FindObjectsOfTypeAll",
+      "replacement": "FindObjectsByType(FindObjectsSortMode.None)",
+      "kind": "method",
+      "since": "2023.1",
+      "message": "FindObjectsOfTypeAll is obsolete; use FindObjectsByType."
+    },
+    {
+      "id": "find-objects-of-type",
+      "match": "FindObjectsOfType",
+      "replacement": "FindObjectsByType",
+      "kind": "method",
+      "since": "2023.1",
+      "message": "FindObjectsOfType is obsolete; use FindObjectsByType with a sort mode."
+    },
+    {
+      "id": "find-any-object-of-type",
+      "match": "FindAnyObjectOfType",
+      "replacement": "FindAnyObjectByType",
+      "kind": "method",
+      "since": "2023.1",
+      "message": "FindAnyObjectOfType is obsolete; use FindAnyObjectByType."
+    },
+    {
+      "id": "find-object-of-type",
+      "match": "FindObjectOfType",
+      "replacement": "FindFirstObjectByType",
+      "kind": "method",
+      "since": "2023.1",
+      "message": "FindObjectOfType is obsolete; use FindFirstObjectByType."
+    }
+  ]
+}

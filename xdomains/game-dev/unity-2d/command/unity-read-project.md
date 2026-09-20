@@ -16,4 +16,4 @@ Writes `.opencode/project-data/` (identity, packages, preferences, files, scan s
 `.opencode/xdomains/context/project/` (raw packages, combined `project.json`). Add
 `--non-interactive` for CI. Fail-soft.
 
-For the full Unity context (structure, commands, pipeline, MCP, gate), run `gather-unity-context`.
+For the full Unity context (structure, commands, pipeline, Unity CLI MCP, gate), run `gather-unity-context`.

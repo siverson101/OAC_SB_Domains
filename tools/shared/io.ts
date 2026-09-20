@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { dirname, sep } from 'node:path';
 
 export function fileExists(path: string): boolean {
   try {
@@ -53,4 +53,8 @@ export function nowIso(): string {
 
 export function unique<T>(values: T[]): T[] {
   return Array.from(new Set(values));
+}
+
+export function toPosix(path: string): string {
+  return path.split(sep).join('/');
 }

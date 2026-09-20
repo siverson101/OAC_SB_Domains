@@ -1,5 +1,5 @@
 ---
-description: Gather the full Unity context (structure, toolchain, commands, pipeline, MCP, gate) for the project
+description: Gather the full Unity context (structure, toolchain, commands, pipeline, Unity CLI MCP, gate) for the project
 ---
 
 # Gather Unity Context
@@ -21,7 +21,7 @@ Written to `.opencode/project-data/`:
   images, sprites, audio, action maps, native libraries, and third-party folders.
 - `unity-command-list.json` / `unity-command-schema.json` — Editor/Pipeline commands.
 - `unity-pipeline-status.json` — Pipeline package and Editor instances.
-- `unity-mcp-status.json` — MCP server/client status.
+- `unity-mcp-status.json` — Unity CLI MCP server/client status.
 - `unity-verification-report.json` / `gate-state.json` — compile + EditMode/PlayMode verdict and
   project fingerprint.
 

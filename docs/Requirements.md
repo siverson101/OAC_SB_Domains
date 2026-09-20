@@ -32,12 +32,12 @@ this. All ability, command, and tool references below are kebab-case.
 | 1 | Unity sub-domain installs into `.opencode/` via `/build-context-system` | **DONE** |
 | 2 | Stage-3 project scan and user preferences | **DONE** |
 | 3 | `gather-unity-context` — port DevTools automation + project-structure scanners | **DONE** |
-| 4 | Capability system — five families, unified contract, no-MCP runtime | Planned |
+| 4 | Capability system — five families, unified contract, Unity CLI runtime | Planned |
 | 5 | Asset intelligence & offline reads — gather extensions + content-level readers | Planned |
 | 6 | Knowledge & building blocks — knowledge, snippets, primitives, pattern toggles | Planned |
 | 7 | Agents & coordination — Lean + Full Studio, selection, coordination board | Planned |
 | 8 | Testing & gates — gate/verify, TDD toggle, test plans, dedup, visual | Planned |
-| 9 | Workflows & change loop — recipes, change loop, prefab/scene, runtime bridge | Planned |
+| 9 | Workflows & change loop — recipes, change loop, prefab/scene, Unity CLI runtime | Planned |
 
 ---
 
@@ -189,7 +189,7 @@ Finished files → `.opencode/project-data/`:
 | `native-project-state.json` | Native build state (already shipped). |
 | `unity-command-list.json` | Editor/CLI commands available (`unity list`, `unity command`). |
 | `unity-command-schema.json` | Command help/arg schema. |
-| `unity-mcp-status.json` | MCP server/client configuration and tools. |
+| `unity-mcp-status.json` | Unity CLI MCP server/client configuration (via `unity mcp configure --list`). |
 | `unity-pipeline-status.json` | Pipeline package + CLI status. |
 | `unity-verification-report.json` | Compile + EditMode/PlayMode results and gate verdict. |
 | `gate-state.json` | Fingerprint, gate result, review-required, hard failures. |
@@ -224,7 +224,7 @@ Extend `context-projections.json` with per-concern outputs and consumers:
 |--------|---------|
 | `commands.md` | `unity-command-list.json`, `unity-command-schema.json` |
 | `pipeline.md` | `unity-pipeline-status.json` |
-| `mcp.md` | `unity-mcp-status.json` |
+| `mcp.md` | `unity-mcp-status.json` (Unity CLI MCP) |
 | `gate.md` | `gate-state.json`, `unity-verification-report.json` |
 | `structure.md` | `project-structure.json` |
 
@@ -279,8 +279,8 @@ the DevTools `logs/` behaviour.
    `unity open <project> --args -automated`, run tests through `unity command run_tests` (mode
    `editor`/`playmode`), then stop the Editor if we started it. A `--gate` run ensures the Editor
    *before* the producers, so command/pipeline/MCP data is live too. Batch `unity test` remains a
-   last resort if the Editor cannot be started. MCP status uses `unity mcp configure --list`; never
-   invoke bare `unity mcp` (it starts a stdio server).
+   last resort if the Editor cannot be started. MCP status uses the Unity CLI's `unity mcp configure
+   --list`; never invoke bare `unity mcp` (it starts a stdio server).
 
 ### 3.10 Gather extensions (planned — Goal 5)
 
@@ -307,9 +307,10 @@ stage-3 step.
 Express every Unity/MCP/devtools capability as an OAC capability under one uniform contract
 (ADR-0012). Five families — **Sense, Act, Verify, Run, Compose** — over three layers: **tool** (thin
 typed adapter, no workflow logic) → **ability** (named capability composing tools) → **command**
-(user-invocable entry realising an ability; ADR-0004). No extra MCPs (ADR-0017); every capability
-declares `family`, `mode` (`offline|live|both`), inputs/outputs, side effects, safety gate, version
-compatibility, and composition edges (`uses`/`usedBy`/`provides`/`requires`).
+(user-invocable entry realising an ability; ADR-0004). No new MCP servers (ADR-0017); the runtime uses
+the Unity CLI's built-in stdio MCP and Pipeline package. Every capability declares `family`, `mode`
+(`offline|live|both`), inputs/outputs, side effects, safety gate, version compatibility, and
+composition edges (`uses`/`usedBy`/`provides`/`requires`).
 
 ## Goal 5 — Asset intelligence & offline reads
 
@@ -344,7 +345,7 @@ data; bounded failures; visual verification as a gate.
 
 Lifecycle commands (`/unity-setup` … `/unity-review`) + domain + runtime loops; workflows as data
 recipes + a 7-phase lifecycle catalog with artifact checks (ADR-0016); the canonical change loop;
-prefab/scene automation via inspector → `prefab patch --dryRun` → YAML escalation; a runtime bridge
+prefab/scene automation via inspector → `prefab patch --dryRun` → YAML escalation; a Unity CLI runtime
 (approval-gated code execution) and code index (ADR-0018). Unity 6.0/6.3/6.5/LTS version conditionals
 (FR5) and attribution upkeep (LR1–LR3) span all goals.
 
@@ -368,7 +369,8 @@ prefab/scene automation via inspector → `prefab patch --dryRun` → YAML escal
   Unity CLI/devtools, and respects the TDD toggle (if enabled: failing-test-first; if disabled:
   tests still required).
 - **FR5: Version and conditional support.** Support Unity 6.0/6.3/6.5+ and future LTS via feature
-  flags per version and explicit compatibility declarations. No deprecated Unity MCP.
+  flags per version and explicit compatibility declarations. No deprecated in-editor Unity MCP; use
+  the Unity CLI.
 - **FR6: Pattern toggling.** Per project or build-context configuration to enable/disable patterns
   and packages and influence code generation (e.g. prefer FlowFramework events over DI, avoid
   Service Locator).
@@ -397,25 +399,42 @@ prefab/scene automation via inspector → `prefab patch --dryRun` → YAML escal
 
 ## Compatibility map (MCP → OAC abilities, commands, tools)
 
-No extra MCPs: all Unity/MCP/devtools functionality is expressed as commands, abilities, and agents.
-These abilities fold into the five families (Goal 4): **Sense, Act, Verify, Run, Compose**. The
-no-MCP runtime is a project-local CLI + on-disk exchange + offline readers + optional localhost bridge
-(ADR-0017); MCP itself is dropped entirely except the status reporter.
+No new MCP servers: all Unity/MCP/devtools functionality is expressed as commands, abilities, and
+agents, folding into the five families (Goal 4): **Sense, Act, Verify, Run, Compose**. The runtime is
+the Unity CLI — the Pipeline package's local server driven by `unity command` / `unity eval`, with the
+CLI's stdio MCP (`unity mcp`) as the protocol option for MCP clients — plus on-disk exchange and
+offline readers (ADR-0017). No custom localhost HTTP bridge; the deprecated in-editor Unity MCP is not
+used. The MCP status reporter reads the CLI's MCP client config (`unity mcp configure --list`).
 
 | Source | Original surface | OAC mapping |
 |--------|------------------|-------------|
 | Unity CLI + pipeline | CLI verbs, UAX tools | Commands: `unity-build`, `unity-test`, `unity-run`, `unity-command`, `unity-status`, `unity-list`. Abilities: `gather-unity-context`, `unity-run-tests`, `performance-diagnostics`, `uitk-interaction`, `input-automation`. |
 | DevTools `.cmd`/`.ps1` | compile, test, gate, native build | Commands: `devtools-*` invocations. Abilities: `compile-and-verify-project`, `run-edit-mode-tests`, `run-play-mode-tests`, `gate-review`, `build-native-sub-project`, `project-status`. |
 | Unity-Open-MCP | asset intelligence, offline reads | Abilities: `asset-intelligence`, `offline-project-inspection`, `gate-and-verify-changes`. |
-| AIBridge | runtime bridge, workflows | Abilities: `unity-change-loop`, `prefab-automation`, `runtime-debugging`, `runtime-ui-validation`. |
+| AIBridge | runtime bridge, workflows | Abilities: `unity-change-loop`, `prefab-automation`, `runtime-debugging`, `runtime-ui-validation` (run through the Unity CLI runtime). |
 | unity-coding-skills | skills + TDD | Abilities: `test-design`, `test-writing`, `failing-test-first`, `test-deduplication`. SubAgents: `UnityTestEngineer`, `UnityTddSpecialist`. |
 | Unity-Developer-Tools | tools, rules, snippets | Abilities: `script-scaffolding`, `unity-api-lookup`, `shader-helper`, `platform-targeting`, `pattern-library`. |
+
+## Unity CLI & Pipeline setup (prerequisites)
+
+The runtime is the Unity CLI plus the Pipeline package. These are one-time prerequisites, needed only
+if the machine lacks them — confirm before running any of them:
+
+- **Install the Unity CLI** (skip if `unity --version` works):
+  `curl -fsSL https://public-cdn.cloud.unity3d.com/hub/prod/cli/install.sh | UNITY_CLI_CHANNEL=beta bash`
+  (macOS/Linux) or `brew install --cask unity-cli`.
+- **Install the Pipeline package** in the project: `unity pipeline install`.
+
+Do **not** run `unity mcp configure <client>` or `unity skill install <agent>` as part of the domain:
+opencode integrates deeply through the Unity CLI directly (`unity command` / `unity eval`), so no MCP
+client configuration is required. `unity mcp configure --list` is used only to *report* CLI MCP client
+state. Never invoke bare `unity mcp` in a shell (it starts a stdio server).
 
 ## Phased plan
 
 Superseded by **`docs/Plan.md`** (Goals 4–9, seven phases, each with goals/requirements/tests and
 per-step context + completion criteria). Summary: Phase 1 capability contract + registry; Phase 2
-five families + no-MCP runtime + gather extensions; Phase 3 knowledge/primitives/toggles/attribution;
+five families + Unity CLI runtime + gather extensions; Phase 3 knowledge/primitives/toggles/attribution;
 Phase 4 agents + coordination; Phase 5 testing + gates; Phase 6 workflows + change loop + runtime;
 Phase 7 version conditionals + swap command + hardening.
 
@@ -433,4 +452,4 @@ All Goal 3 scope decisions are settled (§3.9). Goals 4–9 decisions were settl
 `wayfinder` effort at `C:\Users\siver\Dev\.scratch\unity-domain-roadmap\` (tickets 08–15) and recorded
 as ADRs 0011–0018: coordination board (0011), unified capability contract (0012), two agent
 hierarchies (0013), framework-agnostic primitives (0014), safety-gated mutations (0015), workflows
-as data recipes (0016), no-MCP project-local CLI (0017), scene escalation + runtime approval (0018).
+as data recipes (0016), Unity CLI pipeline + stdio MCP (0017), scene escalation + runtime approval (0018).

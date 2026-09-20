@@ -28,7 +28,7 @@ _Last updated 2026-09-19. Decisions this plan encodes live in `docs/adr/` (0011�
 | Agent hierarchy | `Lean` vs `Full Studio` (`.opencode/unity-studio.json`) | Lean |
 | TDD specialist + FTF workflow | TDD toggle in the pattern config | off |
 | Native-plugin specialist | native sub-project detected by `sub-projects.ts` | auto |
-| Runtime bridge + runtime loops | bridge availability | off until built (Phase 6) |
+| Unity CLI runtime (pipeline + stdio MCP) | Unity CLI availability | CLI direct; MCP optional (Phase 6) |
 | Visual verification gate | always-on per ticket 12 | on |
 
 ---
@@ -79,26 +79,29 @@ typecheck.
 
 ---
 
-## Phase 2 — Capabilities (five families) & the no-MCP runtime
+## Phase 2 — Capabilities (five families) & the Unity CLI runtime
 
-**Goals:** realise the five ability families over a project-local, MCP-free runtime, and fold the
-gather data-collection extensions into the stage-3 pipeline.
+**Goals:** realise the five ability families over the Unity CLI pipeline + stdio MCP runtime, and fold
+the gather data-collection extensions into the stage-3 pipeline.
 
-**Requirements:** FR1/FR3, ticket 14 (no MCP, CLI + on-disk + offline readers + optional bridge),
+**Requirements:** FR1/FR3, ticket 14 (Unity CLI pipeline + stdio MCP; no new MCPs, no custom bridge),
 ticket 09 (five families), ticket 11 (offline-first), ADR-0017.
 
 **Tests:** per-producer unit tests (Bun); a `--gate` run against PuppetTree; offline-reader fixtures;
 typecheck.
 
-### Step 2.1 — No-MCP runtime: CLI + on-disk exchange + offline readers
+### Step 2.1 — Unity CLI runtime: pipeline + stdio MCP + on-disk exchange + offline readers
 
 - **Context:** `tools/shared/toolchain.ts` (`run`), `tools/unity/gather-unity-context/src/producers.ts`
   (`runCli`, the `CliEnvelope`), `tools/unity/gather-unity-context/src/scratch.ts` (evidence dir),
-  ADR-0017. Add an optional localhost HTTP bridge seam (live Editor) and routing classes
-  `live|batch|offline|local`. Keep `unity mcp configure --list` as the only MCP touch; never bare
-  `unity mcp`.
+  ADR-0017. Drive the live Editor through the Unity CLI: `unity command` / `unity eval` (the Pipeline
+  package's local server, preferred) or the CLI's stdio MCP (`unity mcp`) when shell execution is not
+  viable. **Do not build a custom localhost HTTP bridge.** Routing classes `live|batch|offline|local`.
+  `unity mcp configure --list` reports the CLI's MCP client config; never invoke bare `unity mcp` (it
+  starts a stdio server).
 - **Completion:** a `tool-routing` module (or extension of `toolchain.ts`) that selects the route and
-  records which route served a result; unit tests for the offline vs live fallback.
+  records which route served a result (including the live transport `cli|mcp`); unit tests for the
+  offline vs live fallback.
 
 ### Step 2.2 — Gather extensions (hook 3 data collection)
 
@@ -150,17 +153,17 @@ typecheck.
 
 - **Context:** ADR-0015/0018, AIBridge `unity-change-implementation` recipe, UAX profiling commands
   (`Runtime/Profiling/*.cs`). Implement `unity-change-loop`, `runtime-debugging`,
-  `runtime-ui-validation`, `performance-diagnostics`, `uitk-interaction`. These need the bridge from
-  2.1; until then they're gated.
+  `runtime-ui-validation`, `performance-diagnostics`, `uitk-interaction`. These need the Unity CLI
+  live channel from 2.1; until then they're gated.
 - **Completion:** the change-loop ability runs compile → `get_logs --logType Error` → tests → observe
-  and cites evidence; runtime abilities report `unavailable` without a bridge (fail-soft).
+  and cites evidence; runtime abilities report `unavailable` without a Unity CLI/Editor (fail-soft).
 
 ### Step 2.7 — Compose family + ledgers
 
 - **Context:** ADR-0011 (coordination board), `primitive.yaml` composition (depends-on,
   wire-through-events, compatibility graph). Implement `coordination-board`,
   `primitive-composition`, `contract-aware-design`, `ci-status-baseline`. Write
-  `unity-open-mcp-missing-tools.md` recording every MCP tool deliberately not implemented.
+  `unity-open-mcp-missing-tools.md` recording every Unity-Open-MCP tool deliberately not implemented.
 - **Completion:** the coordination board writes `.opencode/coordination/board.json` + `board.md`
   (claims, leases, fail-fast, one-holder Editor hold); the missing-tools ledger exists and is updated
   in the same change as any tool skip.
@@ -330,11 +333,11 @@ verification extraction test.
 ## Phase 6 — Workflows & change loop
 
 **Goals:** ship the lifecycle commands, the recipe/catalog, the change loop, prefab/scene automation,
-the runtime bridge, and the code index.
+the Unity CLI runtime, and the code index.
 
 **Requirements:** tickets 13, 15, ADR-0016/0018.
 
-**Tests:** recipe execution tests; change-loop E2E (opt-in Editor); prefab-patch dry-run test; bridge
+**Tests:** recipe execution tests; change-loop E2E (opt-in Editor); prefab-patch dry-run test; runtime
 handshake test.
 
 ### Step 6.1 — Lifecycle commands
@@ -368,13 +371,14 @@ handshake test.
 - **Completion:** a dry-run proposes ops without mutating; a non-dry-run applies and rolls back on
   new errors.
 
-### Step 6.5 — Runtime bridge
+### Step 6.5 — Runtime via the Unity CLI
 
-- **Context:** AIBridge runtime plane (`Runtime/*`), ADR-0018. Player discovery, logs, screenshots,
-  performance sampling, UI snapshot/find/click/key, runtime handlers. Runtime code execution sits
-  behind an explicit approval gate.
-- **Completion:** a bridge handshake test against a built Player; runtime code execution requires
-  approval.
+- **Context:** the Unity CLI Pipeline Runtime server (`unity command` runtime handlers / `unity mcp`),
+  AIBridge runtime plane (`Runtime/*`), ADR-0018. Player discovery, logs, screenshots, performance
+  sampling, UI snapshot/find/click/key, runtime handlers. Runtime code execution sits behind an
+  explicit approval gate.
+- **Completion:** a Unity CLI runtime handshake test against a built Player; runtime code execution
+  requires approval.
 
 ### Step 6.6 — Code index
 
@@ -426,5 +430,5 @@ docs in lockstep.
 | 3 | count parity + frontmatter schema; import gate; attribution completeness |
 | 4 | apply per-hierarchy; board claim/lease/hold; routing snapshot |
 | 5 | gate delta honesty; TDD red→green→refactor; dedup; visual extraction |
-| 6 | recipe validation; change-loop E2E (opt-in); prefab dry-run; bridge handshake |
+| 6 | recipe validation; change-loop E2E (opt-in); prefab dry-run; runtime handshake |
 | 7 | version matrix; swap round-trip; doc-drift |

@@ -87,7 +87,7 @@
     },
     {
       "file": "mcp.md",
-      "title": "Unity MCP",
+      "title": "Unity CLI MCP",
       "priority": "low",
       "sources": [
         { "file": "unity-mcp-status.json", "fields": ["status", "supportedClients", "configuredClients"] }
@@ -101,20 +101,68 @@
         { "file": "gate-state.json", "fields": ["gateResult", "hardFailures", "reviewRequired", "fingerprint", "lastVerificationUtc"] },
         { "file": "unity-verification-report.json", "fields": ["status", "summary", "results"] }
       ]
+    },
+    {
+      "file": "compile-state.md",
+      "title": "Compile State",
+      "priority": "high",
+      "sources": [
+        { "file": "compile-state.json", "fields": ["status", "stale", "noOpRecompile", "assemblyCount", "newestAssembly", "newestScript", "editorLogAuthorship"] }
+      ]
+    },
+    {
+      "file": "log-digest.md",
+      "title": "Editor Log Digest",
+      "priority": "high",
+      "sources": [
+        { "file": "log-digest.json", "fields": ["status", "logCount", "errorCount", "warningCount", "logs", "recentMessages"] }
+      ]
+    },
+    {
+      "file": "project-settings.md",
+      "title": "Project Settings",
+      "priority": "high",
+      "sources": [
+        { "file": "project-settings.json", "fields": ["status", "productName", "companyName", "scriptingBackend", "il2cpp", "targetPlatform", "colorSpace", "graphicsApis", "persistentDataPath", "activeInputHandler", "activeInputHandlerName"] }
+      ]
+    },
+    {
+      "file": "asmdef-map.md",
+      "title": "Assembly Definition Map",
+      "priority": "high",
+      "sources": [
+        { "file": "asmdef-map.json", "fields": ["status", "assemblyCount", "testAssemblyCount", "assemblies", "edges"] }
+      ]
+    },
+    {
+      "file": "test-inventory.md",
+      "title": "Test Inventory",
+      "priority": "high",
+      "sources": [
+        { "file": "test-inventory.json", "fields": ["status", "testAssemblies", "testAssemblyCount", "results", "latestResult", "visualVerification"] }
+      ]
+    },
+    {
+      "file": "deprecation-scan.md",
+      "title": "Deprecation Scan",
+      "priority": "medium",
+      "sources": [
+        { "file": "deprecation-scan.json", "fields": ["status", "patternsLoaded", "patternsSource", "scannedFiles", "findingCount", "byPattern", "findings"] }
+      ]
     }
   ],
   "consumers": {
-    "unity-2d-orchestrator": ["project-state.md", "skills.md", "preferences.md", "structure.md", "gate.md"],
-    "subagents/unity/implementer": ["project-state.md", "packages.md", "preferences.md", "structure.md", "gate.md"],
-    "subagents/unity/scene": ["project-state.md", "files.md", "structure.md"],
+    "unity-2d-orchestrator": ["project-state.md", "skills.md", "preferences.md", "structure.md", "gate.md", "compile-state.md", "log-digest.md", "asmdef-map.md", "test-inventory.md", "deprecation-scan.md"],
+    "subagents/unity/implementer": ["project-state.md", "packages.md", "preferences.md", "structure.md", "gate.md", "compile-state.md", "log-digest.md", "project-settings.md", "asmdef-map.md", "deprecation-scan.md"],
+    "subagents/unity/scene": ["project-state.md", "files.md", "structure.md", "project-settings.md"],
     "subagents/unity/uitk": ["project-state.md"],
     "subagents/unity/animator": ["project-state.md"],
     "subagents/unity/shadervfx": ["packages.md"],
     "subagents/unity/artasset": ["packages.md", "files.md", "structure.md"],
-    "subagents/unity/qa": ["testing.md", "project-state.md", "preferences.md", "gate.md", "commands.md"],
+    "subagents/unity/qa": ["testing.md", "project-state.md", "preferences.md", "gate.md", "commands.md", "log-digest.md", "test-inventory.md", "deprecation-scan.md"],
     "command/unity-feature": ["project-state.md"],
-    "command/unity-test": ["testing.md", "commands.md"],
-    "command/unity-build": ["testing.md", "native.md", "gate.md", "commands.md"],
-    "command/unity-architecture": ["project-state.md", "packages.md", "structure.md"]
+    "command/unity-test": ["testing.md", "commands.md", "test-inventory.md", "log-digest.md"],
+    "command/unity-build": ["testing.md", "native.md", "gate.md", "commands.md", "compile-state.md", "project-settings.md"],
+    "command/unity-architecture": ["project-state.md", "packages.md", "structure.md", "asmdef-map.md", "deprecation-scan.md"]
   }
 }

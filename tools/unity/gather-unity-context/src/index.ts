@@ -2,10 +2,19 @@ import { basename, join } from 'node:path';
 import { dirExists, nowIso, readJson, writeJson } from '../../../shared/io';
 import { PromptClient, loadAnswersFile } from '../../../shared/prompt-client';
 import { probeToolchain } from '../../../shared/toolchain';
+import { selectRoute } from '../../../shared/tool-routing';
 import { resolveOptions } from './cli';
 import { findLiveInstance, startEditor, stopEditor } from './editor';
 import { fingerprintInputs, fingerprintOf } from './fingerprint';
 import { runGate } from './gate';
+import {
+  produceAsmdefMap,
+  produceCompileState,
+  produceDeprecationScan,
+  produceLogDigest,
+  produceProjectSettings,
+  produceTestInventory,
+} from './offline';
 import { inspectMcp, inspectPipeline, inventoryCommands } from './producers';
 import { clearScratch, ensureScratch } from './scratch';
 import { discoverProjectStructure } from './structure';
@@ -34,6 +43,8 @@ async function main(): Promise<void> {
   const foundProject = scan?.foundProject ?? dirExists(assetFolder);
 
   const toolchain = probeToolchain(options.projectRoot, options.cliCommand);
+  const cliAvailable = Boolean(toolchain.cliPath);
+  const selection = selectRoute({ live: null, cliAvailable });
 
   // The gate needs the Editor. If one is not running, start it with -automated
   // and stop it again once we are done.
@@ -62,6 +73,18 @@ async function main(): Promise<void> {
     const fpInputs = fingerprintInputs(options.projectRoot, projectName);
     const fingerprint = fingerprintOf(fpInputs);
     const gate = runGate(options, editorInstance);
+
+    const offlineInput = {
+      projectRoot: options.projectRoot,
+      assetFolder,
+      opencodeDir: options.opencodeDir,
+    };
+    const compileState = produceCompileState(offlineInput);
+    const logDigest = produceLogDigest(offlineInput);
+    const projectSettings = produceProjectSettings(offlineInput);
+    const asmdefMap = produceAsmdefMap(offlineInput);
+    const testInventory = produceTestInventory(offlineInput);
+    const deprecationScan = produceDeprecationScan(offlineInput);
 
     const hardFailures =
       (gate.editMode?.status === 'failed' ? 1 : 0) + (gate.playMode?.status === 'failed' ? 1 : 0);
@@ -101,6 +124,7 @@ async function main(): Promise<void> {
       lastVerificationUtc: gate.status === 'not_run' ? null : nowIso(),
       reviewRequired: 0,
       hardFailures,
+      routing: { route: selection.route, reason: selection.reason },
     };
 
     writeJson(join(options.projectDataDir, 'project-structure.json'), structure);
@@ -110,6 +134,12 @@ async function main(): Promise<void> {
     writeJson(join(options.projectDataDir, 'unity-mcp-status.json'), mcp);
     writeJson(join(options.projectDataDir, 'unity-verification-report.json'), verificationReport);
     writeJson(join(options.projectDataDir, 'gate-state.json'), gateState);
+    writeJson(join(options.projectDataDir, 'compile-state.json'), compileState);
+    writeJson(join(options.projectDataDir, 'log-digest.json'), logDigest);
+    writeJson(join(options.projectDataDir, 'project-settings.json'), projectSettings);
+    writeJson(join(options.projectDataDir, 'asmdef-map.json'), asmdefMap);
+    writeJson(join(options.projectDataDir, 'test-inventory.json'), testInventory);
+    writeJson(join(options.projectDataDir, 'deprecation-scan.json'), deprecationScan);
 
     const summary = {
       generatedAt: nowIso(),
@@ -121,6 +151,8 @@ async function main(): Promise<void> {
       unityCliVer: toolchain.cliVer,
       unityVer: toolchain.unityVer,
       fingerprint,
+      route: selection.route,
+      routeReason: selection.reason,
       gateResult: gate.status,
       gateStartedByEditor: editorStartedByUs,
       cancelled: prompts.isCancelled(),
@@ -133,6 +165,12 @@ async function main(): Promise<void> {
         mcpStatus: join(options.projectDataDir, 'unity-mcp-status.json'),
         verificationReport: join(options.projectDataDir, 'unity-verification-report.json'),
         gateState: join(options.projectDataDir, 'gate-state.json'),
+        compileState: join(options.projectDataDir, 'compile-state.json'),
+        logDigest: join(options.projectDataDir, 'log-digest.json'),
+        projectSettings: join(options.projectDataDir, 'project-settings.json'),
+        asmdefMap: join(options.projectDataDir, 'asmdef-map.json'),
+        testInventory: join(options.projectDataDir, 'test-inventory.json'),
+        deprecationScan: join(options.projectDataDir, 'deprecation-scan.json'),
       },
     };
     process.stdout.write(JSON.stringify(summary, null, 2) + '\n');

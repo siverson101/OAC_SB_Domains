@@ -1,3 +1,5 @@
+import type { Route } from '../../../shared/tool-routing';
+
 export interface GatherOptions {
   projectRoot: string;
   opencodeDir: string;
@@ -17,6 +19,7 @@ export interface GatherOptions {
 export interface CliEnvelope<T = unknown> {
   success: boolean;
   command?: string;
+  route?: Route;
   data: T | null;
   errors: { code?: string; message?: string }[];
   warnings: string[];
