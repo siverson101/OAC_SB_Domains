@@ -156,6 +156,16 @@ describe('compile-state producer', () => {
     touch(script, '2026-01-01T00:00:00.000Z');
   });
 
+  test('explains a stale state that has no compile evidence', () => {
+    const script = join(input.projectRoot, 'Assets', '_Project', 'Legacy.cs');
+    touch(script, '2026-02-01T00:00:00.000Z');
+    const result = produceCompileState(input, [join(fixture, 'missing-Editor.log')]);
+    expect(result.stale).toBe(true);
+    expect(result.noOpRecompile).toBeNull();
+    expect(result.staleReason).toContain('no compile evidence');
+    touch(script, '2026-01-01T00:00:00.000Z');
+  });
+
   test('reports stale as not determinable without script evidence', () => {
     const root = join(fixture, 'compile-no-scripts');
     write(join(root, 'Library', 'ScriptAssemblies', 'Game.dll'), 'dll');

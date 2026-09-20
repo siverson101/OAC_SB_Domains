@@ -384,5 +384,9 @@ export function runSense(options: SenseOptions): SenseResult {
       return platformInfo(options);
     case 'code-navigation':
       return codeNavigation(options);
+    default: {
+      const exhaustive: never = options.ability;
+      throw new Error(`unsupported Sense ability: ${String(exhaustive)}`);
+    }
   }
 }

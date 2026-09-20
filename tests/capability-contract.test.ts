@@ -71,6 +71,7 @@ describe('capability contract schema', () => {
       'mutates',
       'requiresApproval',
       'requiresEditor',
+      'writesState',
     ]);
     for (const property of Object.values(gate?.properties ?? {})) {
       expect(property.type).toBe('boolean');

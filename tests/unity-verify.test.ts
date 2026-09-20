@@ -23,7 +23,7 @@ const commandDir = join(repoRoot, 'xdomains', 'game-dev', 'unity-3d', 'command')
 const schemaPath = join(repoRoot, 'xdomains', 'context', 'capability-contract.schema.json');
 const bundle = join(repoRoot, 'xdomains', 'scripts', 'unity', 'unity-verify.mjs');
 
-const SAFETY_GATE_KEYS = ['mutates', 'requiresEditor', 'requiresApproval', 'dryRunFirst', 'advisory'];
+const SAFETY_GATE_KEYS = ['mutates', 'requiresEditor', 'requiresApproval', 'dryRunFirst', 'advisory', 'writesState'];
 
 function assertSafetyGate(fm: Record<string, unknown>): void {
   const gate = fm.safetyGate;
@@ -362,6 +362,11 @@ describe('Verify command contracts', () => {
       assertSafetyGate(fm as Record<string, unknown>);
     });
   }
+
+  test('the compile checkpoint declares writesState', () => {
+    const fm = parseFrontmatter(readFileSync(join(commandDir, 'compile-and-verify-project.md'), 'utf8'));
+    expect((fm.safetyGate as Record<string, unknown>).writesState).toBe(true);
+  });
 });
 
 describe('unity-verify bundle', () => {

@@ -34,7 +34,7 @@ const commandDir = join(repoRoot, 'xdomains', 'game-dev', 'unity-3d', 'command')
 const schemaPath = join(repoRoot, 'xdomains', 'context', 'capability-contract.schema.json');
 const bundle = join(repoRoot, 'xdomains', 'scripts', 'unity', 'unity-compose.mjs');
 
-const SAFETY_GATE_KEYS = ['mutates', 'requiresEditor', 'requiresApproval', 'dryRunFirst', 'advisory'];
+const SAFETY_GATE_KEYS = ['mutates', 'requiresEditor', 'requiresApproval', 'dryRunFirst', 'advisory', 'writesState'];
 
 function assertSafetyGate(fm: Record<string, unknown>): void {
   const gate = fm.safetyGate;
@@ -393,10 +393,16 @@ describe('Compose command contracts', () => {
     });
   }
 
-  test('the coordination board is declared advisory', () => {
+  test('the coordination board is declared advisory and state-writing', () => {
     const fm = parseFrontmatter(readFileSync(join(commandDir, 'coordination-board.md'), 'utf8'));
     const gate = fm.safetyGate as Record<string, unknown>;
     expect(gate.advisory).toBe(true);
+    expect(gate.writesState).toBe(true);
+  });
+
+  test('state-writing compose abilities declare writesState', () => {
+    const fm = parseFrontmatter(readFileSync(join(commandDir, 'ci-status-baseline.md'), 'utf8'));
+    expect((fm.safetyGate as Record<string, unknown>).writesState).toBe(true);
   });
 });
 

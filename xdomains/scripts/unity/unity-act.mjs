@@ -5,7 +5,15 @@ function isThenable(value) {
 function runCli(config) {
   const argv = config.argv ?? process.argv.slice(2);
   const write = config.write ?? ((text) => process.stdout.write(text));
-  const options = config.resolveOptions(argv);
+  let options;
+  try {
+    options = config.resolveOptions(argv);
+  } catch (error) {
+    write(`${error instanceof Error ? error.message : String(error)}
+`);
+    process.exitCode = 2;
+    return;
+  }
   if (options.list) {
     write(config.abilities.join(`
 `) + `
@@ -187,6 +195,18 @@ function str(obj, key) {
 function stringArray(obj, key) {
   const value = obj?.[key];
   return Array.isArray(value) ? value.filter((item) => typeof item === "string") : [];
+}
+function canonicalize(value) {
+  if (Array.isArray(value))
+    return value.map(canonicalize);
+  if (value && typeof value === "object") {
+    const source = value;
+    const out = {};
+    for (const key of Object.keys(source).sort())
+      out[key] = canonicalize(source[key]);
+    return out;
+  }
+  return value;
 }
 function parseBool(value, fallback) {
   if (value === undefined || value === null)
@@ -482,18 +502,6 @@ function normalizeOps(ops) {
   });
   return { normalized, unsupported, errors };
 }
-function canonicalize(value) {
-  if (Array.isArray(value))
-    return value.map(canonicalize);
-  if (value && typeof value === "object") {
-    const source = value;
-    const out = {};
-    for (const key of Object.keys(source).sort())
-      out[key] = canonicalize(source[key]);
-    return out;
-  }
-  return value;
-}
 function summarize(op, targetPath) {
   const where = targetPath ? ` on ${targetPath}` : "";
   switch (op) {
@@ -616,7 +624,7 @@ function sceneEditing(options, cliAvailable = null) {
   const requested = options.changeKind?.trim() || null;
   const valid = requested && VALID_CHANGE_KINDS.includes(requested);
   const changeKind = valid ? requested : "single-property";
-  const escalation = decideEscalation({ changeKind });
+  const escalation = valid ? decideEscalation({ changeKind }) : null;
   const result = {
     ...makeResult("scene-editing", "observed_locally", "Scene/prefab edit escalation decision", [], "offline"),
     changeKind,
@@ -626,9 +634,9 @@ function sceneEditing(options, cliAvailable = null) {
   };
   if (requested && !valid) {
     result.status = "unknown";
-    result.errors.push(`unknown --change-kind "${requested}"; defaulted to single-property`);
+    result.errors.push(`unknown --change-kind "${requested}"; no escalation decision made`);
   }
-  result.summary = `rung: ${escalation.rung} (${changeKind})${escalation.requiresDryRun ? " · dry run required" : ""}`;
+  result.summary = escalation ? `rung: ${escalation.rung} (${changeKind})${escalation.requiresDryRun ? " · dry run required" : ""}` : `unknown change kind "${requested}"; no escalation decision made`;
   return result;
 }
 
@@ -1190,6 +1198,11 @@ function parseArgs(argv) {
   }
   return { values, positional };
 }
+function rejectPositionals(positional) {
+  if (positional.length === 0)
+    return;
+  throw new Error(`unexpected positional argument(s): ${positional.join(" ")}; use --flag value pairs`);
+}
 function firstString(args, keys) {
   for (const key of keys) {
     const value = args[key];
@@ -1204,7 +1217,8 @@ function resolveAbility(requested, abilities, fallback) {
 
 // tools/unity/unity-act/src/cli.ts
 function resolveOptions(argv) {
-  const { values: args } = parseArgs(argv);
+  const { values: args, positional } = parseArgs(argv);
+  rejectPositionals(positional);
   const projectRoot = resolve(String(args["project-root"] || process.cwd()));
   const opencodeDir = resolve(String(args["opencode-dir"] || join5(projectRoot, ".opencode")));
   const requested = String(args.ability || "scene-editing");
@@ -1241,7 +1255,7 @@ function resolveOptions(argv) {
 function render(result) {
   const lines = [`[${result.ability}] ${result.status} — ${result.summary}`];
   lines.push(`  mutated: ${result.mutated} · route: ${result.route} · mode: ${result.mode}`);
-  if ("escalation" in result)
+  if ("escalation" in result && result.escalation)
     lines.push(`  rung: ${result.escalation.rung}`);
   if ("written" in result && result.fileName)
     lines.push(`  file: ${result.fileName}`);

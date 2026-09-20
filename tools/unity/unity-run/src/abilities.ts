@@ -8,8 +8,9 @@ import type { RunOptions, RuntimeResult } from './types';
 
 export type RunResult = ChangeLoopRunResult | RuntimeResult;
 
-export function runRun(options: RunOptions): RunResult {
+export async function runRun(options: RunOptions): Promise<RunResult> {
   if (options.ability === 'unity-change-loop') return runChangeLoop(options);
   if (isRuntimeAbility(options.ability)) return runRuntimeAbility(options);
-  return runChangeLoop({ ...options, ability: 'unity-change-loop' });
+  const exhaustive: never = options.ability;
+  throw new Error(`unsupported Run ability: ${String(exhaustive)}`);
 }

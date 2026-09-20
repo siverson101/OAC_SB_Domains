@@ -14,7 +14,9 @@ const VALID_CHANGE_KINDS: ChangeKind[] = ['single-property', 'multi-property', '
 export interface SceneEditingResult extends ActBase {
   changeKind: ChangeKind;
   requestedChangeKind: string | null;
-  escalation: EscalationDecision;
+  // Null when the requested change kind is invalid: no escalation decision was
+  // actually made, so a caller cannot mistake a fallback rung for a real one.
+  escalation: EscalationDecision | null;
   gate: GatePlan;
 }
 
@@ -22,7 +24,7 @@ export function sceneEditing(options: ActOptions, cliAvailable: boolean | null =
   const requested = options.changeKind?.trim() || null;
   const valid = requested && (VALID_CHANGE_KINDS as string[]).includes(requested);
   const changeKind: ChangeKind = valid ? (requested as ChangeKind) : 'single-property';
-  const escalation = decideEscalation({ changeKind });
+  const escalation = valid ? decideEscalation({ changeKind }) : null;
 
   const result: SceneEditingResult = {
     ...makeResult('scene-editing', 'observed_locally', 'Scene/prefab edit escalation decision', [], 'offline'),
@@ -34,8 +36,10 @@ export function sceneEditing(options: ActOptions, cliAvailable: boolean | null =
 
   if (requested && !valid) {
     result.status = 'unknown';
-    result.errors.push(`unknown --change-kind "${requested}"; defaulted to single-property`);
+    result.errors.push(`unknown --change-kind "${requested}"; no escalation decision made`);
   }
-  result.summary = `rung: ${escalation.rung} (${changeKind})${escalation.requiresDryRun ? ' · dry run required' : ''}`;
+  result.summary = escalation
+    ? `rung: ${escalation.rung} (${changeKind})${escalation.requiresDryRun ? ' · dry run required' : ''}`
+    : `unknown change kind "${requested}"; no escalation decision made`;
   return result;
 }

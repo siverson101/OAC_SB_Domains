@@ -674,7 +674,11 @@ function produceCompileState(input, logPaths = editorLogPaths()) {
   let noOpRecompile = null;
   if (newestAssembly && newestScript) {
     stale = newestScript.mtimeUtc > newestAssembly.mtimeUtc;
-    noOpRecompile = stale && recentCompile ? true : null;
+    if (stale) {
+      noOpRecompile = recentCompile ? true : null;
+      if (!recentCompile)
+        staleReason = "stale; no compile evidence in Editor.log";
+    }
   } else if (!newestAssembly && newestScript) {
     stale = true;
   } else if (newestAssembly && !newestScript) {

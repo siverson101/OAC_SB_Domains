@@ -7,7 +7,7 @@ description: Keep the advisory coordination board (ADR-0011) for multi-agent wor
 inputs: { projectRoot: "string", opencodeDir: "string", verb: "claim|release|hold|release-hold|status", resource: "string?", holder: "string?", note: "string?", leaseSeconds: "number?" }
 outputs: { status: "string", action: "string", holder: "string?", expiresAt: "string?", board: "object" }
 sideEffects: ["writes .opencode/coordination/board.json", "writes .opencode/coordination/board.md"]
-safetyGate: { mutates: true, requiresEditor: false, advisory: true }
+safetyGate: { mutates: true, requiresEditor: false, advisory: true, writesState: true }
 uses: []
 provides: [coordination-board, coordination-claims, editor-hold]
 requires: [opencode-coordination-dir]

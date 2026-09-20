@@ -75,8 +75,12 @@ export function makeResult(
   };
 }
 
-export function parsePositiveInt(value: unknown, fallback: number): number {
-  const parsed = typeof value === 'number' ? value : Number.parseInt(String(value ?? ''), 10);
-  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+// Returns undefined for a missing or non-positive value so callers resolve
+// their default in exactly one place. `--lease-seconds 0` therefore means
+// "unset" (fall back to the default), not "expire immediately".
+export function parseOptionalPositiveInt(value: unknown): number | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  const parsed = typeof value === 'number' ? value : Number.parseInt(String(value), 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return undefined;
   return Math.floor(parsed);
 }

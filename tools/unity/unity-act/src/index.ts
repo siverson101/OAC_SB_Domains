@@ -18,7 +18,7 @@ import { ACT_ABILITIES } from './types';
 function render(result: ActResult): string {
   const lines = [`[${result.ability}] ${result.status} — ${result.summary}`];
   lines.push(`  mutated: ${result.mutated} · route: ${result.route} · mode: ${result.mode}`);
-  if ('escalation' in result) lines.push(`  rung: ${result.escalation.rung}`);
+  if ('escalation' in result && result.escalation) lines.push(`  rung: ${result.escalation.rung}`);
   if ('written' in result && result.fileName) lines.push(`  file: ${result.fileName}`);
   if ('conflicts' in result && result.conflicts.length > 0) {
     for (const conflict of result.conflicts) lines.push(`  conflict: ${conflict.pattern} vs ${conflict.conflictsWith}`);

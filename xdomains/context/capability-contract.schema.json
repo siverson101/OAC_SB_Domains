@@ -98,9 +98,10 @@
         "requiresEditor": { "type": "boolean" },
         "requiresApproval": { "type": "boolean" },
         "dryRunFirst": { "type": "boolean" },
-        "advisory": { "type": "boolean" }
+        "advisory": { "type": "boolean" },
+        "writesState": { "type": "boolean" }
       },
-      "description": "Approval or safety gate declared as an object of optional boolean flags: mutates, requiresEditor, requiresApproval, dryRunFirst, advisory."
+      "description": "Approval or safety gate declared as an object of optional boolean flags: mutates, requiresEditor, requiresApproval, dryRunFirst, advisory, writesState. writesState records that the capability persists state under .opencode/ even when it does not mutate project assets (mutates stays false)."
     },
     "versionCompatibility": {
       "type": "object",

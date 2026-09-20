@@ -27,7 +27,7 @@ const commandDir = join(repoRoot, 'xdomains', 'game-dev', 'unity-3d', 'command')
 const schemaPath = join(repoRoot, 'xdomains', 'context', 'capability-contract.schema.json');
 const bundle = join(repoRoot, 'xdomains', 'scripts', 'unity', 'unity-run.mjs');
 
-const SAFETY_GATE_KEYS = ['mutates', 'requiresEditor', 'requiresApproval', 'dryRunFirst', 'advisory'];
+const SAFETY_GATE_KEYS = ['mutates', 'requiresEditor', 'requiresApproval', 'dryRunFirst', 'advisory', 'writesState'];
 
 function assertSafetyGate(fm: Record<string, unknown>): void {
   const gate = fm.safetyGate;
@@ -162,8 +162,8 @@ describe('change loop evidence and refusal logic', () => {
 
 describe('runtime abilities fail soft without a live channel', () => {
   for (const ability of RUNTIME_ABILITIES) {
-    test(`${ability} reports unavailable and never throws`, () => {
-      const result = runRuntimeAbility({ ...base, ability });
+    test(`${ability} reports unavailable and never throws`, async () => {
+      const result = await runRuntimeAbility({ ...base, ability });
       expect(result.family).toBe('run');
       expect(result.status).toBe('unavailable');
       expect(result.route).toBe('offline');
@@ -174,46 +174,57 @@ describe('runtime abilities fail soft without a live channel', () => {
     });
   }
 
-  test('a runtime ability reports the live mode', () => {
-    const result = runRuntimeAbility({ ...base, ability: 'runtime-debugging' });
+  test('a runtime ability reports the live mode', async () => {
+    const result = await runRuntimeAbility({ ...base, ability: 'runtime-debugging' });
     expect(result.mode).toBe(RUN_MODES['runtime-debugging']);
     expect(result.mode).toBe('live');
   });
 
-  test('an available channel without an invoke transport stays unavailable', () => {
+  test('an available channel without an invoke transport stays unavailable', async () => {
     const live: RuntimeChannel = { transport: 'cli', available: () => true };
-    const result = runRuntimeAbility({ ...base, live });
+    const result = await runRuntimeAbility({ ...base, live });
     expect(result.status).toBe('unavailable');
     expect(result.route).toBe('live');
     expect(result.transport).toBe('cli');
   });
 
-  test('a throwing channel is treated as absent (fail-soft)', () => {
+  test('a throwing channel is treated as absent (fail-soft)', async () => {
     const live: RuntimeChannel = {
       transport: 'cli',
       available: () => {
         throw new Error('no channel');
       },
     };
-    const result = runRuntimeAbility({ ...base, live });
+    const result = await runRuntimeAbility({ ...base, live });
     expect(result.status).toBe('unavailable');
     expect(result.route).toBe('offline');
   });
 
-  test('a live channel with a transport observes the result', () => {
+  test('a live channel with a transport observes the result', async () => {
     const live: RuntimeChannel = {
       transport: 'cli',
       available: () => true,
       invoke: () => ({ ok: true, data: { logs: [] }, errors: [] }),
     };
-    const result = runRuntimeAbility({ ...base, live, operation: 'get_logs' });
+    const result = await runRuntimeAbility({ ...base, live, operation: 'get_logs' });
     expect(result.status).toBe('observed_locally');
     expect(result.route).toBe('live');
     expect(result.data).toEqual({ logs: [] });
   });
 
-  test('an unknown operation falls back to the default with an error', () => {
-    const result = runRuntimeAbility({ ...base, operation: 'frobnicate' });
+  test('an async transport is awaited', async () => {
+    const live: RuntimeChannel = {
+      transport: 'cli',
+      available: () => true,
+      invoke: async () => ({ ok: true, data: { logs: ['async'] }, errors: [] }),
+    };
+    const result = await runRuntimeAbility({ ...base, live, operation: 'get_logs' });
+    expect(result.status).toBe('observed_locally');
+    expect(result.data).toEqual({ logs: ['async'] });
+  });
+
+  test('an unknown operation falls back to the default with an error', async () => {
+    const result = await runRuntimeAbility({ ...base, operation: 'frobnicate' });
     expect(result.operation).toBe('get_logs');
     expect(result.errors.join(' ')).toContain('unknown --operation');
   });
@@ -226,8 +237,8 @@ describe('runtime code execution approval gate', () => {
     invoke: () => ({ ok: true, data: { result: 2 }, errors: [] }),
   };
 
-  test('refuses execute-code without explicit approval, even with a channel', () => {
-    const result = runRuntimeAbility({
+  test('refuses execute-code without explicit approval, even with a channel', async () => {
+    const result = await runRuntimeAbility({
       ...base,
       live,
       operation: 'execute-code',
@@ -241,8 +252,8 @@ describe('runtime code execution approval gate', () => {
     expect(result.command).toBeUndefined();
   });
 
-  test('is unavailable (not executed) with approval but no channel', () => {
-    const result = runRuntimeAbility({
+  test('is unavailable (not executed) with approval but no channel', async () => {
+    const result = await runRuntimeAbility({
       ...base,
       live: null,
       operation: 'execute-code',
@@ -254,8 +265,8 @@ describe('runtime code execution approval gate', () => {
     expect(result.command).toBeUndefined();
   });
 
-  test('runs execute-code with approval and a live channel', () => {
-    const result = runRuntimeAbility({
+  test('runs execute-code with approval and a live channel', async () => {
+    const result = await runRuntimeAbility({
       ...base,
       live,
       operation: 'execute-code',
@@ -269,8 +280,8 @@ describe('runtime code execution approval gate', () => {
     expect(result.command).toContain('eval');
   });
 
-  test('refuses execute-code without code', () => {
-    const result = runRuntimeAbility({
+  test('refuses execute-code without code', async () => {
+    const result = await runRuntimeAbility({
       ...base,
       live,
       operation: 'execute-code',
@@ -283,12 +294,13 @@ describe('runtime code execution approval gate', () => {
 });
 
 describe('run dispatcher', () => {
-  test('routes the change loop and runtime abilities', () => {
-    const loop = runRun({ ...base, ability: 'unity-change-loop' });
+  test('routes the change loop and runtime abilities', async () => {
+    const loop = await runRun({ ...base, ability: 'unity-change-loop' });
     expect(loop.ability).toBe('unity-change-loop');
     expect(loop.family).toBe('run');
+    expect(loop.mode).toBe('offline');
 
-    const runtime = runRun({ ...base, ability: 'uitk-interaction' });
+    const runtime = await runRun({ ...base, ability: 'uitk-interaction' });
     expect(runtime.ability).toBe('uitk-interaction');
     expect(runtime.status).toBe('unavailable');
   });

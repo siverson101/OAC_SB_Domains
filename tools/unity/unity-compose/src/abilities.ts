@@ -21,7 +21,9 @@ export async function runCompose(options: ComposeOptions): Promise<ComposeResult
       return runContractAwareDesign(options);
     case 'ci-status-baseline':
       return runCiStatusBaseline(options);
-    default:
-      return runCoordinationBoard({ ...options, ability: 'coordination-board' });
+    default: {
+      const exhaustive: never = options.ability;
+      throw new Error(`unsupported Compose ability: ${String(exhaustive)}`);
+    }
   }
 }

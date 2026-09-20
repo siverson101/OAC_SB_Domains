@@ -1,19 +1,18 @@
 import { join, resolve } from 'node:path';
-import { firstString, parseArgs, resolveAbility } from '../../../shared/cli-args';
-import { parsePositiveInt } from './shared';
+import { firstString, parseArgs, rejectPositionals, resolveAbility } from '../../../shared/cli-args';
+import { parseOptionalPositiveInt } from './shared';
 import { COMPOSE_ABILITIES, type ComposeOptions } from './types';
 
 export function resolveOptions(argv: string[]): ComposeOptions {
-  const { values: args } = parseArgs(argv);
+  const { values: args, positional } = parseArgs(argv);
+  rejectPositionals(positional);
   const projectRoot = resolve(String(args['project-root'] || process.cwd()));
   const opencodeDir = resolve(String(args['opencode-dir'] || join(projectRoot, '.opencode')));
   const requested = String(args.ability || 'coordination-board');
   const ability = resolveAbility(requested, COMPOSE_ABILITIES, 'coordination-board');
 
   const leaseRaw = args['lease-seconds'] ?? args.leaseSeconds;
-  const leaseSeconds = leaseRaw === undefined ? undefined : parsePositiveInt(leaseRaw, 0);
   const waitRaw = args['wait-seconds'] ?? args.waitSeconds;
-  const waitSeconds = waitRaw === undefined ? undefined : parsePositiveInt(waitRaw, 0);
 
   return {
     projectRoot,
@@ -25,8 +24,8 @@ export function resolveOptions(argv: string[]): ComposeOptions {
     resource: firstString(args, ['resource', 'scope']),
     holder: firstString(args, ['holder', 'agent']),
     note: firstString(args, ['note']),
-    leaseSeconds: leaseSeconds || undefined,
-    waitSeconds: waitSeconds || undefined,
+    leaseSeconds: parseOptionalPositiveInt(leaseRaw),
+    waitSeconds: parseOptionalPositiveInt(waitRaw),
     now: firstString(args, ['now']),
     primitivesDir: firstString(args, ['primitives-dir', 'primitivesDir']),
     capabilitiesDir: firstString(args, ['capabilities-dir', 'capabilitiesDir']),

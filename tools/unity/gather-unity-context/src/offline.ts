@@ -217,7 +217,13 @@ export function produceCompileState(input: OfflineInput, logPaths: string[] = ed
   let noOpRecompile: boolean | null = null;
   if (newestAssembly && newestScript) {
     stale = newestScript.mtimeUtc > newestAssembly.mtimeUtc;
-    noOpRecompile = stale && recentCompile ? true : null;
+    if (stale) {
+      noOpRecompile = recentCompile ? true : null;
+      // Stale, but the Editor log carries no compile line: the no-op cannot be
+      // confirmed, so the state explains itself rather than leaving both fields
+      // null and looking "fresh".
+      if (!recentCompile) staleReason = 'stale; no compile evidence in Editor.log';
+    }
   } else if (!newestAssembly && newestScript) {
     stale = true;
   } else if (newestAssembly && !newestScript) {

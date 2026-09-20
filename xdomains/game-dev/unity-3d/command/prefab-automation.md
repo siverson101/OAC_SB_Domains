@@ -7,7 +7,7 @@ description: Propose prefab patch ops offline, record a dry-run receipt, and ref
 inputs: { projectRoot: "string", opencodeDir: "string", prefab: "string", opsFile: "string", opsJson: "string", dryRun: "boolean", confirm: "boolean", gate: "boolean" }
 outputs: { mode: "string", patchId: "string", ops: "array", unsupported: "array", command: "string", escalation: "object", gate: "object" }
 sideEffects: ["writes .opencode/project-data/act/prefab-dryrun.json receipt", "live apply mutates the prefab asset through the Unity CLI"]
-safetyGate: { mutates: true, requiresApproval: true, dryRunFirst: true }
+safetyGate: { mutates: true, requiresApproval: true, dryRunFirst: true, writesState: true }
 uses: [scene-editing]
 provides: [prefab-automation]
 requires: [unity-project]

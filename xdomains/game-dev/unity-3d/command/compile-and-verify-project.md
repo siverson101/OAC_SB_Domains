@@ -7,7 +7,7 @@ description: Checkpoint the offline compile state (Phase 2a compile-state produc
 inputs: { projectRoot: "string", opencodeDir: "string", phase: "checkpoint|validate" }
 outputs: { status: "string", checkpoint: "object", delta: "object", compile: "object" }
 sideEffects: ["writes .opencode/project-data/verify/checkpoint.json on the checkpoint phase"]
-safetyGate: { mutates: false, requiresEditor: false }
+safetyGate: { mutates: false, requiresEditor: false, writesState: true }
 uses: [gather-unity-context]
 provides: [compile-and-verify-project]
 requires: [compile-state]

@@ -85,6 +85,9 @@ export interface CodeNavigationResult extends SenseBase {
   symbolCount: number;
   matchCount: number;
   truncated: boolean;
+  // The file the walk aborted on when `truncated` is true, so a caller can
+  // resume from there or narrow the query. Null when nothing was truncated.
+  stoppedAtFile: string | null;
   assemblies: { count: number; testCount: number; names: string[] };
   matches: SymbolMatch[];
 }
@@ -124,6 +127,7 @@ export function codeNavigation(options: SenseOptions): CodeNavigationResult {
   let scannedFiles = 0;
   let symbolCount = 0;
   let truncated = false;
+  let stoppedAtFile: string | null = null;
 
   outer: for (const file of files) {
     const text = readText(file);
@@ -141,6 +145,7 @@ export function codeNavigation(options: SenseOptions): CodeNavigationResult {
         if (query && !match[1].toLowerCase().includes(query)) continue;
         if (matches.length >= MAX_MATCHES) {
           truncated = true;
+          stoppedAtFile = rel;
           break outer;
         }
         matches.push({ symbol: match[1], kind: pattern.kind, file: rel, line: index + 1, text: line.trim(), assembly });
@@ -163,6 +168,7 @@ export function codeNavigation(options: SenseOptions): CodeNavigationResult {
     symbolCount,
     matchCount: matches.length,
     truncated,
+    stoppedAtFile,
     assemblies: {
       count: asmdefMap.assemblyCount,
       testCount: asmdefMap.testAssemblyCount,

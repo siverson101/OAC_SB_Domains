@@ -47,6 +47,14 @@ export function parseArgs(argv: string[]): ParsedArgs {
   return { values, positional };
 }
 
+// The family CLIs are flag-only: a bare word is almost always a typo (a missing
+// `--flag` or a misplaced value). Reject it with a usage error rather than
+// dropping it silently, so the caller sees exactly which token was unexpected.
+export function rejectPositionals(positional: string[]): void {
+  if (positional.length === 0) return;
+  throw new Error(`unexpected positional argument(s): ${positional.join(' ')}; use --flag value pairs`);
+}
+
 export function firstString(args: Record<string, string | boolean>, keys: string[]): string | undefined {
   for (const key of keys) {
     const value = args[key];

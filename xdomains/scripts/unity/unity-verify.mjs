@@ -5,7 +5,15 @@ function isThenable(value) {
 function runCli(config) {
   const argv = config.argv ?? process.argv.slice(2);
   const write = config.write ?? ((text) => process.stdout.write(text));
-  const options = config.resolveOptions(argv);
+  let options;
+  try {
+    options = config.resolveOptions(argv);
+  } catch (error) {
+    write(`${error instanceof Error ? error.message : String(error)}
+`);
+    process.exitCode = 2;
+    return;
+  }
   if (options.list) {
     write(config.abilities.join(`
 `) + `
@@ -397,7 +405,11 @@ function produceCompileState(input, logPaths = editorLogPaths()) {
   let noOpRecompile = null;
   if (newestAssembly && newestScript) {
     stale = newestScript.mtimeUtc > newestAssembly.mtimeUtc;
-    noOpRecompile = stale && recentCompile ? true : null;
+    if (stale) {
+      noOpRecompile = recentCompile ? true : null;
+      if (!recentCompile)
+        staleReason = "stale; no compile evidence in Editor.log";
+    }
   } else if (!newestAssembly && newestScript) {
     stale = true;
   } else if (newestAssembly && !newestScript) {
@@ -976,6 +988,10 @@ function runVerify(options) {
       return runModeTests(options, "playmode");
     case "gate-review":
       return gateReview(options);
+    default: {
+      const exhaustive = options.ability;
+      throw new Error(`unsupported Verify ability: ${String(exhaustive)}`);
+    }
   }
 }
 
@@ -1015,6 +1031,11 @@ function parseArgs(argv) {
   }
   return { values, positional };
 }
+function rejectPositionals(positional) {
+  if (positional.length === 0)
+    return;
+  throw new Error(`unexpected positional argument(s): ${positional.join(" ")}; use --flag value pairs`);
+}
 function firstString(args, keys) {
   for (const key of keys) {
     const value = args[key];
@@ -1031,7 +1052,8 @@ function resolveAbility(requested, abilities, fallback) {
 var PHASES = ["checkpoint", "validate"];
 var INTENSITIES = ["full", "lean", "solo"];
 function resolveOptions(argv) {
-  const { values: args } = parseArgs(argv);
+  const { values: args, positional } = parseArgs(argv);
+  rejectPositionals(positional);
   const projectRoot = resolve(String(args["project-root"] || process.cwd()));
   const opencodeDir = resolve(String(args["opencode-dir"] || join7(projectRoot, ".opencode")));
   const requested = String(args.ability || "compile-and-verify-project");

@@ -20,7 +20,7 @@ const commandDir = join(repoRoot, 'xdomains', 'game-dev', 'unity-3d', 'command')
 const schemaPath = join(repoRoot, 'xdomains', 'context', 'capability-contract.schema.json');
 const bundle = join(repoRoot, 'xdomains', 'scripts', 'unity', 'unity-sense.mjs');
 
-const SAFETY_GATE_KEYS = ['mutates', 'requiresEditor', 'requiresApproval', 'dryRunFirst', 'advisory'];
+const SAFETY_GATE_KEYS = ['mutates', 'requiresEditor', 'requiresApproval', 'dryRunFirst', 'advisory', 'writesState'];
 
 function assertSafetyGate(fm: Record<string, unknown>): void {
   const gate = fm.safetyGate;
@@ -290,6 +290,26 @@ describe('code-navigation', () => {
     const result = codeNavigation({ ...options, ability: 'code-navigation', assetFolder: join(fixture, 'nope', 'Assets') });
     expect(result.status).toBe('unknown');
     expect(result.matchCount).toBe(0);
+    expect(result.stoppedAtFile).toBeNull();
+  });
+
+  test('records where the walk stopped when truncated', () => {
+    const root = join(fixture, 'nav-trunc');
+    const assets = join(root, 'Assets');
+    const many = Array.from({ length: 250 }, (_, index) => `public class Trunc${index} {}`).join('\n');
+    write(join(assets, 'Many.cs'), many + '\n');
+
+    const result = codeNavigation({
+      ...options,
+      ability: 'code-navigation',
+      projectRoot: root,
+      opencodeDir: join(root, '.opencode'),
+      assetFolder: assets,
+      query: 'Trunc',
+    });
+    expect(result.truncated).toBe(true);
+    expect(result.matchCount).toBe(200);
+    expect(result.stoppedAtFile).toBe('Assets/Many.cs');
   });
 });
 

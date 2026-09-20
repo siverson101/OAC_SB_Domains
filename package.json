@@ -4,6 +4,7 @@
   "private": true,
   "description": "Build tooling for OAC_SB_Domains. Source lives under tools/ and is bundled into xdomains/scripts/ so the distributed xdomains tree is self-contained.",
   "scripts": {
+    "//": "Generated-path registry: any new generated path must also be registered in .gitattributes (see the xdomains/scripts entry).",
     "build": "bun run build:shared && bun run build:scan && bun run build:gather && bun run build:sense && bun run build:act && bun run build:verify && bun run build:run && bun run build:compose && bun run build:registry",
     "build:check": "bun run build && git diff --exit-code -- xdomains/scripts",
     "build:shared": "bun build tools/shared/prompts/src/prompt.mjs --outfile xdomains/scripts/shared/prompt.mjs --target node",

@@ -33,10 +33,11 @@ export const RUNTIME_ABILITIES: RuntimeAbility[] = [
 
 export type RunMode = 'offline' | 'live' | 'both';
 
-// The change loop folds offline evidence and can cite live evidence when the
-// Editor is reachable (`both`). Every runtime ability needs the live channel.
+// The change loop folds on-disk evidence only; its live observation stage is a
+// Phase 6 TODO, so it is honestly `offline` until the transport lands. Every
+// runtime ability needs the live channel.
 export const RUN_MODES: Record<RunAbility, RunMode> = {
-  'unity-change-loop': 'both',
+  'unity-change-loop': 'offline',
   'runtime-debugging': 'live',
   'runtime-ui-validation': 'live',
   'performance-diagnostics': 'live',
@@ -86,7 +87,9 @@ export interface RuntimeResponse {
 }
 
 export interface RuntimeChannel extends LiveEditorChannel {
-  invoke?: (request: RuntimeRequest) => RuntimeResponse;
+  // Transports may resolve synchronously (an in-process seam) or asynchronously
+  // (a subprocess/CLI/MCP transport), so the caller always `await`s the result.
+  invoke?: (request: RuntimeRequest) => RuntimeResponse | Promise<RuntimeResponse>;
 }
 
 export interface RunOptions {

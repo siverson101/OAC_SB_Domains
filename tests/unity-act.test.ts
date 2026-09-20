@@ -18,7 +18,7 @@ const commandDir = join(repoRoot, 'xdomains', 'game-dev', 'unity-3d', 'command')
 const schemaPath = join(repoRoot, 'xdomains', 'context', 'capability-contract.schema.json');
 const bundle = join(repoRoot, 'xdomains', 'scripts', 'unity', 'unity-act.mjs');
 
-const SAFETY_GATE_KEYS = ['mutates', 'requiresEditor', 'requiresApproval', 'dryRunFirst', 'advisory'];
+const SAFETY_GATE_KEYS = ['mutates', 'requiresEditor', 'requiresApproval', 'dryRunFirst', 'advisory', 'writesState'];
 
 function assertSafetyGate(fm: Record<string, unknown>): void {
   const gate = fm.safetyGate;
@@ -240,13 +240,19 @@ describe('scene-editing escalation ladder', () => {
     const result = sceneEditing({ ...base, ability: 'scene-editing', changeKind: 'multi-property' });
     expect(result.family).toBe('act');
     expect(result.mutated).toBe(false);
-    expect(result.escalation.rung).toBe('prefab-patch');
+    expect(result.escalation?.rung).toBe('prefab-patch');
   });
 
   test('an unknown change-kind is reported as unknown, not observed', () => {
     const result = sceneEditing({ ...base, ability: 'scene-editing', changeKind: 'frobnicate' });
     expect(result.status).toBe('unknown');
     expect(result.errors.join(' ')).toContain('unknown --change-kind');
+  });
+
+  test('an invalid change-kind yields no escalation decision', () => {
+    const result = sceneEditing({ ...base, ability: 'scene-editing', changeKind: 'frobnicate' });
+    expect(result.escalation).toBeNull();
+    expect(result.requestedChangeKind).toBe('frobnicate');
   });
 });
 
@@ -374,6 +380,11 @@ describe('Act command contracts', () => {
       assertSafetyGate(fm as Record<string, unknown>);
     });
   }
+
+  test('prefab-automation declares writesState for its dry-run receipt', () => {
+    const fm = parseFrontmatter(readFileSync(join(commandDir, 'prefab-automation.md'), 'utf8'));
+    expect((fm.safetyGate as Record<string, unknown>).writesState).toBe(true);
+  });
 });
 
 describe('unity-act bundle', () => {

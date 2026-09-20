@@ -2,8 +2,8 @@
 id: unity-change-loop
 summary: Drive resolve → inspect → smallest change → compile → logs → tests → observe as a data-driven loop with named gates, citing evidence and refusing "done" without green tests.
 family: run
-mode: both
-description: Fold the offline evidence produced by the Sense/Verify families (compile-state, log-digest, test results, screenshot) into a gated change loop. The loop refuses "done" unless compile, logs and tests are all green.
+mode: offline
+description: Fold the offline evidence produced by the Sense/Verify families (compile-state, log-digest, test results, screenshot) into a gated change loop. The loop refuses "done" unless compile, logs and tests are all green. The live observation stage is a Phase 6 TODO, so the ability is offline until the transport lands.
 inputs: { projectRoot: "string", opencodeDir: "string", claim: "string?" }
 outputs: { status: "string", stages: "array", gates: "array", evidence: "array", done: "boolean", refusals: "array" }
 sideEffects: []

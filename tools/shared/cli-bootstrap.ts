@@ -23,7 +23,16 @@ export function runCli<Options extends { list: boolean; json: boolean }, Result>
 ): void {
   const argv = config.argv ?? process.argv.slice(2);
   const write = config.write ?? ((text: string) => process.stdout.write(text));
-  const options = config.resolveOptions(argv);
+  let options: Options;
+  try {
+    options = config.resolveOptions(argv);
+  } catch (error) {
+    // A usage error (e.g. a stray positional) is reported cleanly, not as an
+    // uncaught stack trace.
+    write(`${error instanceof Error ? error.message : String(error)}\n`);
+    process.exitCode = 2;
+    return;
+  }
   if (options.list) {
     write(config.abilities.join('\n') + '\n');
     return;

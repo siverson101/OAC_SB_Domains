@@ -8,6 +8,7 @@
 import { createHash } from 'node:crypto';
 import { isAbsolute, join } from 'node:path';
 import { fileExists, readJson, writeJson } from '../../../shared/io';
+import { canonicalize } from '../../../shared/json-helpers';
 import { decideEscalation, inferChangeKind, type ChangeKind, type EscalationDecision } from './escalation';
 import { planActGate, type GatePlan } from './gate';
 import { asRecord, makeResult, projectDataDir, str, type ActOptions } from './shared';
@@ -139,19 +140,6 @@ function normalizeOps(ops: Json[]): { normalized: NormalizedPatchOp[]; unsupport
   });
 
   return { normalized, unsupported, errors };
-}
-
-// Recursively sort object keys so a hash is insensitive to key order (and to
-// whether the ops came from a file or `--opsJson`). Arrays keep their order.
-function canonicalize(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(canonicalize);
-  if (value && typeof value === 'object') {
-    const source = value as Record<string, unknown>;
-    const out: Record<string, unknown> = {};
-    for (const key of Object.keys(source).sort()) out[key] = canonicalize(source[key]);
-    return out;
-  }
-  return value;
 }
 
 function summarize(op: string, targetPath: string | null): string {

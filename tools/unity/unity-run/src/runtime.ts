@@ -121,7 +121,7 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-export function runRuntimeAbility(options: RunOptions): RuntimeResult {
+export async function runRuntimeAbility(options: RunOptions): Promise<RuntimeResult> {
   const ability = options.ability as RuntimeAbility;
   const { spec, errors } = resolveOperation(ability, options.operation);
   const command = buildCommand(options, spec);
@@ -199,7 +199,7 @@ export function runRuntimeAbility(options: RunOptions): RuntimeResult {
   }
 
   try {
-    const response = channel.invoke({ operation: spec.operation, args: command });
+    const response = await channel.invoke({ operation: spec.operation, args: command });
     if (!response.ok) {
       return {
         ...base,

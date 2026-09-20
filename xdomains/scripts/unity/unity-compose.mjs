@@ -5,7 +5,15 @@ function isThenable(value) {
 function runCli(config) {
   const argv = config.argv ?? process.argv.slice(2);
   const write = config.write ?? ((text) => process.stdout.write(text));
-  const options = config.resolveOptions(argv);
+  let options;
+  try {
+    options = config.resolveOptions(argv);
+  } catch (error) {
+    write(`${error instanceof Error ? error.message : String(error)}
+`);
+    process.exitCode = 2;
+    return;
+  }
   if (options.list) {
     write(config.abilities.join(`
 `) + `
@@ -144,10 +152,12 @@ function makeResult(ability, status, summary, errors, options = {}) {
     }
   };
 }
-function parsePositiveInt(value, fallback) {
-  const parsed = typeof value === "number" ? value : Number.parseInt(String(value ?? ""), 10);
+function parseOptionalPositiveInt(value) {
+  if (value === undefined || value === null || value === "")
+    return;
+  const parsed = typeof value === "number" ? value : Number.parseInt(String(value), 10);
   if (!Number.isFinite(parsed) || parsed <= 0)
-    return fallback;
+    return;
   return Math.floor(parsed);
 }
 
@@ -1214,8 +1224,10 @@ async function runCompose(options) {
       return runContractAwareDesign(options);
     case "ci-status-baseline":
       return runCiStatusBaseline(options);
-    default:
-      return runCoordinationBoard({ ...options, ability: "coordination-board" });
+    default: {
+      const exhaustive = options.ability;
+      throw new Error(`unsupported Compose ability: ${String(exhaustive)}`);
+    }
   }
 }
 
@@ -1255,6 +1267,11 @@ function parseArgs(argv) {
   }
   return { values, positional };
 }
+function rejectPositionals(positional) {
+  if (positional.length === 0)
+    return;
+  throw new Error(`unexpected positional argument(s): ${positional.join(" ")}; use --flag value pairs`);
+}
 function firstString(args, keys) {
   for (const key of keys) {
     const value = args[key];
@@ -1269,15 +1286,14 @@ function resolveAbility(requested, abilities, fallback) {
 
 // tools/unity/unity-compose/src/cli.ts
 function resolveOptions(argv) {
-  const { values: args } = parseArgs(argv);
+  const { values: args, positional } = parseArgs(argv);
+  rejectPositionals(positional);
   const projectRoot = resolve(String(args["project-root"] || process.cwd()));
   const opencodeDir = resolve(String(args["opencode-dir"] || join5(projectRoot, ".opencode")));
   const requested = String(args.ability || "coordination-board");
   const ability = resolveAbility(requested, COMPOSE_ABILITIES, "coordination-board");
   const leaseRaw = args["lease-seconds"] ?? args.leaseSeconds;
-  const leaseSeconds = leaseRaw === undefined ? undefined : parsePositiveInt(leaseRaw, 0);
   const waitRaw = args["wait-seconds"] ?? args.waitSeconds;
-  const waitSeconds = waitRaw === undefined ? undefined : parsePositiveInt(waitRaw, 0);
   return {
     projectRoot,
     opencodeDir,
@@ -1288,8 +1304,8 @@ function resolveOptions(argv) {
     resource: firstString(args, ["resource", "scope"]),
     holder: firstString(args, ["holder", "agent"]),
     note: firstString(args, ["note"]),
-    leaseSeconds: leaseSeconds || undefined,
-    waitSeconds: waitSeconds || undefined,
+    leaseSeconds: parseOptionalPositiveInt(leaseRaw),
+    waitSeconds: parseOptionalPositiveInt(waitRaw),
     now: firstString(args, ["now"]),
     primitivesDir: firstString(args, ["primitives-dir", "primitivesDir"]),
     capabilitiesDir: firstString(args, ["capabilities-dir", "capabilitiesDir"]),

@@ -5,7 +5,15 @@ function isThenable(value) {
 function runCli(config) {
   const argv = config.argv ?? process.argv.slice(2);
   const write = config.write ?? ((text) => process.stdout.write(text));
-  const options = config.resolveOptions(argv);
+  let options;
+  try {
+    options = config.resolveOptions(argv);
+  } catch (error) {
+    write(`${error instanceof Error ? error.message : String(error)}
+`);
+    process.exitCode = 2;
+    return;
+  }
   if (options.list) {
     write(config.abilities.join(`
 `) + `
@@ -69,7 +77,7 @@ var RUNTIME_ABILITIES = [
   "uitk-interaction"
 ];
 var RUN_MODES = {
-  "unity-change-loop": "both",
+  "unity-change-loop": "offline",
   "runtime-debugging": "live",
   "runtime-ui-validation": "live",
   "performance-diagnostics": "live",
@@ -509,7 +517,7 @@ function resolveRuntimeChannel(options) {
 function errorMessage(err) {
   return err instanceof Error ? err.message : String(err);
 }
-function runRuntimeAbility(options) {
+async function runRuntimeAbility(options) {
   const ability = options.ability;
   const { spec, errors } = resolveOperation(ability, options.operation);
   const command = buildCommand(options, spec);
@@ -580,7 +588,7 @@ function runRuntimeAbility(options) {
     };
   }
   try {
-    const response = channel.invoke({ operation: spec.operation, args: command });
+    const response = await channel.invoke({ operation: spec.operation, args: command });
     if (!response.ok) {
       return {
         ...base,
@@ -623,12 +631,13 @@ function runRuntimeAbility(options) {
 }
 
 // tools/unity/unity-run/src/abilities.ts
-function runRun(options) {
+async function runRun(options) {
   if (options.ability === "unity-change-loop")
     return runChangeLoop(options);
   if (isRuntimeAbility(options.ability))
     return runRuntimeAbility(options);
-  return runChangeLoop({ ...options, ability: "unity-change-loop" });
+  const exhaustive = options.ability;
+  throw new Error(`unsupported Run ability: ${String(exhaustive)}`);
 }
 
 // tools/unity/unity-run/src/cli.ts
@@ -667,6 +676,11 @@ function parseArgs(argv) {
   }
   return { values, positional };
 }
+function rejectPositionals(positional) {
+  if (positional.length === 0)
+    return;
+  throw new Error(`unexpected positional argument(s): ${positional.join(" ")}; use --flag value pairs`);
+}
 function firstString(args, keys) {
   for (const key of keys) {
     const value = args[key];
@@ -681,7 +695,8 @@ function resolveAbility(requested, abilities, fallback) {
 
 // tools/unity/unity-run/src/cli.ts
 function resolveOptions(argv) {
-  const { values: args } = parseArgs(argv);
+  const { values: args, positional } = parseArgs(argv);
+  rejectPositionals(positional);
   const projectRoot = resolve(String(args["project-root"] || process.cwd()));
   const opencodeDir = resolve(String(args["opencode-dir"] || join3(projectRoot, ".opencode")));
   const requested = String(args.ability || "unity-change-loop");

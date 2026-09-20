@@ -5,7 +5,15 @@ function isThenable(value) {
 function runCli(config) {
   const argv = config.argv ?? process.argv.slice(2);
   const write = config.write ?? ((text) => process.stdout.write(text));
-  const options = config.resolveOptions(argv);
+  let options;
+  try {
+    options = config.resolveOptions(argv);
+  } catch (error) {
+    write(`${error instanceof Error ? error.message : String(error)}
+`);
+    process.exitCode = 2;
+    return;
+  }
   if (options.list) {
     write(config.abilities.join(`
 `) + `
@@ -69,6 +77,19 @@ function parseArgs(argv) {
   }
   return { values, positional };
 }
+function rejectPositionals(positional) {
+  if (positional.length === 0)
+    return;
+  throw new Error(`unexpected positional argument(s): ${positional.join(" ")}; use --flag value pairs`);
+}
+function firstString(args, keys) {
+  for (const key of keys) {
+    const value = args[key];
+    if (typeof value === "string" && value.trim() !== "")
+      return value;
+  }
+  return;
+}
 function resolveAbility(requested, abilities, fallback) {
   return abilities.includes(requested) ? requested : fallback;
 }
@@ -86,20 +107,23 @@ var SENSE_ABILITIES = [...SENSE_ABILITY_NAMES];
 
 // tools/unity/unity-sense/src/cli.ts
 function resolveOptions(argv) {
-  const { values: args } = parseArgs(argv);
+  const { values: args, positional } = parseArgs(argv);
+  rejectPositionals(positional);
   const projectRoot = resolve(String(args["project-root"] || process.cwd()));
   const opencodeDir = resolve(String(args["opencode-dir"] || join(projectRoot, ".opencode")));
   const requested = String(args.ability || "project-status");
   const ability = resolveAbility(requested, SENSE_ABILITIES, "project-status");
+  const tableDir = firstString(args, ["table-dir", "tableDir"]);
+  const assetFolder = firstString(args, ["asset-folder", "assetFolder"]);
   return {
     projectRoot,
     opencodeDir,
     ability,
-    query: typeof args.query === "string" ? args.query : undefined,
+    query: firstString(args, ["query"]),
     json: Boolean(args.json),
     list: Boolean(args.list),
-    tableDir: typeof args["table-dir"] === "string" ? resolve(args["table-dir"]) : undefined,
-    assetFolder: typeof args["asset-folder"] === "string" ? resolve(args["asset-folder"]) : undefined
+    tableDir: tableDir ? resolve(tableDir) : undefined,
+    assetFolder: assetFolder ? resolve(assetFolder) : undefined
   };
 }
 
@@ -457,6 +481,7 @@ function codeNavigation(options) {
   let scannedFiles = 0;
   let symbolCount = 0;
   let truncated = false;
+  let stoppedAtFile = null;
   outer:
     for (const file of files) {
       const text = readText(file);
@@ -477,6 +502,7 @@ function codeNavigation(options) {
             continue;
           if (matches.length >= MAX_MATCHES) {
             truncated = true;
+            stoppedAtFile = rel;
             break outer;
           }
           matches.push({ symbol: match[1], kind: pattern.kind, file: rel, line: index + 1, text: line.trim(), assembly });
@@ -493,6 +519,7 @@ function codeNavigation(options) {
     symbolCount,
     matchCount: matches.length,
     truncated,
+    stoppedAtFile,
     assemblies: {
       count: asmdefMap.assemblyCount,
       testCount: asmdefMap.testAssemblyCount,
@@ -769,6 +796,10 @@ function runSense(options) {
       return platformInfo(options);
     case "code-navigation":
       return codeNavigation(options);
+    default: {
+      const exhaustive = options.ability;
+      throw new Error(`unsupported Sense ability: ${String(exhaustive)}`);
+    }
   }
 }
 

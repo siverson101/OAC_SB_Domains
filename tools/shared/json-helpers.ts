@@ -33,6 +33,19 @@ export function stringArray(obj: Json | null, key: string): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
 }
 
+// Recursively sort object keys so a hash is insensitive to key order (and to
+// whether the value came from a file or inline JSON). Arrays keep their order.
+export function canonicalize(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalize);
+  if (value && typeof value === 'object') {
+    const source = value as Record<string, unknown>;
+    const out: Record<string, unknown> = {};
+    for (const key of Object.keys(source).sort()) out[key] = canonicalize(source[key]);
+    return out;
+  }
+  return value;
+}
+
 export function parseBool(value: unknown, fallback: boolean): boolean {
   if (value === undefined || value === null) return fallback;
   if (typeof value === 'boolean') return value;

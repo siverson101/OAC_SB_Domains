@@ -207,5 +207,9 @@ export function runVerify(options: VerifyOptions): VerifyResult {
       return runModeTests(options, 'playmode');
     case 'gate-review':
       return gateReview(options);
+    default: {
+      const exhaustive: never = options.ability;
+      throw new Error(`unsupported Verify ability: ${String(exhaustive)}`);
+    }
   }
 }
