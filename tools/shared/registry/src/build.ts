@@ -128,12 +128,12 @@ export function buildRegistry(domainDir: string, generatedAt: string): Registry 
   const projections = readJson<Projections>(join(domainDir, 'context-projections.json')) ?? {};
   const consumers = projections.consumers ?? {};
 
-  const mapEntries = (paths: string[] | undefined, folder: string, layer?: RegistryEntry['layer']): RegistryEntry[] =>
+  const mapEntries = (paths: string[] | undefined, layer?: RegistryEntry['layer']): RegistryEntry[] =>
     (paths ?? []).map((rel) => entry(domainDir, rel, basename(rel, '.md'), consumedOutputs(rel, basename(rel, '.md'), consumers), layer));
 
-  const agents = mapEntries(manifest.agents, 'agent');
-  const subagents = mapEntries(manifest.subagents, 'subagents');
-  const commands = mapEntries(manifest.commands, 'command', 'command');
+  const agents = mapEntries(manifest.agents);
+  const subagents = mapEntries(manifest.subagents);
+  const commands = mapEntries(manifest.commands, 'command');
 
   const abilities: RegistryEntry[] = (manifest.abilities ?? []).map((ability) => {
     const rel = `command/${ability}.md`;

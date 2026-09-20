@@ -92,6 +92,9 @@ describe('registry bundle', () => {
       expect(existsSync(join(out, 'context', 'unity-3d', 'registry.md'))).toBe(true);
       const json = JSON.parse(readFileSync(join(out, 'registry.json'), 'utf8'));
       expect(json.subdomain).toBe('unity-3d');
+      const md = readFileSync(join(out, 'context', 'unity-3d', 'registry.md'), 'utf8');
+      expect(md).toContain('## Edges');
+      expect(md).toContain('Layer');
     } finally {
       rmSync(out, { recursive: true, force: true });
     }

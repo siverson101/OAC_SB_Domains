@@ -15,14 +15,6 @@
       "type": "string",
       "description": "One-to-two sentence, searchable description of what the capability does."
     },
-    "name": {
-      "type": "string",
-      "description": "Human-readable PascalCase display name."
-    },
-    "category": {
-      "type": "string",
-      "description": "Lowercase category, e.g. 'movement', 'combat', 'ui'."
-    },
     "family": {
       "type": "string",
       "enum": ["sense", "act", "verify", "run", "compose"],
@@ -84,14 +76,14 @@
       "description": "Paths (relative to the capability directory) of the source files."
     },
     "inputs": {
-      "type": "array",
-      "items": { "type": "string" },
-      "description": "Named inputs the capability accepts."
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Maps named inputs to a type or spec, e.g. { projectRoot: \"string\", depth: 3 }."
     },
     "outputs": {
-      "type": "array",
-      "items": { "type": "string" },
-      "description": "Named outputs the capability produces."
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Maps named outputs to a type or spec, e.g. { files: [\"a.md\", \"b.md\"] }."
     },
     "sideEffects": {
       "type": "array",

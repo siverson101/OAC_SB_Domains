@@ -1,5 +1,4 @@
 ---
-name: feature-delivery
 description: Implement a Unity 3D gameplay feature end-to-end - implement, test, validate
 abilities: [gather-unity-context, unity-read-project, unity-run-tests]
 agents: [implementer, qa, scene]

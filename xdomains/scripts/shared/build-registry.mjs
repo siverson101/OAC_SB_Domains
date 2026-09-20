@@ -277,10 +277,10 @@ function buildRegistry(domainDir, generatedAt) {
   const manifest = readJson(join(domainDir, "sb-domain.json")) ?? {};
   const projections = readJson(join(domainDir, "context-projections.json")) ?? {};
   const consumers = projections.consumers ?? {};
-  const mapEntries = (paths, folder, layer) => (paths ?? []).map((rel) => entry(domainDir, rel, basename(rel, ".md"), consumedOutputs(rel, basename(rel, ".md"), consumers), layer));
-  const agents = mapEntries(manifest.agents, "agent");
-  const subagents = mapEntries(manifest.subagents, "subagents");
-  const commands = mapEntries(manifest.commands, "command", "command");
+  const mapEntries = (paths, layer) => (paths ?? []).map((rel) => entry(domainDir, rel, basename(rel, ".md"), consumedOutputs(rel, basename(rel, ".md"), consumers), layer));
+  const agents = mapEntries(manifest.agents);
+  const subagents = mapEntries(manifest.subagents);
+  const commands = mapEntries(manifest.commands, "command");
   const abilities = (manifest.abilities ?? []).map((ability) => {
     const rel = `command/${ability}.md`;
     const exists = (() => {

@@ -11,12 +11,12 @@ interface CapabilitySchema {
   schemaVersion?: unknown;
   type?: string;
   required?: string[];
-  properties?: Record<string, { type?: string; enum?: string[] }>;
+  properties?: Record<string, { type?: string | string[]; enum?: string[]; items?: { type?: string } }>;
 }
 
-describe('capability contract schema', () => {
-  const schema = JSON.parse(readFileSync(schemaPath, 'utf8')) as CapabilitySchema;
+const schema = JSON.parse(readFileSync(schemaPath, 'utf8')) as CapabilitySchema;
 
+describe('capability contract schema', () => {
   test('loads and declares its version and object shape', () => {
     expect(schema.schemaVersion).toBeDefined();
     expect(schema.type).toBe('object');
@@ -35,8 +35,6 @@ describe('capability contract schema', () => {
   test('declares every structured contract field', () => {
     const names = Object.keys(schema.properties ?? {});
     for (const field of [
-      'name',
-      'category',
       'requires',
       'provides',
       'compatiblePrimitives',
@@ -55,6 +53,8 @@ describe('capability contract schema', () => {
     ]) {
       expect(names).toContain(field);
     }
+    expect(schema.properties?.inputs?.type).toBe('object');
+    expect(schema.properties?.outputs?.type).toBe('object');
   });
 });
 
@@ -96,20 +96,20 @@ describe('validateContract', () => {
       summary: 'Gathers Unity project context',
       family: 'sense',
       mode: 'offline',
-    });
+    }, schema);
     expect(result.ok).toBe(true);
     expect(result.errors).toEqual([]);
   });
 
   test('rejects a missing id and a bad family', () => {
-    const result = validateContract({ summary: 'No id here', family: 'sensing' });
+    const result = validateContract({ summary: 'No id here', family: 'sensing' }, schema);
     expect(result.ok).toBe(false);
     expect(result.errors).toContain('missing required field: id');
     expect(result.errors.some((error) => error.startsWith('invalid family'))).toBe(true);
   });
 
   test('rejects a bad mode', () => {
-    const result = validateContract({ id: 'x', summary: 'y', mode: 'sometimes' });
+    const result = validateContract({ id: 'x', summary: 'y', mode: 'sometimes' }, schema);
     expect(result.ok).toBe(false);
     expect(result.errors.some((error) => error.startsWith('invalid mode'))).toBe(true);
   });

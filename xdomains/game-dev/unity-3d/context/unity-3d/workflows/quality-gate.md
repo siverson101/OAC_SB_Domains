@@ -1,5 +1,4 @@
 ---
-name: quality-gate
 description: Full QA validation of Unity 3D changes - compile, tests, build smoke
 abilities: [unity-build, unity-run-tests]
 agents: [qa]

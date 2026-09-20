@@ -1,5 +1,4 @@
 ---
-name: scene-assembly
 description: Create or restructure a Unity 3D scene/prefab safely
 abilities: [unity-read-project]
 agents: [scene, artasset, shadervfx]

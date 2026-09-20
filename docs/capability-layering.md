@@ -13,3 +13,6 @@ tool | ability | command` and renders it in the Commands / Abilities / Tools tab
 The layering rule: **tool → ability → command**. Tools do one typed thing; abilities compose tools
 into a named capability; commands expose that capability to the user (an ability maps to
 `command/<ability>.md`, merged into an existing command of the same name rather than duplicated).
+
+The unified capability contract is defined in `xdomains/context/capability-contract.schema.json`
+(`schemaVersion` 1); the full field list lives in `docs/Requirements.md` Goal 4.

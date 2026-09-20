@@ -214,8 +214,3 @@ export function frontmatterStringArray(fm: Frontmatter, key: string): string[] |
     ? (value as string[])
     : undefined;
 }
-
-export function frontmatterObject(fm: Frontmatter, key: string): { [key: string]: FrontmatterValue } | undefined {
-  const value = fm[key];
-  return value !== null && typeof value === 'object' && !Array.isArray(value) ? value : undefined;
-}
