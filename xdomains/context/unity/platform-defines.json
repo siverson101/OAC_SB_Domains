@@ -31,8 +31,8 @@
       "displayName": "Android",
       "buildTarget": "Android",
       "defines": ["UNITY_ANDROID", "UNITY_ANDROID_API", "PLATFORM_ANDROID"],
-      "scriptingBackend": "IL2CPP (Mono removed in modern Unity)",
-      "notes": "Split by architecture (ARM64, ARMv7) with UNITY_ANDROID; IL2CPP is the default backend."
+      "scriptingBackend": "IL2CPP (default; Mono available for some configurations)",
+      "notes": "Split by architecture (ARM64, ARMv7) with UNITY_ANDROID; IL2CPP is the default and is required for 64-bit and Google Play submissions, while Mono remains available for some development configurations."
     },
     {
       "name": "iOS",

@@ -1,10 +1,18 @@
-// A tiny YAML subset parser for `primitive.yaml` contracts.
+// A deliberately tiny SUBSET parser for `primitive.yaml` contracts only.
 //
-// OAC ships with no new dependencies (Phase 2 rule), so this module parses only
-// the subset the primitive registry uses: nested mappings, sequences of scalars
-// or single-level maps, inline arrays/objects, quoted and plain scalars, and
-// `#` comments. It is deliberately small and fail-soft — anything it does not
-// understand is returned as a plain string.
+// This is NOT a general YAML parser and must not be used as one. OAC ships with
+// no new dependencies (Phase 2 rule), so this module parses only the subset the
+// primitive registry uses: nested mappings, sequences of scalars or single-level
+// maps, inline arrays/objects, quoted and plain scalars, and `#` comments. It is
+// fail-soft — anything it does not understand is returned as a plain string.
+//
+// Known sharp edges (unsupported by design):
+//   - comments are only recognised at the start of a line or when `#` is
+//     preceded by whitespace; `a#b` is kept as the literal `a#b`;
+//   - no hex/octal numeric literals; only decimal integers and `-?\d+\.\d+`
+//     floats are coerced, and `~` is only recognised as the bare null token;
+//   - keys containing `:` inside quotes are unsupported (the key/value split is
+//     the first `:` on the line).
 export type YamlValue = string | number | boolean | null | YamlValue[] | { [key: string]: YamlValue };
 
 interface YamlLine {

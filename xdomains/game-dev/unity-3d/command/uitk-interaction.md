@@ -26,4 +26,6 @@ node .opencode/xdomains/scripts/unity/unity-run.mjs \
   --ability uitk-interaction --operation uitk_tree --json
 ```
 
-Fail-soft: with no live channel/Editor the ability reports `unavailable` and never throws.
+Fail-soft: with no live channel/Editor the ability reports `unavailable` and never throws. A `live`
+route means the CLI channel was **selected**, not that the call succeeded: the concrete `cli`/`mcp`
+transport is not wired yet (Phase 6), so without it the result is `unavailable`.

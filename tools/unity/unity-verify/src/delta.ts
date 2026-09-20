@@ -7,6 +7,15 @@
 //   - otherwise `newIssues`/`resolvedIssues` are `null`, which means "not
 //     computed", never "clean";
 //   - `validateScanFailed` and `compilePending` are reported explicitly.
+//
+// Flag precedence (mutually exclusive): `validateScanFailed` is evaluated
+// FIRST — a failed/unavailable scan, a missing post-mutation snapshot, or an
+// unavailable compile state yields `validateScanFailed: true` and
+// `compilePending: false`. Only when the scan observed the compiler do we ask
+// `compilePending`. So a missing `Library` (compile unavailable) is reported as
+// a failed scan, not a pending compile. When either flag is true the delta is
+// not computed and `newIssues`/`resolvedIssues` are `null`, meaning "not
+// computed" (never "clean").
 import type {
   IssueKind,
   VerifyCompile,

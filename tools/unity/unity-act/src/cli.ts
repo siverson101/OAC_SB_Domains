@@ -4,7 +4,7 @@ import { parseBool } from './shared';
 import { ACT_ABILITIES, type ActOptions } from './types';
 
 export function resolveOptions(argv: string[]): ActOptions {
-  const args = parseArgs(argv);
+  const { values: args } = parseArgs(argv);
   const projectRoot = resolve(String(args['project-root'] || process.cwd()));
   const opencodeDir = resolve(String(args['opencode-dir'] || join(projectRoot, '.opencode')));
   const requested = String(args.ability || 'scene-editing');

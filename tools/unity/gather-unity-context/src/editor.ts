@@ -1,3 +1,4 @@
+import { toPosix } from '../../../shared/io';
 import { run } from '../../../shared/toolchain';
 import { runCli } from './producers';
 
@@ -13,6 +14,12 @@ function sleep(ms: number): void {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
+// Compare project paths case-insensitively and separator-insensitively: the CLI
+// may report either `C:\proj` or `C:/proj` for the same root.
+function normalizeProject(path: string): string {
+  return toPosix(path).toLowerCase();
+}
+
 export function findLiveInstance(projectRoot: string, cliCommand: string): EditorInstance | null {
   const env = runCli(cliCommand, [
     'status',
@@ -24,7 +31,8 @@ export function findLiveInstance(projectRoot: string, cliCommand: string): Edito
     projectRoot,
   ]);
   const instances = (env.data as { instances?: EditorInstance[] } | null)?.instances ?? [];
-  return instances.find((i) => (i.project ?? '').toLowerCase() === projectRoot.toLowerCase()) ?? null;
+  const target = normalizeProject(projectRoot);
+  return instances.find((i) => normalizeProject(i.project ?? '') === target) ?? null;
 }
 
 export function startEditor(projectRoot: string, cliCommand: string, timeoutMs = 300000): EditorInstance | null {

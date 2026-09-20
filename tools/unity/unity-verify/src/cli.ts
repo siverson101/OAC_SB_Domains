@@ -11,7 +11,7 @@ const PHASES: VerifyPhase[] = ['checkpoint', 'validate'];
 const INTENSITIES: ReviewIntensity[] = ['full', 'lean', 'solo'];
 
 export function resolveOptions(argv: string[]): VerifyOptions {
-  const args = parseArgs(argv);
+  const { values: args } = parseArgs(argv);
   const projectRoot = resolve(String(args['project-root'] || process.cwd()));
   const opencodeDir = resolve(String(args['opencode-dir'] || join(projectRoot, '.opencode')));
   const requested = String(args.ability || 'compile-and-verify-project');

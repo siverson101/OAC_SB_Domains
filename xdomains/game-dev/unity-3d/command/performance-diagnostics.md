@@ -27,4 +27,6 @@ node .opencode/xdomains/scripts/unity/unity-run.mjs \
   --ability performance-diagnostics --operation profiler_counters --json
 ```
 
-Read-only; fail-soft with no live channel/Editor (`unavailable`, never throws).
+Read-only; fail-soft with no live channel/Editor (`unavailable`, never throws). A `live` route means
+the CLI channel was **selected**, not that the call succeeded: the concrete `cli`/`mcp` transport is
+not wired yet (Phase 6), so without it the result is `unavailable`.

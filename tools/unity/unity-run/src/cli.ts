@@ -4,7 +4,7 @@ import { parseBool } from './shared';
 import { RUN_ABILITIES, type RunOptions } from './types';
 
 export function resolveOptions(argv: string[]): RunOptions {
-  const args = parseArgs(argv);
+  const { values: args } = parseArgs(argv);
   const projectRoot = resolve(String(args['project-root'] || process.cwd()));
   const opencodeDir = resolve(String(args['opencode-dir'] || join(projectRoot, '.opencode')));
   const requested = String(args.ability || 'unity-change-loop');

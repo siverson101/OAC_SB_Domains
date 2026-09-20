@@ -19,8 +19,11 @@ versionCompatibility: { unity: ["6.0", "6.3", "6.5", "LTS+"] }
 
 Reads runtime logs and errors from the running Editor/Player over the Unity CLI live channel
 (`unity command get_logs --logType Error`). The concrete `cli`/`mcp` transport is a seam that lands
-later; until then, or without a live Editor, the ability reports `unavailable` (fail-soft) and never
-throws.
+later (Phase 6); until then, or without a live Editor, the ability reports `unavailable` (fail-soft)
+and never throws.
+
+A `live` route means the CLI channel was **selected**, not that the call succeeded: without a wired
+transport the result is still `unavailable`.
 
 ```bash
 node .opencode/xdomains/scripts/unity/unity-run.mjs \

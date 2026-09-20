@@ -103,6 +103,12 @@ function channelAvailable(channel: RuntimeChannel | null): boolean {
 // Probe for a live channel: an explicitly injected channel wins (including an
 // explicit `null`); otherwise the Unity CLI must exist and report a live
 // instance for this project. No custom bridge is built — this is the CLI seam.
+//
+// TODO(Phase 6): the concrete `cli`/`mcp` transports are not wired yet. The
+// channel returned here only reports `available`; it carries no `invoke`, so
+// `runRuntimeAbility` still ends `unavailable` below. Selecting the `cli`
+// transport therefore means "a live channel was chosen", NOT "the call
+// succeeded" — the result is fail-soft until a transport lands.
 export function resolveRuntimeChannel(options: RunOptions): RuntimeChannel | null {
   if (options.live !== undefined) return options.live;
   if (!findExecutable(options.cliCommand)) return null;

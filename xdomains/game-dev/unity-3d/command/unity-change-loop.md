@@ -37,3 +37,8 @@ required gates — compile, logs and tests — are all green. Claiming `--claim 
 sets `status: refused` and lists the unmet gates; the loop never declares done on a hunch.
 
 Read-only; fail-soft with no Editor.
+
+The loop's live observation stage rides the same Run-family channel seam: a `live` route means the
+CLI channel was **selected**, not that the call succeeded. The concrete `cli`/`mcp` transport is not
+wired yet (Phase 6), so without it any live step reports `unavailable` (fail-soft) rather than
+throwing.

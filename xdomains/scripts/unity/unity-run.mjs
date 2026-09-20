@@ -38,6 +38,7 @@ import { join as join2 } from "node:path";
 
 // tools/shared/io.ts
 import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { dirname, sep } from "node:path";
 function readJson(path) {
   try {
     return JSON.parse(readFileSync(path, "utf8"));
@@ -47,6 +48,9 @@ function readJson(path) {
 }
 function nowIso() {
   return new Date().toISOString();
+}
+function toPosix(path) {
+  return path.split(sep).join("/");
 }
 
 // tools/unity/unity-run/src/types.ts
@@ -392,6 +396,9 @@ function runCli2(cliCommand, args, timeout = 30000) {
 }
 
 // tools/unity/gather-unity-context/src/editor.ts
+function normalizeProject(path) {
+  return toPosix(path).toLowerCase();
+}
 function findLiveInstance(projectRoot, cliCommand) {
   const env = runCli2(cliCommand, [
     "status",
@@ -403,7 +410,8 @@ function findLiveInstance(projectRoot, cliCommand) {
     projectRoot
   ]);
   const instances = env.data?.instances ?? [];
-  return instances.find((i) => (i.project ?? "").toLowerCase() === projectRoot.toLowerCase()) ?? null;
+  const target = normalizeProject(projectRoot);
+  return instances.find((i) => normalizeProject(i.project ?? "") === target) ?? null;
 }
 
 // tools/unity/unity-run/src/approval.ts
@@ -627,32 +635,37 @@ function runRun(options) {
 import { join as join3, resolve } from "node:path";
 
 // tools/shared/cli-args.ts
+function isFlag(token) {
+  return token.startsWith("--");
+}
 function parseArgs(argv) {
-  const out = {};
+  const values = {};
+  const positional = [];
   let i = 0;
   while (i < argv.length) {
     const arg = argv[i];
-    if (arg.startsWith("--") && arg.includes("=")) {
+    if (isFlag(arg) && arg.includes("=")) {
       const eq = arg.indexOf("=");
-      out[arg.slice(2, eq)] = arg.slice(eq + 1);
+      values[arg.slice(2, eq)] = arg.slice(eq + 1);
       i++;
       continue;
     }
-    if (arg.startsWith("--")) {
+    if (isFlag(arg)) {
       const key = arg.slice(2);
       const next = argv[i + 1];
-      if (next && !next.startsWith("--")) {
-        out[key] = next;
+      if (next !== undefined && !isFlag(next)) {
+        values[key] = next;
         i += 2;
       } else {
-        out[key] = true;
+        values[key] = true;
         i++;
       }
       continue;
     }
+    positional.push(arg);
     i++;
   }
-  return out;
+  return { values, positional };
 }
 function firstString(args, keys) {
   for (const key of keys) {
@@ -668,7 +681,7 @@ function resolveAbility(requested, abilities, fallback) {
 
 // tools/unity/unity-run/src/cli.ts
 function resolveOptions(argv) {
-  const args = parseArgs(argv);
+  const { values: args } = parseArgs(argv);
   const projectRoot = resolve(String(args["project-root"] || process.cwd()));
   const opencodeDir = resolve(String(args["opencode-dir"] || join3(projectRoot, ".opencode")));
   const requested = String(args.ability || "unity-change-loop");

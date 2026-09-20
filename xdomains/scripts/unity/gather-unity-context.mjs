@@ -364,6 +364,9 @@ function inspectMcp(projectRoot, cliCommand) {
 function sleep(ms) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
+function normalizeProject(path) {
+  return toPosix(path).toLowerCase();
+}
 function findLiveInstance(projectRoot, cliCommand) {
   const env = runCli(cliCommand, [
     "status",
@@ -375,7 +378,8 @@ function findLiveInstance(projectRoot, cliCommand) {
     projectRoot
   ]);
   const instances = env.data?.instances ?? [];
-  return instances.find((i) => (i.project ?? "").toLowerCase() === projectRoot.toLowerCase()) ?? null;
+  const target = normalizeProject(projectRoot);
+  return instances.find((i) => normalizeProject(i.project ?? "") === target) ?? null;
 }
 function startEditor(projectRoot, cliCommand, timeoutMs = 300000) {
   run(cliCommand, ["open", projectRoot, "--args", "-automated", "--no-banner", "--quiet", "--non-interactive"], { timeout: 120000 });
