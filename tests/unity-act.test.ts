@@ -279,6 +279,30 @@ describe('pattern-library', () => {
   });
 });
 
+describe('act runtime safety gate', () => {
+  test('read-only and decision-only abilities report mutates: false', () => {
+    expect(patternLibrary({ ...base, ability: 'pattern-library' }).safetyGate).toEqual({
+      mutates: false,
+      dryRunFirst: false,
+      requiresApproval: false,
+    });
+    const scene = sceneEditing({ ...base, ability: 'scene-editing', changeKind: 'single-property' });
+    expect(scene.safetyGate.mutates).toBe(false);
+    expect(scene.safetyGate.dryRunFirst).toBe(true);
+    expect(scene.safetyGate.requiresApproval).toBe(true);
+  });
+
+  test('mutating abilities report mutates: true', () => {
+    const prefab = prefabAutomation({
+      ...base,
+      ability: 'prefab-automation',
+      prefab: 'Assets/Prefabs/Player.prefab',
+      opsJson: JSON.stringify(SINGLE_OPS),
+    });
+    expect(prefab.safetyGate.mutates).toBe(true);
+  });
+});
+
 describe('fresh templates', () => {
   test('script-scaffolding emits a fresh MonoBehaviour', () => {
     const result = scriptScaffolding({
@@ -359,6 +383,20 @@ describe('fresh templates', () => {
     });
     expect(toDir.outPath).toBe(join(dir, 'InDir.cs'));
     expect(existsSync(join(dir, 'InDir.cs'))).toBe(true);
+  });
+
+  test('treats an --out path ending in "." (extname ".") as a directory', () => {
+    const trailing = join(fixture, 'out-trailing', 'trailing.');
+    const result = scriptScaffolding({
+      ...base,
+      ability: 'script-scaffolding',
+      name: 'Trailing',
+      out: trailing,
+      dryRun: false,
+      confirm: true,
+    });
+    expect(result.outPath).toBe(join(trailing, 'Trailing.cs'));
+    expect(existsSync(join(trailing, 'Trailing.cs'))).toBe(true);
   });
 });
 

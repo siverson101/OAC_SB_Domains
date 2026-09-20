@@ -48,6 +48,19 @@ export interface ActSafetyGate {
   requiresApproval: boolean;
 }
 
+// The declared gate per ability, mirroring each `command/<ability>.md`
+// frontmatter. Read-only / decision-only abilities do not report `mutates: true`
+// at runtime: `pattern-library` is read-only and `scene-editing` only returns an
+// escalation decision (the selected rung performs the mutation).
+export const ACT_SAFETY_GATES: Record<ActAbility, ActSafetyGate> = {
+  'scene-editing': { mutates: false, dryRunFirst: true, requiresApproval: true },
+  'prefab-automation': { mutates: true, dryRunFirst: true, requiresApproval: true },
+  'script-scaffolding': { mutates: true, dryRunFirst: true, requiresApproval: true },
+  'shader-helper': { mutates: true, dryRunFirst: true, requiresApproval: true },
+  'pattern-library': { mutates: false, dryRunFirst: false, requiresApproval: false },
+  'input-automation': { mutates: true, dryRunFirst: true, requiresApproval: true },
+};
+
 export interface ActBase {
   schemaVersion: number;
   generatedAt: string;

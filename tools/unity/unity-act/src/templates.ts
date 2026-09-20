@@ -488,7 +488,9 @@ function resolveOutTarget(outPath: string, fileName: string): string {
   if (existsSync(outPath)) {
     return statSync(outPath).isDirectory() ? join(outPath, fileName) : outPath;
   }
-  return extname(outPath) !== '' ? outPath : join(outPath, fileName);
+  const ext = extname(outPath);
+  // `extname` returns '.' for a path like 'foo.' — treat that as no extension.
+  return ext !== '' && ext !== '.' ? outPath : join(outPath, fileName);
 }
 
 function emit(options: ActOptions, registry: Registry, defaultTemplate: string, label: string): TemplateResult {

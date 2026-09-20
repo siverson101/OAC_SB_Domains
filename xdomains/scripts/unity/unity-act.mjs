@@ -189,6 +189,14 @@ var ACT_ABILITY_NAMES = [
   "input-automation"
 ];
 var ACT_ABILITIES = [...ACT_ABILITY_NAMES];
+var ACT_SAFETY_GATES = {
+  "scene-editing": { mutates: false, dryRunFirst: true, requiresApproval: true },
+  "prefab-automation": { mutates: true, dryRunFirst: true, requiresApproval: true },
+  "script-scaffolding": { mutates: true, dryRunFirst: true, requiresApproval: true },
+  "shader-helper": { mutates: true, dryRunFirst: true, requiresApproval: true },
+  "pattern-library": { mutates: false, dryRunFirst: false, requiresApproval: false },
+  "input-automation": { mutates: true, dryRunFirst: true, requiresApproval: true }
+};
 // tools/shared/json-helpers.ts
 function asRecord(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? value : null;
@@ -255,7 +263,7 @@ function makeResult(ability, status, summary, errors, route = "offline") {
   return {
     ...makeEnvelope({ ability, family: "act", mode: "offline", status, summary, errors, route }),
     mutated: false,
-    safetyGate: { mutates: true, dryRunFirst: true, requiresApproval: true }
+    safetyGate: { ...ACT_SAFETY_GATES[ability] }
   };
 }
 
@@ -1086,7 +1094,8 @@ function resolveOutTarget(outPath, fileName) {
   if (existsSync2(outPath)) {
     return statSync2(outPath).isDirectory() ? join4(outPath, fileName) : outPath;
   }
-  return extname(outPath) !== "" ? outPath : join4(outPath, fileName);
+  const ext = extname(outPath);
+  return ext !== "" && ext !== "." ? outPath : join4(outPath, fileName);
 }
 function emit(options, registry, defaultTemplate, label) {
   const template = options.template?.trim() || defaultTemplate;
