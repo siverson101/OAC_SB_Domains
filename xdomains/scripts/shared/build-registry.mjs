@@ -668,25 +668,30 @@ function buildRegistry(domainDir, generatedAt, opencodeDir) {
     })();
     return { id: ability, name: ability, path: rel, realisedAs: exists ? rel : undefined, layer: "ability" };
   });
+  const kindDirs = (manifest.context ?? []).filter((rel) => isDir(join2(domainDir, rel))).flatMap((rel) => [toPosix(join2(rel, "snippets")), toPosix(join2(rel, "templates"))]);
+  const isKindFile = (rel) => kindDirs.some((dir) => rel === dir || rel.startsWith(`${dir}/`));
   const contextFiles = (manifest.context ?? []).flatMap((rel) => {
     const full = join2(domainDir, rel);
     return isDir(full) ? walkFiles(full, domainDir) : [rel];
   });
-  const context = contextFiles.filter((rel) => rel.endsWith(".md")).filter((rel) => !rel.includes("/snippets/") && !rel.includes("/templates/")).map((rel) => entry(domainDir, rel, basename(rel, ".md"), consumedOutputs(rel, basename(rel, ".md"), consumers)));
+  const context = contextFiles.filter((rel) => rel.endsWith(".md")).filter((rel) => !isKindFile(rel)).map((rel) => entry(domainDir, rel, basename(rel, ".md"), consumedOutputs(rel, basename(rel, ".md"), consumers)));
   const workflows = context.filter((c) => c.path.includes("/workflows/"));
   const snippetsManifest = readKindManifest(domainDir, manifest.context, "snippets");
   const templatesManifest = readKindManifest(domainDir, manifest.context, "templates");
+  const defaultContextDir = (manifest.context ?? []).find((rel) => isDir(join2(domainDir, rel))) ?? `context/${manifest.subdomain ?? manifest.name ?? ""}`;
+  const snippetsBaseDir = snippetsManifest?.baseDir ?? toPosix(join2(defaultContextDir, "snippets"));
+  const templatesBaseDir = templatesManifest?.baseDir ?? toPosix(join2(defaultContextDir, "templates"));
   const snippets = (snippetsManifest?.manifest.snippets ?? []).map((snippet) => ({
     id: snippet.id,
     name: snippet.id,
-    path: `${snippetsManifest?.baseDir ?? "context/unity-3d/snippets"}/${snippet.path}`,
+    path: `${snippetsBaseDir}/${snippet.path}`,
     description: snippet.description,
     standardsVersion: snippet.standardsVersion ?? snippetsManifest?.manifest.standardsVersion
   }));
   const templates = (templatesManifest?.manifest.templates ?? []).map((template) => ({
     id: template.id,
     name: template.id,
-    path: `${templatesManifest?.baseDir ?? "context/unity-3d/templates"}/${template.path}/README.md`,
+    path: `${templatesBaseDir}/${template.path}/README.md`,
     description: template.description,
     standardsVersion: template.standardsVersion ?? templatesManifest?.manifest.standardsVersion
   }));

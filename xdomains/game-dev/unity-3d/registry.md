@@ -1,3 +1,4 @@
+<!-- Hand-maintained provenance registry; the generated capability registry is `<opencode-dir>/context/<subdomain>/registry.md`, written by `build-registry`. -->
 Unity 3D Sub-Domain — Registry & Provenance
 ===========================================
 

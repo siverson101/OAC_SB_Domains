@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
 import { buildRegistry } from '../tools/shared/registry/src/build';
 
@@ -188,6 +189,29 @@ describe('registry enumeration', () => {
     for (const entry of registry.context) {
       expect(toPosix(entry.path)).not.toContain('/snippets/');
       expect(toPosix(entry.path)).not.toContain('/templates/');
+    }
+  });
+
+  test('only the context kind dirs are excluded, not a decoy path containing /templates/', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'oac-context-kind-'));
+    try {
+      mkdirSync(join(dir, 'context', 'demo', 'templates'), { recursive: true });
+      mkdirSync(join(dir, 'context', 'demo', 'snippets'), { recursive: true });
+      mkdirSync(join(dir, 'context', 'demo', 'notes', 'templates'), { recursive: true });
+      writeFileSync(
+        join(dir, 'sb-domain.json'),
+        JSON.stringify({ name: 'demo', subdomain: 'demo', domain: 'test', context: ['context/demo/'] })
+      );
+      writeFileSync(join(dir, 'context', 'demo', 'templates', 'manifest.json'), JSON.stringify({ templates: [] }));
+      writeFileSync(join(dir, 'context', 'demo', 'snippets', 'manifest.json'), JSON.stringify({ snippets: [] }));
+      writeFileSync(join(dir, 'context', 'demo', 'templates', 'owned.md'), '# owned');
+      writeFileSync(join(dir, 'context', 'demo', 'notes', 'templates', 'decoy.md'), '# decoy');
+
+      const contextPaths = buildRegistry(dir, '2026-09-20T00:00:00.000Z').context.map((entry) => toPosix(entry.path));
+      expect(contextPaths).toContain('context/demo/notes/templates/decoy.md');
+      expect(contextPaths).not.toContain('context/demo/templates/owned.md');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
     }
   });
 });

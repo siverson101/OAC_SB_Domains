@@ -20,6 +20,9 @@ function stripQuotes(value: string): string {
   return value;
 }
 
+// Numeric/scalar coercion follows `JSON.parse` semantics, so this parser accepts
+// forms such as `1e3` and `-0` that the narrower `primitive.yaml` subset parser
+// (tools/shared/yaml.ts) rejects. The divergence is intentional, not a bug.
 function tryParseJson(input: string): unknown | undefined {
   try {
     return JSON.parse(input);

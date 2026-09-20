@@ -240,6 +240,21 @@ describe('pattern resolver with a synthetic catalog', () => {
     const edgeConflicts = resolved.conflicts.filter((entry) => entry.kind === 'conflictsWith');
     expect(edgeConflicts).toHaveLength(1);
   });
+
+  test('a pattern that declares its own category augments the category membership list', () => {
+    const augmented: PatternCatalog = {
+      categories: [{ id: 'cat', selection: 'single', patterns: ['a', 'b'] }],
+      patterns: [
+        { id: 'a', category: 'cat' },
+        { id: 'b', category: 'cat' },
+        { id: 'c', category: 'cat' },
+      ],
+    };
+    const resolved = resolveStudioConfig(config({ patterns: ['a', 'b', 'c'] }), augmented);
+    expect(resolved.byCategory['cat']).toEqual(['a', 'b', 'c']);
+    const single = resolved.conflicts.find((entry) => entry.kind === 'single-selection');
+    expect(single?.patterns).toEqual(['a', 'b', 'c']);
+  });
 });
 
 describe('registry studio config integration', () => {
@@ -333,5 +348,23 @@ describe('studio-config CLI bundle', () => {
       expect(parsed.resolution.valid).toBe(true);
       expect(parsed.resolution.config.studioMode).toBe('lean');
     });
+  });
+
+  test('discovers the catalog through the repo layout when --catalog is omitted', () => {
+    const res = spawnSync(
+      process.execPath,
+      [bundle, '--opencode-dir', join(repoRoot, '.opencode'), '--json'],
+      { encoding: 'utf8' }
+    );
+    expect(res.status).toBe(0);
+    const parsed = JSON.parse(res.stdout);
+    expect(parsed.catalogPath.replace(/\\/g, '/')).toContain('xdomains/context/programming-patterns.json');
+    expect(parsed.resolution.problems.some((problem: { field: string }) => problem.field === 'catalog')).toBe(false);
+  });
+
+  test('--list prints nothing when the family declares no abilities', () => {
+    const res = spawnSync(process.execPath, [bundle, '--list'], { encoding: 'utf8' });
+    expect(res.status).toBe(0);
+    expect(res.stdout).toBe('');
   });
 });

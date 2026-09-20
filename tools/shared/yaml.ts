@@ -112,6 +112,10 @@ function parseInlineObject(raw: string): { [key: string]: YamlValue } {
   return obj;
 }
 
+// Numeric grammar is intentionally narrower than the registry frontmatter parser
+// (frontmatter.ts), which uses `JSON.parse` and therefore also accepts forms
+// such as `1e3` and `-0`. Here only decimal integers and `-?\d+\.\d+` floats are
+// coerced; everything else stays a string.
 export function parseScalar(raw: string): YamlValue {
   const text = unquote(stripComment(raw));
   if (text === '') return '';

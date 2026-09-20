@@ -34,7 +34,9 @@ export function runCli<Options extends { list: boolean; json: boolean }, Result>
     return;
   }
   if (options.list) {
-    write(config.abilities.join('\n') + '\n');
+    // A family with no abilities (e.g. studio-config) prints nothing rather
+    // than a stray blank line.
+    if (config.abilities.length > 0) write(config.abilities.join('\n') + '\n');
     return;
   }
 

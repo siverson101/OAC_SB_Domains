@@ -267,23 +267,40 @@ export function buildRegistry(domainDir: string, generatedAt: string, opencodeDi
     return { id: ability, name: ability, path: rel, realisedAs: exists ? rel : undefined, layer: 'ability' };
   });
 
+  // Exclude the snippet/template kind dirs by comparing the path segment under
+  // each context dir, so a decoy path like `notes/templates/foo.md` is kept.
+  const kindDirs = (manifest.context ?? [])
+    .filter((rel) => isDir(join(domainDir, rel)))
+    .flatMap((rel) => [toPosix(join(rel, 'snippets')), toPosix(join(rel, 'templates'))]);
+  const isKindFile = (rel: string): boolean =>
+    kindDirs.some((dir) => rel === dir || rel.startsWith(`${dir}/`));
+
   const contextFiles = (manifest.context ?? []).flatMap((rel) => {
     const full = join(domainDir, rel);
     return isDir(full) ? walkFiles(full, domainDir) : [rel];
   });
   const context = contextFiles
     .filter((rel) => rel.endsWith('.md'))
-    .filter((rel) => !rel.includes('/snippets/') && !rel.includes('/templates/'))
+    .filter((rel) => !isKindFile(rel))
     .map((rel) => entry(domainDir, rel, basename(rel, '.md'), consumedOutputs(rel, basename(rel, '.md'), consumers)));
   const workflows = context.filter((c) => c.path.includes('/workflows/'));
 
   const snippetsManifest = readKindManifest<SnippetManifest>(domainDir, manifest.context, 'snippets');
   const templatesManifest = readKindManifest<TemplateManifest>(domainDir, manifest.context, 'templates');
 
+  // The fallback only matters when a manifest is absent (no entries are emitted
+  // then); derive it from the domain's context dir rather than hardcoding a
+  // sub-domain so a non-unity-3d domain keeps correct paths.
+  const defaultContextDir =
+    (manifest.context ?? []).find((rel) => isDir(join(domainDir, rel))) ??
+    `context/${manifest.subdomain ?? manifest.name ?? ''}`;
+  const snippetsBaseDir = snippetsManifest?.baseDir ?? toPosix(join(defaultContextDir, 'snippets'));
+  const templatesBaseDir = templatesManifest?.baseDir ?? toPosix(join(defaultContextDir, 'templates'));
+
   const snippets: RegistryEntry[] = (snippetsManifest?.manifest.snippets ?? []).map((snippet) => ({
     id: snippet.id,
     name: snippet.id,
-    path: `${snippetsManifest?.baseDir ?? 'context/unity-3d/snippets'}/${snippet.path}`,
+    path: `${snippetsBaseDir}/${snippet.path}`,
     description: snippet.description,
     standardsVersion: snippet.standardsVersion ?? snippetsManifest?.manifest.standardsVersion,
   }));
@@ -291,7 +308,7 @@ export function buildRegistry(domainDir: string, generatedAt: string, opencodeDi
   const templates: RegistryEntry[] = (templatesManifest?.manifest.templates ?? []).map((template) => ({
     id: template.id,
     name: template.id,
-    path: `${templatesManifest?.baseDir ?? 'context/unity-3d/templates'}/${template.path}/README.md`,
+    path: `${templatesBaseDir}/${template.path}/README.md`,
     description: template.description,
     standardsVersion: template.standardsVersion ?? templatesManifest?.manifest.standardsVersion,
   }));

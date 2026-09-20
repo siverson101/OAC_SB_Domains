@@ -15,7 +15,8 @@ function runCli(config) {
     return;
   }
   if (options.list) {
-    write(config.abilities.join(`
+    if (config.abilities.length > 0)
+      write(config.abilities.join(`
 `) + `
 `);
     return;
