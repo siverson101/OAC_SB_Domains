@@ -48,7 +48,7 @@ function main(): void {
 
   const domainDir = resolve(String(domainDirArg));
   const opencodeDir = resolve(String(args['opencode-dir'] || '.opencode'));
-  const registry = buildRegistry(domainDir, nowIso());
+  const registry = buildRegistry(domainDir, nowIso(), opencodeDir);
   const subdomain = registry.subdomain || 'unity';
 
   const outJson = resolve(String(args['out-json'] || join(opencodeDir, 'registry.json')));

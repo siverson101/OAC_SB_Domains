@@ -1,4 +1,4 @@
-import type { Registry, RegistryEdge, RegistryEntry } from './build';
+import type { Registry, RegistryEdge, RegistryEntry, RegistryStudioConfig } from './build';
 
 function escapeCell(value: string | undefined): string {
   return (value ?? '').replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
@@ -40,6 +40,42 @@ function section(
   lines.push('');
 }
 
+function studioConfigSection(lines: string[], studio: RegistryStudioConfig): void {
+  lines.push('## Studio Config');
+  lines.push('');
+  if (studio.present) {
+    lines.push(`Source: \`${studio.path ?? 'unity-studio.json'}\``);
+    lines.push('');
+  } else {
+    lines.push('> No `.opencode/unity-studio.json` found; using defaults (fail-soft).');
+    lines.push('');
+  }
+  lines.push(`- Studio mode: ${studio.studioMode}`);
+  lines.push(`- Review intensity: ${studio.reviewIntensity}`);
+  lines.push(`- Toggles: tdd=${studio.toggles.tdd}, ftf=${studio.toggles.ftf}`);
+  const patterns = studio.patterns.map((id) => `\`${id}\``).join(', ');
+  const packages = studio.packages.map((id) => `\`${id}\``).join(', ');
+  lines.push(`- Enabled patterns: ${patterns || '(none)'}`);
+  lines.push(`- Enabled packages: ${packages || '(none)'}`);
+  lines.push('');
+  if (studio.conflicts.length > 0) {
+    lines.push('### Pattern conflicts');
+    lines.push('');
+    for (const conflict of studio.conflicts) {
+      lines.push(`- **${conflict.kind}**: ${escapeCell(conflict.message)}`);
+    }
+    lines.push('');
+  }
+  if (studio.problems.length > 0) {
+    lines.push('### Config problems');
+    lines.push('');
+    for (const problem of studio.problems) {
+      lines.push(`- \`${problem.field}\`: ${escapeCell(problem.message)}`);
+    }
+    lines.push('');
+  }
+}
+
 const EDGE_ORDER: RegistryEdge['type'][] = ['agent-ability', 'workflow-ability', 'workflow-agent'];
 
 function edgesSection(lines: string[], edges: RegistryEdge[]): void {
@@ -77,6 +113,8 @@ export function renderRegistry(registry: Registry): string {
   lines.push('');
   lines.push('> Layering: **tool** = thin typed adapter (no workflow logic); **ability** = named capability composing tools; **command** = user-invocable entry realising an ability (ADR-0004 / ADR-0012).');
   lines.push('');
+
+  studioConfigSection(lines, registry.studioConfig);
 
   section(lines, 'Agents', registry.agents, { consumes: true });
   section(lines, 'SubAgents', registry.subagents, { consumes: true });

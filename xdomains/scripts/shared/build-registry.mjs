@@ -1,12 +1,26 @@
 // tools/shared/registry/src/index.ts
 import { mkdirSync as mkdirSync2, writeFileSync as writeFileSync2 } from "node:fs";
-import { dirname, join as join2, resolve } from "node:path";
+import { dirname, join as join3, resolve } from "node:path";
 
 // tools/shared/io.ts
 import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+function fileExists(path) {
+  try {
+    return statSync(path).isFile();
+  } catch {
+    return false;
+  }
+}
 function readJson(path) {
   try {
     return JSON.parse(readFileSync(path, "utf8"));
+  } catch {
+    return null;
+  }
+}
+function readText(path) {
+  try {
+    return readFileSync(path, "utf8");
   } catch {
     return null;
   }
@@ -17,7 +31,250 @@ function nowIso() {
 
 // tools/shared/registry/src/build.ts
 import { readdirSync, statSync as statSync2 } from "node:fs";
-import { basename, join, relative, sep } from "node:path";
+import { basename, join as join2, relative, sep } from "node:path";
+
+// tools/unity/studio-config/src/catalog.ts
+import { join } from "node:path";
+function loadPatternCatalog(path) {
+  const catalog = readJson(path);
+  if (!catalog || typeof catalog !== "object")
+    return null;
+  return catalog;
+}
+function patternCatalogCandidates(domainDir, opencodeDir) {
+  const candidates = [join(domainDir, "..", "..", "context", "programming-patterns.json")];
+  if (opencodeDir)
+    candidates.push(join(opencodeDir, "xdomains", "context", "programming-patterns.json"));
+  return candidates;
+}
+
+// tools/shared/json-helpers.ts
+function asRecord(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? value : null;
+}
+
+// tools/unity/studio-config/src/types.ts
+var STUDIO_MODES = ["lean", "full"];
+var REVIEW_INTENSITIES = ["full", "lean", "solo"];
+var DEFAULT_STUDIO_CONFIG = {
+  schemaVersion: 1,
+  studioMode: "lean",
+  reviewIntensity: "full",
+  toggles: { tdd: false, ftf: false },
+  patterns: [],
+  packages: []
+};
+
+// tools/unity/studio-config/src/config.ts
+var KNOWN_KEYS = new Set([
+  "$schema",
+  "schemaVersion",
+  "studioMode",
+  "reviewIntensity",
+  "toggles",
+  "patterns",
+  "packages"
+]);
+var KNOWN_TOGGLE_KEYS = new Set(["tdd", "ftf"]);
+function defaultStudioConfig() {
+  return {
+    ...DEFAULT_STUDIO_CONFIG,
+    toggles: { ...DEFAULT_STUDIO_CONFIG.toggles },
+    patterns: [],
+    packages: []
+  };
+}
+function parseStringArray(value, field, problems) {
+  if (value === undefined)
+    return [];
+  if (!Array.isArray(value)) {
+    problems.push({ field, message: "expected an array of strings" });
+    return [];
+  }
+  const out = [];
+  for (const item of value) {
+    if (typeof item === "string" && item.trim() !== "") {
+      const id = item.trim();
+      if (!out.includes(id))
+        out.push(id);
+    } else {
+      problems.push({ field, message: `ignored non-string entry ${JSON.stringify(item)}` });
+    }
+  }
+  return out;
+}
+function parseMode(value, problems) {
+  if (value === undefined)
+    return DEFAULT_STUDIO_CONFIG.studioMode;
+  if (typeof value === "string" && STUDIO_MODES.includes(value)) {
+    return value;
+  }
+  problems.push({ field: "studioMode", message: `expected one of ${STUDIO_MODES.join("|")}, got ${JSON.stringify(value)}` });
+  return DEFAULT_STUDIO_CONFIG.studioMode;
+}
+function parseIntensity(value, problems) {
+  if (value === undefined)
+    return DEFAULT_STUDIO_CONFIG.reviewIntensity;
+  if (typeof value === "string" && REVIEW_INTENSITIES.includes(value)) {
+    return value;
+  }
+  problems.push({
+    field: "reviewIntensity",
+    message: `expected one of ${REVIEW_INTENSITIES.join("|")}, got ${JSON.stringify(value)}`
+  });
+  return DEFAULT_STUDIO_CONFIG.reviewIntensity;
+}
+function parseToggles(value, problems) {
+  const toggles = { ...DEFAULT_STUDIO_CONFIG.toggles };
+  if (value === undefined)
+    return toggles;
+  const record = asRecord(value);
+  if (!record) {
+    problems.push({ field: "toggles", message: "expected an object with boolean tdd/ftf flags" });
+    return toggles;
+  }
+  for (const key of Object.keys(record)) {
+    if (!KNOWN_TOGGLE_KEYS.has(key))
+      problems.push({ field: `toggles.${key}`, message: "unknown toggle" });
+  }
+  for (const key of KNOWN_TOGGLE_KEYS) {
+    const flag = record[key];
+    if (flag === undefined)
+      continue;
+    if (typeof flag === "boolean")
+      toggles[key] = flag;
+    else
+      problems.push({ field: `toggles.${key}`, message: `expected a boolean, got ${JSON.stringify(flag)}` });
+  }
+  return toggles;
+}
+function parseStudioConfig(value) {
+  const problems = [];
+  const record = asRecord(value);
+  if (!record) {
+    problems.push({ field: "$", message: "config must be a JSON object" });
+    return { config: defaultStudioConfig(), problems };
+  }
+  for (const key of Object.keys(record)) {
+    if (!KNOWN_KEYS.has(key))
+      problems.push({ field: key, message: "unknown property" });
+  }
+  let schemaVersion = DEFAULT_STUDIO_CONFIG.schemaVersion;
+  if (record.schemaVersion !== undefined) {
+    if (typeof record.schemaVersion === "number" && Number.isFinite(record.schemaVersion)) {
+      schemaVersion = record.schemaVersion;
+    } else {
+      problems.push({ field: "schemaVersion", message: `expected a number, got ${JSON.stringify(record.schemaVersion)}` });
+    }
+  }
+  const config = {
+    schemaVersion,
+    studioMode: parseMode(record.studioMode, problems),
+    reviewIntensity: parseIntensity(record.reviewIntensity, problems),
+    toggles: parseToggles(record.toggles, problems),
+    patterns: parseStringArray(record.patterns, "patterns", problems),
+    packages: parseStringArray(record.packages, "packages", problems)
+  };
+  return { config, problems };
+}
+function loadStudioConfig(path) {
+  const text = readText(path);
+  if (text === null)
+    return { present: false, path, config: defaultStudioConfig(), problems: [] };
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch (error) {
+    return {
+      present: true,
+      path,
+      config: defaultStudioConfig(),
+      problems: [{ field: "$", message: `invalid JSON: ${error instanceof Error ? error.message : String(error)}` }]
+    };
+  }
+  const { config, problems } = parseStudioConfig(parsed);
+  return { present: true, path, config, problems };
+}
+
+// tools/unity/studio-config/src/resolver.ts
+function uniqueStrings(values) {
+  return Array.from(new Set(values));
+}
+function resolveStudioConfig(config, catalog, extraProblems = []) {
+  const problems = [...extraProblems];
+  const conflicts = [];
+  const patterns = uniqueStrings(config.patterns);
+  const packages = uniqueStrings(config.packages);
+  const enabled = new Set(patterns);
+  const patternById = new Map((catalog.patterns ?? []).map((pattern) => [pattern.id, pattern]));
+  const categoryById = new Map((catalog.categories ?? []).map((category) => [category.id, category]));
+  for (const id of patterns) {
+    if (!patternById.has(id))
+      problems.push({ field: "patterns", message: `unknown pattern id '${id}'` });
+  }
+  const byCategory = {};
+  for (const category of catalog.categories ?? []) {
+    const members = uniqueStrings((category.patterns ?? []).filter((id) => enabled.has(id)));
+    for (const id of patterns) {
+      if (patternById.get(id)?.category === category.id && !members.includes(id))
+        members.push(id);
+    }
+    if (members.length === 0)
+      continue;
+    byCategory[category.id] = members;
+    if (members.length > 1) {
+      if (category.selection === "single") {
+        conflicts.push({
+          kind: "single-selection",
+          category: category.id,
+          patterns: members,
+          message: `category '${category.id}' allows a single pattern but ${members.length} are enabled: ${members.join(", ")}`
+        });
+      }
+      if (category.mutuallyExclusive) {
+        conflicts.push({
+          kind: "mutually-exclusive",
+          category: category.id,
+          patterns: members,
+          message: `category '${category.id}' is mutually exclusive but combines: ${members.join(", ")}`
+        });
+      }
+    }
+  }
+  for (const id of patterns) {
+    const category = patternById.get(id)?.category;
+    if (category && !categoryById.has(category)) {
+      problems.push({ field: "patterns", message: `pattern '${id}' references unknown category '${category}'` });
+    }
+  }
+  const seenPairs = new Set;
+  for (const id of patterns) {
+    for (const other of patternById.get(id)?.conflictsWith ?? []) {
+      if (!enabled.has(other))
+        continue;
+      const pair = [id, other].sort();
+      const key = pair.join("\x00");
+      if (seenPairs.has(key))
+        continue;
+      seenPairs.add(key);
+      conflicts.push({
+        kind: "conflictsWith",
+        patterns: pair,
+        message: `patterns '${pair[0]}' and '${pair[1]}' conflict`
+      });
+    }
+  }
+  const effective = { ...config, patterns, packages };
+  return {
+    config: effective,
+    enabledPatterns: patterns,
+    enabledPackages: packages,
+    byCategory,
+    conflicts,
+    problems,
+    valid: conflicts.length === 0 && problems.length === 0
+  };
+}
 
 // tools/shared/registry/src/frontmatter.ts
 import { readFileSync as readFileSync2 } from "node:fs";
@@ -239,7 +496,7 @@ function walkFiles(dir, base, out = []) {
     return out;
   }
   for (const entry of entries) {
-    const full = join(dir, entry);
+    const full = join2(dir, entry);
     if (isDir(full))
       walkFiles(full, base, out);
     else
@@ -248,7 +505,7 @@ function walkFiles(dir, base, out = []) {
   return out;
 }
 function entry(domainDir, relPath, id, consumes, layer) {
-  const fm = readFrontmatter(join(domainDir, relPath));
+  const fm = readFrontmatter(join2(domainDir, relPath));
   return {
     id,
     name: frontmatterString(fm, "name") || id,
@@ -276,20 +533,61 @@ function consumedOutputs(path, id, consumers) {
 }
 function readKindManifest(domainDir, context, kind) {
   for (const rel of context ?? []) {
-    const full = join(domainDir, rel);
+    const full = join2(domainDir, rel);
     if (!isDir(full))
       continue;
-    const manifestPath = join(full, kind, "manifest.json");
+    const manifestPath = join2(full, kind, "manifest.json");
     const manifest = readJson(manifestPath);
     if (manifest)
-      return { baseDir: toPosix(join(rel, kind)), manifest };
+      return { baseDir: toPosix(join2(rel, kind)), manifest };
   }
   return null;
 }
-function buildRegistry(domainDir, generatedAt) {
-  const manifest = readJson(join(domainDir, "sb-domain.json")) ?? {};
-  const projections = readJson(join(domainDir, "context-projections.json")) ?? {};
+function absentStudioConfig() {
+  const defaults = defaultStudioConfig();
+  return {
+    present: false,
+    path: null,
+    studioMode: defaults.studioMode,
+    reviewIntensity: defaults.reviewIntensity,
+    toggles: { ...defaults.toggles },
+    patterns: [],
+    packages: [],
+    conflicts: [],
+    problems: [],
+    valid: true
+  };
+}
+function buildStudioConfig(domainDir, opencodeDir) {
+  if (!opencodeDir)
+    return absentStudioConfig();
+  const configPath = join2(opencodeDir, "unity-studio.json");
+  const load = loadStudioConfig(configPath);
+  const catalogPath = patternCatalogCandidates(domainDir, opencodeDir).find((candidate) => fileExists(candidate)) ?? null;
+  const catalog = catalogPath ? loadPatternCatalog(catalogPath) : null;
+  const problems = [...load.problems];
+  if (load.present && !catalog) {
+    problems.push({ field: "catalog", message: "pattern catalog not found; pattern conflicts were not validated" });
+  }
+  const resolved = resolveStudioConfig(load.config, catalog ?? { categories: [], patterns: [] }, problems);
+  return {
+    present: load.present,
+    path: configPath,
+    studioMode: resolved.config.studioMode,
+    reviewIntensity: resolved.config.reviewIntensity,
+    toggles: resolved.config.toggles,
+    patterns: resolved.enabledPatterns,
+    packages: resolved.enabledPackages,
+    conflicts: resolved.conflicts,
+    problems: resolved.problems,
+    valid: resolved.valid
+  };
+}
+function buildRegistry(domainDir, generatedAt, opencodeDir) {
+  const manifest = readJson(join2(domainDir, "sb-domain.json")) ?? {};
+  const projections = readJson(join2(domainDir, "context-projections.json")) ?? {};
   const consumers = projections.consumers ?? {};
+  const studioConfig = buildStudioConfig(domainDir, opencodeDir);
   const mapEntries = (paths, layer) => (paths ?? []).map((rel) => entry(domainDir, rel, basename(rel, ".md"), consumedOutputs(rel, basename(rel, ".md"), consumers), layer));
   const agents = mapEntries(manifest.agents);
   const subagents = mapEntries(manifest.subagents);
@@ -298,7 +596,7 @@ function buildRegistry(domainDir, generatedAt) {
     const rel = `command/${ability}.md`;
     const exists = (() => {
       try {
-        return statSync2(join(domainDir, rel)).isFile();
+        return statSync2(join2(domainDir, rel)).isFile();
       } catch {
         return false;
       }
@@ -306,7 +604,7 @@ function buildRegistry(domainDir, generatedAt) {
     return { id: ability, name: ability, path: rel, realisedAs: exists ? rel : undefined, layer: "ability" };
   });
   const contextFiles = (manifest.context ?? []).flatMap((rel) => {
-    const full = join(domainDir, rel);
+    const full = join2(domainDir, rel);
     return isDir(full) ? walkFiles(full, domainDir) : [rel];
   });
   const context = contextFiles.filter((rel) => rel.endsWith(".md")).filter((rel) => !rel.includes("/snippets/") && !rel.includes("/templates/")).map((rel) => entry(domainDir, rel, basename(rel, ".md"), consumedOutputs(rel, basename(rel, ".md"), consumers)));
@@ -339,11 +637,11 @@ function buildRegistry(domainDir, generatedAt) {
       edges.push({ type, from, to });
   };
   for (const rel of [...manifest.agents ?? [], ...manifest.subagents ?? []]) {
-    const fm = readFrontmatter(join(domainDir, rel));
+    const fm = readFrontmatter(join2(domainDir, rel));
     addEdges("agent-ability", basename(rel, ".md"), frontmatterStringArray(fm, "abilities") ?? []);
   }
   for (const workflow of workflows) {
-    const fm = readFrontmatter(join(domainDir, workflow.path));
+    const fm = readFrontmatter(join2(domainDir, workflow.path));
     addEdges("workflow-ability", workflow.id, frontmatterStringArray(fm, "abilities") ?? []);
     addEdges("workflow-agent", workflow.id, frontmatterStringArray(fm, "agents") ?? []);
   }
@@ -358,7 +656,8 @@ function buildRegistry(domainDir, generatedAt) {
     templates: templates.length,
     tools: tools.length,
     scripts: scripts.length,
-    edges: edges.length
+    edges: edges.length,
+    studioPatterns: studioConfig.patterns.length
   };
   return {
     schemaVersion: 1,
@@ -379,6 +678,7 @@ function buildRegistry(domainDir, generatedAt) {
     tools,
     scripts,
     edges,
+    studioConfig,
     projections: { outputDir: projections.outputDir ?? null, outputs }
   };
 }
@@ -422,6 +722,41 @@ function section(lines, title, entries, options) {
   lines.push(...entriesTable(entries, options));
   lines.push("");
 }
+function studioConfigSection(lines, studio) {
+  lines.push("## Studio Config");
+  lines.push("");
+  if (studio.present) {
+    lines.push(`Source: \`${studio.path ?? "unity-studio.json"}\``);
+    lines.push("");
+  } else {
+    lines.push("> No `.opencode/unity-studio.json` found; using defaults (fail-soft).");
+    lines.push("");
+  }
+  lines.push(`- Studio mode: ${studio.studioMode}`);
+  lines.push(`- Review intensity: ${studio.reviewIntensity}`);
+  lines.push(`- Toggles: tdd=${studio.toggles.tdd}, ftf=${studio.toggles.ftf}`);
+  const patterns = studio.patterns.map((id) => `\`${id}\``).join(", ");
+  const packages = studio.packages.map((id) => `\`${id}\``).join(", ");
+  lines.push(`- Enabled patterns: ${patterns || "(none)"}`);
+  lines.push(`- Enabled packages: ${packages || "(none)"}`);
+  lines.push("");
+  if (studio.conflicts.length > 0) {
+    lines.push("### Pattern conflicts");
+    lines.push("");
+    for (const conflict of studio.conflicts) {
+      lines.push(`- **${conflict.kind}**: ${escapeCell(conflict.message)}`);
+    }
+    lines.push("");
+  }
+  if (studio.problems.length > 0) {
+    lines.push("### Config problems");
+    lines.push("");
+    for (const problem of studio.problems) {
+      lines.push(`- \`${problem.field}\`: ${escapeCell(problem.message)}`);
+    }
+    lines.push("");
+  }
+}
 var EDGE_ORDER = ["agent-ability", "workflow-ability", "workflow-agent"];
 function edgesSection(lines, edges) {
   if (edges.length === 0)
@@ -461,6 +796,7 @@ function renderRegistry(registry) {
   lines.push("");
   lines.push("> Layering: **tool** = thin typed adapter (no workflow logic); **ability** = named capability composing tools; **command** = user-invocable entry realising an ability (ADR-0004 / ADR-0012).");
   lines.push("");
+  studioConfigSection(lines, registry.studioConfig);
   section(lines, "Agents", registry.agents, { consumes: true });
   section(lines, "SubAgents", registry.subagents, { consumes: true });
   section(lines, "Commands", registry.commands, { consumes: true, layer: true });
@@ -533,10 +869,10 @@ function main() {
   }
   const domainDir = resolve(String(domainDirArg));
   const opencodeDir = resolve(String(args["opencode-dir"] || ".opencode"));
-  const registry = buildRegistry(domainDir, nowIso());
+  const registry = buildRegistry(domainDir, nowIso(), opencodeDir);
   const subdomain = registry.subdomain || "unity";
-  const outJson = resolve(String(args["out-json"] || join2(opencodeDir, "registry.json")));
-  const outMd = resolve(String(args["out-md"] || join2(opencodeDir, "context", subdomain, "registry.md")));
+  const outJson = resolve(String(args["out-json"] || join3(opencodeDir, "registry.json")));
+  const outMd = resolve(String(args["out-md"] || join3(opencodeDir, "context", subdomain, "registry.md")));
   write(outJson, JSON.stringify(registry, null, 2) + `
 `);
   write(outMd, renderRegistry(registry));

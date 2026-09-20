@@ -1,6 +1,13 @@
 import { readdirSync, statSync } from 'node:fs';
 import { basename, join, relative, sep } from 'node:path';
-import { readJson } from '../../../shared/io';
+import { fileExists, readJson } from '../../../shared/io';
+import {
+  loadPatternCatalog,
+  patternCatalogCandidates,
+} from '../../../unity/studio-config/src/catalog';
+import { defaultStudioConfig, loadStudioConfig } from '../../../unity/studio-config/src/config';
+import { resolveStudioConfig } from '../../../unity/studio-config/src/resolver';
+import type { ConfigProblem, PatternConflict, StudioToggles } from '../../../unity/studio-config/src/types';
 import { frontmatterString, frontmatterStringArray, readFrontmatter } from './frontmatter';
 
 export interface RegistryEntry {
@@ -22,6 +29,22 @@ export interface RegistryEdge {
   to: string;
 }
 
+// The enabled pattern/package config surfaced from `.opencode/unity-studio.json`
+// (fail-soft: absent -> defaults, `present: false`). Conflicts are reported, not
+// resolved by dropping a pattern.
+export interface RegistryStudioConfig {
+  present: boolean;
+  path: string | null;
+  studioMode: string;
+  reviewIntensity: string;
+  toggles: StudioToggles;
+  patterns: string[];
+  packages: string[];
+  conflicts: PatternConflict[];
+  problems: ConfigProblem[];
+  valid: boolean;
+}
+
 export interface Registry {
   schemaVersion: number;
   generatedAt: string;
@@ -41,6 +64,7 @@ export interface Registry {
   tools: RegistryEntry[];
   scripts: RegistryEntry[];
   edges: RegistryEdge[];
+  studioConfig: RegistryStudioConfig;
   projections: { outputDir: string | null; outputs: { file: string; title: string; consumedBy: string[] }[] };
 }
 
@@ -171,10 +195,56 @@ function readKindManifest<T>(
   return null;
 }
 
-export function buildRegistry(domainDir: string, generatedAt: string): Registry {
+function absentStudioConfig(): RegistryStudioConfig {
+  const defaults = defaultStudioConfig();
+  return {
+    present: false,
+    path: null,
+    studioMode: defaults.studioMode,
+    reviewIntensity: defaults.reviewIntensity,
+    toggles: { ...defaults.toggles },
+    patterns: [],
+    packages: [],
+    conflicts: [],
+    problems: [],
+    valid: true,
+  };
+}
+
+function buildStudioConfig(domainDir: string, opencodeDir?: string): RegistryStudioConfig {
+  if (!opencodeDir) return absentStudioConfig();
+
+  const configPath = join(opencodeDir, 'unity-studio.json');
+  const load = loadStudioConfig(configPath);
+
+  const catalogPath = patternCatalogCandidates(domainDir, opencodeDir).find((candidate) => fileExists(candidate)) ?? null;
+  const catalog = catalogPath ? loadPatternCatalog(catalogPath) : null;
+
+  const problems: ConfigProblem[] = [...load.problems];
+  if (load.present && !catalog) {
+    problems.push({ field: 'catalog', message: 'pattern catalog not found; pattern conflicts were not validated' });
+  }
+
+  const resolved = resolveStudioConfig(load.config, catalog ?? { categories: [], patterns: [] }, problems);
+  return {
+    present: load.present,
+    path: configPath,
+    studioMode: resolved.config.studioMode,
+    reviewIntensity: resolved.config.reviewIntensity,
+    toggles: resolved.config.toggles,
+    patterns: resolved.enabledPatterns,
+    packages: resolved.enabledPackages,
+    conflicts: resolved.conflicts,
+    problems: resolved.problems,
+    valid: resolved.valid,
+  };
+}
+
+export function buildRegistry(domainDir: string, generatedAt: string, opencodeDir?: string): Registry {
   const manifest = readJson<Manifest>(join(domainDir, 'sb-domain.json')) ?? {};
   const projections = readJson<Projections>(join(domainDir, 'context-projections.json')) ?? {};
   const consumers = projections.consumers ?? {};
+  const studioConfig = buildStudioConfig(domainDir, opencodeDir);
 
   const mapEntries = (paths: string[] | undefined, layer?: RegistryEntry['layer']): RegistryEntry[] =>
     (paths ?? []).map((rel) => entry(domainDir, rel, basename(rel, '.md'), consumedOutputs(rel, basename(rel, '.md'), consumers), layer));
@@ -262,6 +332,7 @@ export function buildRegistry(domainDir: string, generatedAt: string): Registry 
     tools: tools.length,
     scripts: scripts.length,
     edges: edges.length,
+    studioPatterns: studioConfig.patterns.length,
   };
 
   return {
@@ -283,6 +354,7 @@ export function buildRegistry(domainDir: string, generatedAt: string): Registry 
     tools,
     scripts,
     edges,
+    studioConfig,
     projections: { outputDir: projections.outputDir ?? null, outputs },
   };
 }
