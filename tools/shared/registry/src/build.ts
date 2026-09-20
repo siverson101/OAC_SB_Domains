@@ -1,7 +1,7 @@
 import { readdirSync, statSync } from 'node:fs';
 import { basename, join, relative, sep } from 'node:path';
 import { readJson } from '../../../shared/io';
-import { readFrontmatter } from './frontmatter';
+import { frontmatterString, readFrontmatter } from './frontmatter';
 
 export interface RegistryEntry {
   id: string;
@@ -83,9 +83,9 @@ function entry(domainDir: string, relPath: string, id: string, consumes: string[
   const fm = readFrontmatter(join(domainDir, relPath));
   return {
     id,
-    name: fm.name || id,
+    name: frontmatterString(fm, 'name') || id,
     path: relPath,
-    description: fm.description,
+    description: frontmatterString(fm, 'description'),
     consumes: consumes.length > 0 ? consumes : undefined,
   };
 }
