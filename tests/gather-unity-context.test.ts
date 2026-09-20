@@ -150,6 +150,12 @@ describe('end-to-end gather (non-interactive)', () => {
     const gateState = JSON.parse(readFileSync(join(dataDir, 'gate-state.json'), 'utf8'));
     expect(gateState.gateResult).toBe('not_run');
     expect(gateState.fingerprint).toBeTruthy();
+    expect(['live', 'batch', 'offline', 'local']).toContain(gateState.routing?.route);
+    expect(typeof gateState.routing?.reason).toBe('string');
+
+    const summary = JSON.parse(res.stdout);
+    expect(summary.route).toBe(gateState.routing.route);
+    expect(summary.routeReason).toBe(gateState.routing.reason);
 
     const structure = JSON.parse(readFileSync(join(dataDir, 'project-structure.json'), 'utf8'));
     expect(structure.baseFolder).toBe('Assets/_Project');
@@ -175,6 +181,48 @@ describe('end-to-end gather (non-interactive)', () => {
       'deprecation-scan.md',
     ]) {
       expect(projectedFiles).toContain(file);
+    }
+  });
+
+  test('projects the six producer JSONs into non-empty markdown', () => {
+    const root = join(fixture, 'projection-e2e');
+    mkdirSync(join(root, '.opencode', 'project-data'), { recursive: true });
+    write(join(root, 'Assets', '_Project', 'Scripts', 'Game.cs'), 'class Game {}');
+    write(join(root, 'Assets', '_Project', 'Scripts', 'Game.asmdef'), JSON.stringify({ name: 'Game', references: [] }));
+    write(join(root, 'ProjectSettings', 'ProjectVersion.txt'), 'm_EditorVersion: 6000.5.7f1\n');
+    write(
+      join(root, 'ProjectSettings', 'ProjectSettings.asset'),
+      ['productName: Proj', 'companyName: OAC', ''].join('\n')
+    );
+    write(join(root, 'Packages', 'manifest.json'), '{"dependencies":{}}');
+
+    const opencodeDir = join(root, '.opencode');
+    const dataDir = join(opencodeDir, 'project-data');
+    const res = spawnSync(
+      process.execPath,
+      [bundle, '--project-root', root, '--opencode-dir', opencodeDir, '--non-interactive'],
+      { encoding: 'utf8' }
+    );
+    expect(res.status).toBe(0);
+
+    const projectionScript = join(repoRoot, 'xdomains', 'game-dev', 'unity-3d', 'scripts', 'build-project-context.js');
+    const proj = spawnSync(
+      process.execPath,
+      [projectionScript, '--project-data', dataDir, '--opencode-dir', opencodeDir, '--subdomain', 'unity-3d'],
+      { encoding: 'utf8' }
+    );
+    expect(proj.status).toBe(0);
+
+    for (const file of [
+      'compile-state.md',
+      'log-digest.md',
+      'project-settings.md',
+      'asmdef-map.md',
+      'test-inventory.md',
+      'deprecation-scan.md',
+    ]) {
+      const markdown = readFileSync(join(opencodeDir, 'context', 'unity-3d', 'project', file), 'utf8');
+      expect(markdown.length).toBeGreaterThan(0);
     }
   });
 });

@@ -99,7 +99,14 @@ beforeAll(() => {
     join(root, '.opencode', '.scratch', 'unity', 'EditMode-results.xml'),
     '<test-run id="2" total="12" passed="10" failed="1" skipped="1" inconclusive="0" result="Failed">'
   );
-  write(join(root, '.opencode', '.scratch', 'unity', 'visual-verification.json'), '{"results":[]}');
+  write(
+    join(root, '.opencode', '.scratch', 'unity', 'visual-verification.json'),
+    JSON.stringify({
+      status: 'passed',
+      summary: { total: 1, passed: 1 },
+      results: [{ name: 'shows the menu', status: 'passed', screenshot: 'screenshots/step-1.png' }],
+    })
+  );
   write(join(root, '.opencode', '.scratch', 'unity', 'screenshots', 'step-1.png'), 'png');
 
   input = { projectRoot: root, assetFolder: join(root, 'Assets'), opencodeDir: join(root, '.opencode') };
@@ -114,22 +121,34 @@ afterAll(() => {
 });
 
 describe('compile-state producer', () => {
-  test('detects a stale recompile when scripts are newer than assemblies', () => {
-    const result = produceCompileState(input);
+  test('reports no-op as not determinable when sources are not newer than assemblies', () => {
+    const log = join(fixture, 'compile-Editor.log');
+    write(log, ['Begin MonoManager ReloadAssembly', 'Finished compiling graph'].join('\n'));
+    const result = produceCompileState(input, [log]);
     expect(result.status).toBe('observed_locally');
     expect(result.route).toBe('offline');
     expect(result.assemblyCount).toBe(1);
     expect(result.newestAssembly?.name).toBe('Assembly-CSharp.dll');
     expect(result.stale).toBe(false);
-    expect(result.noOpRecompile).toBe(true);
+    expect(result.noOpRecompile).toBeNull();
   });
 
-  test('flags stale when a script is newer than the assembly', () => {
+  test('reports a no-op recompile only with positive evidence', () => {
+    const log = join(fixture, 'compile-Editor.log');
     const script = join(input.projectRoot, 'Assets', '_Project', 'Legacy.cs');
     touch(script, '2026-02-01T00:00:00.000Z');
-    const result = produceCompileState(input);
+    const result = produceCompileState(input, [log]);
     expect(result.stale).toBe(true);
-    expect(result.noOpRecompile).toBe(false);
+    expect(result.noOpRecompile).toBe(true);
+    touch(script, '2026-01-01T00:00:00.000Z');
+  });
+
+  test('reports no-op as not determinable without compile evidence', () => {
+    const script = join(input.projectRoot, 'Assets', '_Project', 'Legacy.cs');
+    touch(script, '2026-02-01T00:00:00.000Z');
+    const result = produceCompileState(input, [join(fixture, 'missing-Editor.log')]);
+    expect(result.stale).toBe(true);
+    expect(result.noOpRecompile).toBeNull();
     touch(script, '2026-01-01T00:00:00.000Z');
   });
 
@@ -138,6 +157,7 @@ describe('compile-state producer', () => {
     expect(result.status).toBe('unavailable');
     expect(result.assemblyCount).toBe(0);
     expect(result.stale).toBeNull();
+    expect(result.noOpRecompile).toBeNull();
   });
 });
 
@@ -213,6 +233,27 @@ describe('asmdef-map producer', () => {
     expect(guidEdge?.resolved).toBe(true);
     expect(result.edges.some((edge) => edge.reference === 'UnityEngine.UI' && !edge.resolved)).toBe(true);
   });
+
+  test('derives EditMode for editor-only test asmdefs and PlayMode otherwise', () => {
+    const root = join(fixture, 'asmdef-targets');
+    write(
+      join(root, 'Assets', 'Editor', 'EditorTests.asmdef'),
+      JSON.stringify({ name: 'EditorTests', includePlatforms: ['Editor'], testAssemblies: true })
+    );
+    write(
+      join(root, 'Assets', 'Runtime', 'RuntimeTests.asmdef'),
+      JSON.stringify({ name: 'RuntimeTests', includePlatforms: [], testAssemblies: true })
+    );
+    const result = produceAsmdefMap({ projectRoot: root, assetFolder: join(root, 'Assets') });
+
+    const editorTests = result.assemblies.find((node) => node.name === 'EditorTests');
+    expect(editorTests?.isTest).toBe(true);
+    expect(editorTests?.targets).toEqual({ edit: true, play: false });
+
+    const runtimeTests = result.assemblies.find((node) => node.name === 'RuntimeTests');
+    expect(runtimeTests?.isTest).toBe(true);
+    expect(runtimeTests?.targets).toEqual({ edit: false, play: true });
+  });
 });
 
 describe('test-inventory producer', () => {
@@ -225,23 +266,36 @@ describe('test-inventory producer', () => {
     expect(result.latestResult?.result).toBe('Failed');
     expect(result.visualVerification.found).toBe(true);
     expect(result.visualVerification.screenshots.length).toBe(1);
+    expect(result.visualVerification.results.length).toBe(1);
+    expect(result.visualVerification.results[0].status).toBe('passed');
+    expect(result.visualVerification.results[0].cases.length).toBe(1);
+    expect(result.visualVerification.results[0].screenshots).toContain('screenshots/step-1.png');
   });
 });
 
 describe('deprecation-scan producer', () => {
-  test('uses the embedded fallback when the shipped table is unreachable', () => {
-    const result = produceDeprecationScan({ ...input, assetFolder: join(input.assetFolder, '_Project') });
+  test('reports unavailable when the patterns table is missing', () => {
+    const result = produceDeprecationScan(
+      { ...input, assetFolder: join(input.assetFolder, '_Project') },
+      join(fixture, 'missing-deprecated-patterns.json')
+    );
+    expect(result.status).toBe('unavailable');
+    expect(result.patternsSource).toBe('missing');
+    expect(result.patternsLoaded).toBe(0);
+    expect(result.findingCount).toBe(0);
+  });
+
+  test('loads the shipped deprecated-patterns table', () => {
+    const result = produceDeprecationScan(
+      { ...input, assetFolder: join(input.assetFolder, '_Project') },
+      shippedPatterns
+    );
     expect(result.status).toBe('observed_locally');
-    expect(result.patternsSource).toBe('embedded-fallback');
+    expect(result.patternsSource).toBe('bundle');
+    expect(result.patternsLoaded).toBeGreaterThanOrEqual(3);
     expect(result.byPattern.FindObjectOfType).toBe(1);
     expect(result.byPattern['Object.FindObjectOfType']).toBe(1);
     expect(result.byPattern.FindObjectsOfType).toBe(1);
     expect(result.findingCount).toBe(3);
-  });
-
-  test('loads the shipped deprecated-patterns table', () => {
-    const result = produceDeprecationScan({ ...input, assetFolder: join(input.assetFolder, '_Project') }, shippedPatterns);
-    expect(result.patternsSource).toBe('bundle');
-    expect(result.patternsLoaded).toBeGreaterThanOrEqual(3);
   });
 });

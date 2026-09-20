@@ -2,6 +2,7 @@ import { basename, join } from 'node:path';
 import { dirExists, nowIso, readJson, writeJson } from '../../../shared/io';
 import { PromptClient, loadAnswersFile } from '../../../shared/prompt-client';
 import { probeToolchain } from '../../../shared/toolchain';
+import { selectRoute } from '../../../shared/tool-routing';
 import { resolveOptions } from './cli';
 import { findLiveInstance, startEditor, stopEditor } from './editor';
 import { fingerprintInputs, fingerprintOf } from './fingerprint';
@@ -42,6 +43,8 @@ async function main(): Promise<void> {
   const foundProject = scan?.foundProject ?? dirExists(assetFolder);
 
   const toolchain = probeToolchain(options.projectRoot, options.cliCommand);
+  const cliAvailable = Boolean(toolchain.cliPath);
+  const selection = selectRoute({ bridge: null, cliAvailable });
 
   // The gate needs the Editor. If one is not running, start it with -automated
   // and stop it again once we are done.
@@ -121,6 +124,7 @@ async function main(): Promise<void> {
       lastVerificationUtc: gate.status === 'not_run' ? null : nowIso(),
       reviewRequired: 0,
       hardFailures,
+      routing: { route: selection.route, reason: selection.reason },
     };
 
     writeJson(join(options.projectDataDir, 'project-structure.json'), structure);
@@ -147,6 +151,8 @@ async function main(): Promise<void> {
       unityCliVer: toolchain.cliVer,
       unityVer: toolchain.unityVer,
       fingerprint,
+      route: selection.route,
+      routeReason: selection.reason,
       gateResult: gate.status,
       gateStartedByEditor: editorStartedByUs,
       cancelled: prompts.isCancelled(),

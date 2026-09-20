@@ -4,7 +4,7 @@ import { basename as basename2, join as join9 } from "node:path";
 // tools/shared/io.ts
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { dirname, sep } from "node:path";
 function dirExists(path) {
   try {
     return statSync(path).isDirectory();
@@ -43,6 +43,9 @@ function nowIso() {
 }
 function unique(values) {
   return Array.from(new Set(values));
+}
+function toPosix(path) {
+  return path.split(sep).join("/");
 }
 
 // tools/shared/prompt-client.ts
@@ -199,6 +202,29 @@ function probeToolchain(projectRoot, cliCommand = "unity") {
   return { ...cli, unityVer };
 }
 
+// tools/shared/tool-routing.ts
+function bridgeAvailable(bridge) {
+  if (!bridge)
+    return false;
+  try {
+    return bridge.available() === true;
+  } catch {
+    return false;
+  }
+}
+function selectRoute(caps) {
+  if (caps.localOnly) {
+    return { route: "local", reason: "local-only capability; plain filesystem/process work" };
+  }
+  if (bridgeAvailable(caps.bridge)) {
+    return { route: "live", reason: "localhost bridge available; live Editor" };
+  }
+  if (caps.cliAvailable) {
+    return { route: "batch", reason: "Unity CLI available; batch execution" };
+  }
+  return { route: "offline", reason: "no bridge or CLI; on-disk readers" };
+}
+
 // tools/unity/gather-unity-context/src/cli.ts
 import { dirname as dirname2, join as join3, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -270,7 +296,7 @@ function runCli(cliCommand, args, timeout = 30000) {
   return {
     success: parsed?.success === true && res.ok,
     command: parsed?.command,
-    route: parsed ? "batch" : "offline",
+    route: selectRoute({ bridge: null, cliAvailable: parsed != null }).route,
     data: parsed?.data ?? null,
     errors: parsed?.errors ?? (res.ok ? [] : [{ message: res.stderr || res.stdout || `exit ${res.status}` }]),
     warnings: parsed?.warnings ?? [],
@@ -503,42 +529,14 @@ function runGate(options, instance) {
 // tools/unity/gather-unity-context/src/offline.ts
 import { readdirSync, statSync as statSync2 } from "node:fs";
 import { homedir } from "node:os";
-import { basename, dirname as dirname3, join as join7, relative, sep } from "node:path";
+import { basename, dirname as dirname3, isAbsolute, join as join7, relative } from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
-
-// tools/shared/tool-routing.ts
-function bridgeAvailable(bridge) {
-  if (!bridge)
-    return false;
-  try {
-    return bridge.available() === true;
-  } catch {
-    return false;
-  }
-}
-function selectRoute(caps) {
-  if (caps.localOnly) {
-    return { route: "local", reason: "local-only capability; plain filesystem/process work" };
-  }
-  if (bridgeAvailable(caps.bridge)) {
-    return { route: "live", reason: "localhost bridge available; live Editor" };
-  }
-  if (caps.cliAvailable) {
-    return { route: "batch", reason: "Unity CLI available; batch execution" };
-  }
-  return { route: "offline", reason: "no bridge or CLI; on-disk readers" };
-}
-
-// tools/unity/gather-unity-context/src/offline.ts
 var OFFLINE_ROUTE = selectRoute({ bridge: null, cliAvailable: false }).route;
-function base(status, errors = []) {
+function makeBase(status, errors = []) {
   return { schemaVersion: 1, generatedAt: nowIso(), status, route: OFFLINE_ROUTE, errors };
 }
 function errMessage(error) {
   return error instanceof Error ? error.message : String(error);
-}
-function toPosix(path) {
-  return path.split(sep).join("/");
 }
 function statInfo(path) {
   try {
@@ -658,21 +656,21 @@ function produceCompileState(input, logPaths = editorLogPaths()) {
       newestScript = { path: toPosix(relative(input.projectRoot, full)), mtimeUtc: info.mtimeUtc };
     }
   }
+  const editorLogAuthorship = readEditorLogAuthorship(logPaths);
+  const recentCompile = editorLogAuthorship?.lastCompileLine != null;
   let stale = null;
   let noOpRecompile = null;
   if (newestAssembly && newestScript) {
     stale = newestScript.mtimeUtc > newestAssembly.mtimeUtc;
-    noOpRecompile = !stale;
+    noOpRecompile = stale && recentCompile ? true : null;
   } else if (newestAssembly && !newestScript) {
     stale = false;
-    noOpRecompile = true;
   } else if (!newestAssembly && newestScript) {
     stale = true;
-    noOpRecompile = false;
   }
   const status = libraryPresent ? "observed_locally" : "unavailable";
   return {
-    ...base(status, errors),
+    ...makeBase(status, errors),
     libraryPresent,
     scriptAssembliesDir: "Library/ScriptAssemblies",
     assemblyCount: assemblies.length,
@@ -681,7 +679,7 @@ function produceCompileState(input, logPaths = editorLogPaths()) {
     newestScript,
     stale,
     noOpRecompile,
-    editorLogAuthorship: readEditorLogAuthorship(logPaths)
+    editorLogAuthorship
   };
 }
 function classifyLogLine(line) {
@@ -741,7 +739,7 @@ function digestLogFile(logPath) {
     recentWarnings
   };
 }
-function produceLogDigest(_input, logPaths = editorLogPaths()) {
+function produceLogDigest(input, logPaths = editorLogPaths()) {
   const errors = [];
   const logs = [];
   for (const logPath of logPaths) {
@@ -753,7 +751,7 @@ function produceLogDigest(_input, logPaths = editorLogPaths()) {
   const warningCount = logs.reduce((sum, log) => sum + log.warningCount, 0);
   const recentMessages = logs.flatMap((log) => [...log.recentErrors, ...log.recentWarnings]).slice(-20);
   const status = logs.length > 0 ? "observed_locally" : "unavailable";
-  return { ...base(status, errors), logCount: logs.length, errorCount, warningCount, logs, recentMessages };
+  return { ...makeBase(status, errors), logCount: logs.length, errorCount, warningCount, logs, recentMessages };
 }
 var SCRIPTING_BACKEND = { 0: "Mono", 1: "IL2CPP" };
 var INPUT_HANDLERS = {
@@ -854,7 +852,7 @@ function produceProjectSettings(input) {
   const text = readText(settingsPath);
   if (!text) {
     return {
-      ...base("unavailable", errors),
+      ...makeBase("unavailable", errors),
       settingsPath: toPosix(relative(input.projectRoot, settingsPath)),
       productName: null,
       companyName: null,
@@ -904,7 +902,7 @@ function produceProjectSettings(input) {
   const persistent = computePersistentDataPath(companyName, productName);
   const handler = activeInputHandler(input.projectRoot);
   return {
-    ...base("observed_locally", errors),
+    ...makeBase("observed_locally", errors),
     settingsPath: toPosix(relative(input.projectRoot, settingsPath)),
     productName,
     companyName,
@@ -992,7 +990,7 @@ function scanAsmdefs(assetFolder) {
       testAssemblies,
       isTest,
       editorOnly,
-      targets: { edit: editorOnly || isTest, play: !editorOnly || isTest },
+      targets: { edit: editorOnly, play: !editorOnly },
       internalsVisibleTo: [...ivt].sort()
     });
     for (const reference of references) {
@@ -1008,12 +1006,47 @@ function produceAsmdefMap(input) {
   const { nodes, edges, errors } = scanAsmdefs(input.assetFolder);
   const status = !dirExists(input.assetFolder) ? "unknown" : nodes.length > 0 ? "observed_locally" : "unavailable";
   return {
-    ...base(status, errors),
+    ...makeBase(status, errors),
     assetFolder: toPosix(relative(input.projectRoot, input.assetFolder)),
     assemblyCount: nodes.length,
     testAssemblyCount: nodes.filter((node) => node.isTest).length,
     assemblies: nodes,
     edges
+  };
+}
+function collectScreenshotPaths(value, projectRoot) {
+  const out = [];
+  const visit = (node) => {
+    if (typeof node === "string") {
+      if (/\.(png|jpe?g)$/i.test(node)) {
+        out.push(toPosix(isAbsolute(node) ? relative(projectRoot, node) : node));
+      }
+      return;
+    }
+    if (Array.isArray(node)) {
+      for (const item of node)
+        visit(item);
+      return;
+    }
+    if (node && typeof node === "object") {
+      for (const item of Object.values(node))
+        visit(item);
+    }
+  };
+  visit(value);
+  return unique(out);
+}
+function parseVisualVerification(file, projectRoot) {
+  const data = readJson(file);
+  if (!data || typeof data !== "object")
+    return null;
+  const cases = Array.isArray(data.cases) ? data.cases : Array.isArray(data.results) ? data.results : [];
+  return {
+    path: toPosix(relative(projectRoot, file)),
+    status: typeof data.status === "string" ? data.status : null,
+    summary: data.summary ?? null,
+    cases,
+    screenshots: collectScreenshotPaths(data, projectRoot)
   };
 }
 function produceTestInventory(input) {
@@ -1047,9 +1080,16 @@ function produceTestInventory(input) {
     });
   }
   results.sort((a, b) => (b.mtimeUtc ?? "").localeCompare(a.mtimeUtc ?? ""));
+  const visualResults = [];
+  for (const file of visualFiles) {
+    const parsed = parseVisualVerification(file, input.projectRoot);
+    if (parsed)
+      visualResults.push(parsed);
+  }
+  visualResults.sort((a, b) => a.path.localeCompare(b.path));
   const status = testAssemblies.length > 0 || results.length > 0 ? "observed_locally" : "unavailable";
   return {
-    ...base(status, errors),
+    ...makeBase(status, errors),
     testAssemblies,
     testAssemblyCount: testAssemblies.length,
     results,
@@ -1057,52 +1097,11 @@ function produceTestInventory(input) {
     visualVerification: {
       found: visualFiles.size > 0,
       files: [...visualFiles].map((file) => toPosix(relative(input.projectRoot, file))),
+      results: visualResults,
       screenshots: [...screenshots].map((file) => toPosix(relative(input.projectRoot, file)))
     }
   };
 }
-var FALLBACK_DEPRECATED_PATTERNS = [
-  {
-    id: "object-find-object-of-type",
-    match: "Object.FindObjectOfType",
-    replacement: "Object.FindFirstObjectByType",
-    kind: "method",
-    since: "2023.1",
-    message: "Object.FindObjectOfType is obsolete; use Object.FindFirstObjectByType."
-  },
-  {
-    id: "find-objects-of-type-all",
-    match: "FindObjectsOfTypeAll",
-    replacement: "FindObjectsByType(FindObjectsSortMode.None)",
-    kind: "method",
-    since: "2023.1",
-    message: "FindObjectsOfTypeAll is obsolete; use FindObjectsByType."
-  },
-  {
-    id: "find-objects-of-type",
-    match: "FindObjectsOfType",
-    replacement: "FindObjectsByType",
-    kind: "method",
-    since: "2023.1",
-    message: "FindObjectsOfType is obsolete; use FindObjectsByType with a sort mode."
-  },
-  {
-    id: "find-any-object-of-type",
-    match: "FindAnyObjectOfType",
-    replacement: "FindAnyObjectByType",
-    kind: "method",
-    since: "2023.1",
-    message: "FindAnyObjectOfType is obsolete; use FindAnyObjectByType."
-  },
-  {
-    id: "find-object-of-type",
-    match: "FindObjectOfType",
-    replacement: "FindFirstObjectByType",
-    kind: "method",
-    since: "2023.1",
-    message: "FindObjectOfType is obsolete; use FindFirstObjectByType."
-  }
-];
 var MAX_FINDINGS = 1000;
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -1117,7 +1116,7 @@ function loadDeprecatedPatterns(overridePath) {
   if (data && Array.isArray(data.patterns) && data.patterns.length > 0) {
     return { patterns: data.patterns, source: "bundle", path };
   }
-  return { patterns: FALLBACK_DEPRECATED_PATTERNS, source: "embedded-fallback", path: null };
+  return { patterns: [], source: "missing", path: null };
 }
 function produceDeprecationScan(input, patternsPath) {
   const { patterns, source, path } = loadDeprecatedPatterns(patternsPath);
@@ -1142,9 +1141,9 @@ function produceDeprecationScan(input, patternsPath) {
           while (match = re.exec(line)) {
             const start = match.index;
             const end = start + match[0].length;
-            if (taken.some(([s, e]) => start < e && end > s))
+            if (taken.some((range) => start < range.end && end > range.start))
               continue;
-            taken.push([start, end]);
+            taken.push({ start, end });
             if (findings.length >= MAX_FINDINGS) {
               truncated = true;
               break outer;
@@ -1162,9 +1161,9 @@ function produceDeprecationScan(input, patternsPath) {
         }
       }
     }
-  const status = dirExists(input.assetFolder) ? "observed_locally" : "unknown";
+  const status = patterns.length === 0 ? "unavailable" : dirExists(input.assetFolder) ? "observed_locally" : "unknown";
   return {
-    ...base(status, errors),
+    ...makeBase(status, errors),
     patternsLoaded: patterns.length,
     patternsSource: source,
     patternsPath: path ? toPosix(path) : null,
@@ -1368,6 +1367,8 @@ async function main() {
   const assetFolder = scan?.assetFolder || join9(options.projectRoot, "Assets");
   const foundProject = scan?.foundProject ?? dirExists(assetFolder);
   const toolchain = probeToolchain(options.projectRoot, options.cliCommand);
+  const cliAvailable = Boolean(toolchain.cliPath);
+  const selection = selectRoute({ bridge: null, cliAvailable });
   let editorInstance = null;
   let editorStartedByUs = false;
   if (options.runGate) {
@@ -1435,7 +1436,8 @@ async function main() {
       gateStartedByEditor: editorStartedByUs,
       lastVerificationUtc: gate.status === "not_run" ? null : nowIso(),
       reviewRequired: 0,
-      hardFailures
+      hardFailures,
+      routing: { route: selection.route, reason: selection.reason }
     };
     writeJson(join9(options.projectDataDir, "project-structure.json"), structure);
     writeJson(join9(options.projectDataDir, "unity-command-list.json"), commandList);
@@ -1460,6 +1462,8 @@ async function main() {
       unityCliVer: toolchain.cliVer,
       unityVer: toolchain.unityVer,
       fingerprint,
+      route: selection.route,
+      routeReason: selection.reason,
       gateResult: gate.status,
       gateStartedByEditor: editorStartedByUs,
       cancelled: prompts.isCancelled(),

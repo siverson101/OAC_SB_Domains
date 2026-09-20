@@ -137,7 +137,7 @@ import { join as join3 } from "node:path";
 // tools/shared/io.ts
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, statSync as statSync2, writeFileSync } from "node:fs";
-import { dirname as dirname2 } from "node:path";
+import { dirname as dirname2, sep as sep2 } from "node:path";
 function fileExists(path) {
   try {
     return statSync2(path).isFile();
@@ -381,9 +381,9 @@ function loadAnswersFile(path) {
 
 // tools/unity/project-scan/src/project-files.ts
 import { readdirSync as readdirSync2, readFileSync as readFileSync2 } from "node:fs";
-import { extname, join as join5, relative as relative2, sep as sep2 } from "node:path";
+import { extname, join as join5, relative as relative2, sep as sep3 } from "node:path";
 function toPosix(path) {
-  return path.split(sep2).join("/");
+  return path.split(sep3).join("/");
 }
 function discoverProjectFiles(projectRoot, assetFolder, filetypes) {
   const folders = {};

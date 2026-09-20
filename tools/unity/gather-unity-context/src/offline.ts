@@ -6,9 +6,9 @@
 // (always `offline`) through the ticket-01 routing helpers.
 import { readdirSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { basename, dirname, join, relative, sep } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { dirExists, nowIso, readJson, readText, unique } from '../../../shared/io';
+import { dirExists, nowIso, readJson, readText, toPosix, unique } from '../../../shared/io';
 import { activeInputHandler } from '../../../shared/toolchain';
 import { selectRoute, type Route } from '../../../shared/tool-routing';
 import { parseNUnit, type TestCounts } from './gate';
@@ -38,16 +38,12 @@ export interface OfflineBase {
 // is `offline`. Recording it here is the evidence trail for the producer.
 const OFFLINE_ROUTE: Route = selectRoute({ bridge: null, cliAvailable: false }).route;
 
-function base(status: OfflineStatus, errors: string[] = []): OfflineBase {
+function makeBase(status: OfflineStatus, errors: string[] = []): OfflineBase {
   return { schemaVersion: 1, generatedAt: nowIso(), status, route: OFFLINE_ROUTE, errors };
 }
 
 function errMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-function toPosix(path: string): string {
-  return path.split(sep).join('/');
 }
 
 function statInfo(path: string): { mtimeUtc: string; sizeBytes: number } | null {
@@ -205,25 +201,27 @@ export function produceCompileState(input: OfflineInput, logPaths: string[] = ed
     }
   }
 
+  const editorLogAuthorship = readEditorLogAuthorship(logPaths);
+  const recentCompile = editorLogAuthorship?.lastCompileLine != null;
+
   // stale: a script was edited after the last assembly was produced.
-  // noOpRecompile: the last recompile produced assemblies newer than every
-  // script, i.e. there was nothing newer to compile.
+  // noOpRecompile: only true with positive evidence that a recent compile
+  // produced no new assembly (assemblies exist, a script is newer, and the
+  // Editor log records a compile); otherwise it is not determinable.
   let stale: boolean | null = null;
   let noOpRecompile: boolean | null = null;
   if (newestAssembly && newestScript) {
     stale = newestScript.mtimeUtc > newestAssembly.mtimeUtc;
-    noOpRecompile = !stale;
+    noOpRecompile = stale && recentCompile ? true : null;
   } else if (newestAssembly && !newestScript) {
     stale = false;
-    noOpRecompile = true;
   } else if (!newestAssembly && newestScript) {
     stale = true;
-    noOpRecompile = false;
   }
 
   const status: OfflineStatus = libraryPresent ? 'observed_locally' : 'unavailable';
   return {
-    ...base(status, errors),
+    ...makeBase(status, errors),
     libraryPresent,
     scriptAssembliesDir: 'Library/ScriptAssemblies',
     assemblyCount: assemblies.length,
@@ -232,7 +230,7 @@ export function produceCompileState(input: OfflineInput, logPaths: string[] = ed
     newestScript,
     stale,
     noOpRecompile,
-    editorLogAuthorship: readEditorLogAuthorship(logPaths),
+    editorLogAuthorship,
   };
 }
 
@@ -316,7 +314,8 @@ function digestLogFile(logPath: string): LogEntry | null {
   };
 }
 
-export function produceLogDigest(_input: OfflineInput, logPaths: string[] = editorLogPaths()): LogDigest {
+export function produceLogDigest(input: OfflineInput, logPaths: string[] = editorLogPaths()): LogDigest {
+  void input;
   const errors: string[] = [];
   const logs: LogEntry[] = [];
   for (const logPath of logPaths) {
@@ -329,7 +328,7 @@ export function produceLogDigest(_input: OfflineInput, logPaths: string[] = edit
     .flatMap((log) => [...log.recentErrors, ...log.recentWarnings])
     .slice(-20);
   const status: OfflineStatus = logs.length > 0 ? 'observed_locally' : 'unavailable';
-  return { ...base(status, errors), logCount: logs.length, errorCount, warningCount, logs, recentMessages };
+  return { ...makeBase(status, errors), logCount: logs.length, errorCount, warningCount, logs, recentMessages };
 }
 
 // ---------------------------------------------------------------------------
@@ -457,7 +456,7 @@ export function produceProjectSettings(input: OfflineInput): ProjectSettings {
 
   if (!text) {
     return {
-      ...base('unavailable', errors),
+      ...makeBase('unavailable', errors),
       settingsPath: toPosix(relative(input.projectRoot, settingsPath)),
       productName: null,
       companyName: null,
@@ -516,7 +515,7 @@ export function produceProjectSettings(input: OfflineInput): ProjectSettings {
   const handler = activeInputHandler(input.projectRoot);
 
   return {
-    ...base('observed_locally', errors),
+    ...makeBase('observed_locally', errors),
     settingsPath: toPosix(relative(input.projectRoot, settingsPath)),
     productName,
     companyName,
@@ -650,7 +649,7 @@ function scanAsmdefs(assetFolder: string): { nodes: AsmdefNode[]; edges: AsmdefE
       testAssemblies,
       isTest,
       editorOnly,
-      targets: { edit: editorOnly || isTest, play: !editorOnly || isTest },
+      targets: { edit: editorOnly, play: !editorOnly },
       internalsVisibleTo: [...ivt].sort(),
     });
 
@@ -673,7 +672,7 @@ export function produceAsmdefMap(input: OfflineInput): AsmdefMap {
       ? 'observed_locally'
       : 'unavailable';
   return {
-    ...base(status, errors),
+    ...makeBase(status, errors),
     assetFolder: toPosix(relative(input.projectRoot, input.assetFolder)),
     assemblyCount: nodes.length,
     testAssemblyCount: nodes.filter((node) => node.isTest).length,
@@ -693,6 +692,14 @@ export interface TestResultFile {
   result: string;
 }
 
+export interface VisualVerificationResult {
+  path: string;
+  status: string | null;
+  summary: unknown;
+  cases: unknown[];
+  screenshots: string[];
+}
+
 export interface TestInventory extends OfflineBase {
   testAssemblies: { name: string; path: string }[];
   testAssemblyCount: number;
@@ -701,7 +708,42 @@ export interface TestInventory extends OfflineBase {
   visualVerification: {
     found: boolean;
     files: string[];
+    results: VisualVerificationResult[];
     screenshots: string[];
+  };
+}
+
+function collectScreenshotPaths(value: unknown, projectRoot: string): string[] {
+  const out: string[] = [];
+  const visit = (node: unknown): void => {
+    if (typeof node === 'string') {
+      if (/\.(png|jpe?g)$/i.test(node)) {
+        out.push(toPosix(isAbsolute(node) ? relative(projectRoot, node) : node));
+      }
+      return;
+    }
+    if (Array.isArray(node)) {
+      for (const item of node) visit(item);
+      return;
+    }
+    if (node && typeof node === 'object') {
+      for (const item of Object.values(node)) visit(item);
+    }
+  };
+  visit(value);
+  return unique(out);
+}
+
+function parseVisualVerification(file: string, projectRoot: string): VisualVerificationResult | null {
+  const data = readJson<Record<string, unknown>>(file);
+  if (!data || typeof data !== 'object') return null;
+  const cases = Array.isArray(data.cases) ? data.cases : Array.isArray(data.results) ? data.results : [];
+  return {
+    path: toPosix(relative(projectRoot, file)),
+    status: typeof data.status === 'string' ? data.status : null,
+    summary: data.summary ?? null,
+    cases,
+    screenshots: collectScreenshotPaths(data, projectRoot),
   };
 }
 
@@ -741,10 +783,17 @@ export function produceTestInventory(input: OfflineInput): TestInventory {
   }
   results.sort((a, b) => (b.mtimeUtc ?? '').localeCompare(a.mtimeUtc ?? ''));
 
+  const visualResults: VisualVerificationResult[] = [];
+  for (const file of visualFiles) {
+    const parsed = parseVisualVerification(file, input.projectRoot);
+    if (parsed) visualResults.push(parsed);
+  }
+  visualResults.sort((a, b) => a.path.localeCompare(b.path));
+
   const status: OfflineStatus =
     testAssemblies.length > 0 || results.length > 0 ? 'observed_locally' : 'unavailable';
   return {
-    ...base(status, errors),
+    ...makeBase(status, errors),
     testAssemblies,
     testAssemblyCount: testAssemblies.length,
     results,
@@ -752,6 +801,7 @@ export function produceTestInventory(input: OfflineInput): TestInventory {
     visualVerification: {
       found: visualFiles.size > 0,
       files: [...visualFiles].map((file) => toPosix(relative(input.projectRoot, file))),
+      results: visualResults,
       screenshots: [...screenshots].map((file) => toPosix(relative(input.projectRoot, file))),
     },
   };
@@ -779,9 +829,14 @@ export interface DeprecationFinding {
   text: string;
 }
 
+export interface SourceRange {
+  start: number;
+  end: number;
+}
+
 export interface DeprecationScan extends OfflineBase {
   patternsLoaded: number;
-  patternsSource: 'bundle' | 'embedded-fallback';
+  patternsSource: 'bundle' | 'missing';
   patternsPath: string | null;
   scannedFiles: number;
   findingCount: number;
@@ -789,51 +844,6 @@ export interface DeprecationScan extends OfflineBase {
   byPattern: Record<string, number>;
   findings: DeprecationFinding[];
 }
-
-// Embedded fallback: keeps the producer working when the shipped data table is
-// not reachable (e.g. running from TS source before the bundle is built).
-export const FALLBACK_DEPRECATED_PATTERNS: DeprecatedPattern[] = [
-  {
-    id: 'object-find-object-of-type',
-    match: 'Object.FindObjectOfType',
-    replacement: 'Object.FindFirstObjectByType',
-    kind: 'method',
-    since: '2023.1',
-    message: 'Object.FindObjectOfType is obsolete; use Object.FindFirstObjectByType.',
-  },
-  {
-    id: 'find-objects-of-type-all',
-    match: 'FindObjectsOfTypeAll',
-    replacement: 'FindObjectsByType(FindObjectsSortMode.None)',
-    kind: 'method',
-    since: '2023.1',
-    message: 'FindObjectsOfTypeAll is obsolete; use FindObjectsByType.',
-  },
-  {
-    id: 'find-objects-of-type',
-    match: 'FindObjectsOfType',
-    replacement: 'FindObjectsByType',
-    kind: 'method',
-    since: '2023.1',
-    message: 'FindObjectsOfType is obsolete; use FindObjectsByType with a sort mode.',
-  },
-  {
-    id: 'find-any-object-of-type',
-    match: 'FindAnyObjectOfType',
-    replacement: 'FindAnyObjectByType',
-    kind: 'method',
-    since: '2023.1',
-    message: 'FindAnyObjectOfType is obsolete; use FindAnyObjectByType.',
-  },
-  {
-    id: 'find-object-of-type',
-    match: 'FindObjectOfType',
-    replacement: 'FindFirstObjectByType',
-    kind: 'method',
-    since: '2023.1',
-    message: 'FindObjectOfType is obsolete; use FindFirstObjectByType.',
-  },
-];
 
 const MAX_FINDINGS = 1000;
 
@@ -848,7 +858,7 @@ function defaultPatternsPath(): string {
 
 export function loadDeprecatedPatterns(overridePath?: string): {
   patterns: DeprecatedPattern[];
-  source: 'bundle' | 'embedded-fallback';
+  source: 'bundle' | 'missing';
   path: string | null;
 } {
   const path = overridePath ?? defaultPatternsPath();
@@ -856,7 +866,7 @@ export function loadDeprecatedPatterns(overridePath?: string): {
   if (data && Array.isArray(data.patterns) && data.patterns.length > 0) {
     return { patterns: data.patterns, source: 'bundle', path };
   }
-  return { patterns: FALLBACK_DEPRECATED_PATTERNS, source: 'embedded-fallback', path: null };
+  return { patterns: [], source: 'missing', path: null };
 }
 
 export function produceDeprecationScan(input: OfflineInput, patternsPath?: string): DeprecationScan {
@@ -874,7 +884,7 @@ export function produceDeprecationScan(input: OfflineInput, patternsPath?: strin
     const lines = text.split(/\r?\n/);
     for (let index = 0; index < lines.length; index++) {
       const line = lines[index];
-      const taken: Array<[number, number]> = [];
+      const taken: SourceRange[] = [];
       for (const pattern of sorted) {
         const re = new RegExp(`\\b${escapeRegExp(pattern.match)}\\b`, 'g');
         let match: RegExpExecArray | null;
@@ -882,8 +892,8 @@ export function produceDeprecationScan(input: OfflineInput, patternsPath?: strin
           const start = match.index;
           const end = start + match[0].length;
           // Skip a shorter pattern nested inside an already-recorded longer match.
-          if (taken.some(([s, e]) => start < e && end > s)) continue;
-          taken.push([start, end]);
+          if (taken.some((range) => start < range.end && end > range.start)) continue;
+          taken.push({ start, end });
           if (findings.length >= MAX_FINDINGS) {
             truncated = true;
             break outer;
@@ -902,9 +912,10 @@ export function produceDeprecationScan(input: OfflineInput, patternsPath?: strin
     }
   }
 
-  const status: OfflineStatus = dirExists(input.assetFolder) ? 'observed_locally' : 'unknown';
+  const status: OfflineStatus =
+    patterns.length === 0 ? 'unavailable' : dirExists(input.assetFolder) ? 'observed_locally' : 'unknown';
   return {
-    ...base(status, errors),
+    ...makeBase(status, errors),
     patternsLoaded: patterns.length,
     patternsSource: source,
     patternsPath: path ? toPosix(path) : null,
