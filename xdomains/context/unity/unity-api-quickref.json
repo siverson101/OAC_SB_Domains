@@ -1,6 +1,8 @@
 {
   "schemaVersion": 1,
   "description": "Offline Unity API quick reference used by the unity-api-lookup Sense ability. Curated engine/middleware symbols with a summary and, where relevant, the replacement to prefer. Read-only, no Editor required.",
+  "unityVersions": ["6.0", "6.3", "6.5", "LTS+"],
+  "updated": "2026-09-20",
   "entries": [
     { "symbol": "GameObject", "kind": "class", "namespace": "UnityEngine", "summary": "Base object for scenes; holds components and a transform.", "docUrl": "https://docs.unity3d.com/ScriptReference/GameObject.html" },
     { "symbol": "MonoBehaviour", "kind": "class", "namespace": "UnityEngine", "summary": "Base class for scripts attached to GameObjects; receives Unity lifecycle messages.", "docUrl": "https://docs.unity3d.com/ScriptReference/MonoBehaviour.html" },

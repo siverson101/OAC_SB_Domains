@@ -1,0 +1,72 @@
+{
+  "schemaVersion": 1,
+  "updated": "2026-09-20",
+  "unityVersions": ["6.0", "6.3", "6.5", "LTS+"],
+  "primaryVersion": "6.3",
+  "verifyNote": "Verify version-specific claims in this knowledge layer against the Unity manual, the relevant package docs, and the project's Packages/manifest.json for the exact editor version in use.",
+  "counts": {
+    "engine": 7,
+    "middleware": 9,
+    "versions": 4,
+    "dispatch": 1,
+    "total": 21
+  },
+  "files": [
+    { "path": "version-dispatch.md", "kind": "dispatch", "unityVersions": ["6.0", "6.3", "6.5", "LTS+"], "priority": "critical" },
+    { "path": "engine/foundations.md", "kind": "engine", "unityVersions": ["6.0", "6.3", "6.5", "LTS+"], "priority": "critical" },
+    { "path": "engine/graphics.md", "kind": "engine", "unityVersions": ["6.0", "6.3", "6.5", "LTS+"], "priority": "high" },
+    { "path": "engine/physics.md", "kind": "engine", "unityVersions": ["6.0", "6.3", "6.5", "LTS+"], "priority": "high" },
+    { "path": "engine/ui.md", "kind": "engine", "unityVersions": ["6.0", "6.3", "6.5", "LTS+"], "priority": "high" },
+    { "path": "engine/animation.md", "kind": "engine", "unityVersions": ["6.0", "6.3", "6.5", "LTS+"], "priority": "high" },
+    { "path": "engine/input.md", "kind": "engine", "unityVersions": ["6.0", "6.3", "6.5", "LTS+"], "priority": "high" },
+    { "path": "engine/testing.md", "kind": "engine", "unityVersions": ["6.0", "6.3", "6.5", "LTS+"], "priority": "high" },
+    { "path": "middleware/unitask.md", "kind": "middleware", "unityVersions": ["6.0", "6.3", "6.5", "LTS+"], "priority": "high" },
+    { "path": "middleware/addressables.md", "kind": "middleware", "unityVersions": ["6.0", "6.3", "6.5", "LTS+"], "priority": "high" },
+    { "path": "middleware/dependency-injection.md", "kind": "middleware", "unityVersions": ["6.0", "6.3", "6.5", "LTS+"], "priority": "medium" },
+    { "path": "middleware/flow-framework.md", "kind": "middleware", "unityVersions": ["6.0", "6.3", "6.5", "LTS+"], "priority": "medium" },
+    { "path": "middleware/soap.md", "kind": "middleware", "unityVersions": ["6.0", "6.3", "6.5", "LTS+"], "priority": "medium" },
+    { "path": "middleware/cinemachine.md", "kind": "middleware", "unityVersions": ["6.0", "6.3", "6.5", "LTS+"], "priority": "medium" },
+    { "path": "middleware/textmeshpro.md", "kind": "middleware", "unityVersions": ["6.0", "6.3", "6.5", "LTS+"], "priority": "high" },
+    { "path": "middleware/dotween.md", "kind": "middleware", "unityVersions": ["6.0", "6.3", "6.5", "LTS+"], "priority": "medium" },
+    { "path": "middleware/amplify.md", "kind": "middleware", "unityVersions": ["6.0", "6.3", "6.5", "LTS+"], "priority": "medium" },
+    { "path": "versions/unity-6.0.md", "kind": "versions", "unityVersions": ["6.0"], "priority": "high" },
+    { "path": "versions/unity-6.3.md", "kind": "versions", "unityVersions": ["6.3"], "priority": "high" },
+    { "path": "versions/unity-6.5.md", "kind": "versions", "unityVersions": ["6.5"], "priority": "high" },
+    { "path": "versions/unity-lts.md", "kind": "versions", "unityVersions": ["LTS+"], "priority": "medium" }
+  ],
+  "dispatch": {
+    "rule": "Load every engine and middleware base file plus version-dispatch.md, then exactly one versions/ overlay whose unityVersions includes the detected dispatch key.",
+    "base": [
+      "version-dispatch.md",
+      "engine/foundations.md",
+      "engine/graphics.md",
+      "engine/physics.md",
+      "engine/ui.md",
+      "engine/animation.md",
+      "engine/input.md",
+      "engine/testing.md",
+      "middleware/unitask.md",
+      "middleware/addressables.md",
+      "middleware/dependency-injection.md",
+      "middleware/flow-framework.md",
+      "middleware/soap.md",
+      "middleware/cinemachine.md",
+      "middleware/textmeshpro.md",
+      "middleware/dotween.md",
+      "middleware/amplify.md"
+    ],
+    "overlays": {
+      "6.0": "versions/unity-6.0.md",
+      "6.3": "versions/unity-6.3.md",
+      "6.5": "versions/unity-6.5.md",
+      "LTS+": "versions/unity-lts.md"
+    }
+  },
+  "tables": [
+    { "path": "xdomains/context/unity/unity-api-quickref.json", "kind": "api-quickref", "unityVersions": ["6.0", "6.3", "6.5", "LTS+"] },
+    { "path": "xdomains/context/unity/deprecated-patterns.json", "kind": "deprecation-map", "unityVersions": ["6.0", "6.3", "6.5", "LTS+"] },
+    { "path": "xdomains/context/unity/platform-defines.json", "kind": "platform-defines", "unityVersions": ["6.0", "6.3", "6.5", "LTS+"] },
+    { "path": "xdomains/context/unity/shader-properties.json", "kind": "shader-properties", "unityVersions": ["6.0", "6.3", "6.5", "LTS+"] },
+    { "path": "xdomains/context/unity/lifecycle-order.json", "kind": "lifecycle-order", "unityVersions": ["6.0", "6.3", "6.5", "LTS+"] }
+  ]
+}

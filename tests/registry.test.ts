@@ -22,6 +22,15 @@ describe('registry build', () => {
     expect(registry.counts.workflows).toBe(3);
   });
 
+  test('includes the version-gated knowledge files in context', () => {
+    const knowledge = registry.context.filter((entry) => entry.path.includes('/knowledge/'));
+    expect(knowledge.length).toBe(21);
+    expect(knowledge.some((entry) => entry.path.endsWith('/knowledge/version-dispatch.md'))).toBe(true);
+    expect(knowledge.some((entry) => entry.path.endsWith('/knowledge/engine/foundations.md'))).toBe(true);
+    expect(knowledge.some((entry) => entry.path.endsWith('/knowledge/middleware/unitask.md'))).toBe(true);
+    expect(registry.counts.context).toBe(registry.context.length);
+  });
+
   test('resolves abilities to their command implementations', () => {
     const gather = registry.abilities.find((a) => a.id === 'gather-unity-context');
     expect(gather?.realisedAs).toBe('command/gather-unity-context.md');
