@@ -1,7 +1,7 @@
 import { readdirSync, statSync } from 'node:fs';
 import { basename, join, relative, sep } from 'node:path';
 import { readJson } from '../../../shared/io';
-import { readFrontmatter } from './frontmatter';
+import { frontmatterString, frontmatterStringArray, readFrontmatter } from './frontmatter';
 
 export interface RegistryEntry {
   id: string;
@@ -10,6 +10,15 @@ export interface RegistryEntry {
   description?: string;
   realisedAs?: string;
   consumes?: string[];
+  layer?: 'tool' | 'ability' | 'command';
+}
+
+export type RegistryEdgeType = 'agent-ability' | 'workflow-ability' | 'workflow-agent';
+
+export interface RegistryEdge {
+  type: RegistryEdgeType;
+  from: string;
+  to: string;
 }
 
 export interface Registry {
@@ -28,6 +37,7 @@ export interface Registry {
   workflows: RegistryEntry[];
   tools: RegistryEntry[];
   scripts: RegistryEntry[];
+  edges: RegistryEdge[];
   projections: { outputDir: string | null; outputs: { file: string; title: string; consumedBy: string[] }[] };
 }
 
@@ -79,14 +89,21 @@ function walkFiles(dir: string, base: string, out: string[] = []): string[] {
   return out;
 }
 
-function entry(domainDir: string, relPath: string, id: string, consumes: string[]): RegistryEntry {
+function entry(
+  domainDir: string,
+  relPath: string,
+  id: string,
+  consumes: string[],
+  layer?: RegistryEntry['layer']
+): RegistryEntry {
   const fm = readFrontmatter(join(domainDir, relPath));
   return {
     id,
-    name: fm.name || id,
+    name: frontmatterString(fm, 'name') || id,
     path: relPath,
-    description: fm.description,
+    description: frontmatterString(fm, 'description'),
     consumes: consumes.length > 0 ? consumes : undefined,
+    layer,
   };
 }
 
@@ -111,11 +128,11 @@ export function buildRegistry(domainDir: string, generatedAt: string): Registry 
   const projections = readJson<Projections>(join(domainDir, 'context-projections.json')) ?? {};
   const consumers = projections.consumers ?? {};
 
-  const mapEntries = (paths: string[] | undefined, folder: string): RegistryEntry[] =>
-    (paths ?? []).map((rel) => entry(domainDir, rel, basename(rel, '.md'), consumedOutputs(rel, basename(rel, '.md'), consumers)));
+  const mapEntries = (paths: string[] | undefined, layer?: RegistryEntry['layer']): RegistryEntry[] =>
+    (paths ?? []).map((rel) => entry(domainDir, rel, basename(rel, '.md'), consumedOutputs(rel, basename(rel, '.md'), consumers), layer));
 
-  const agents = mapEntries(manifest.agents, 'agent');
-  const subagents = mapEntries(manifest.subagents, 'subagents');
+  const agents = mapEntries(manifest.agents);
+  const subagents = mapEntries(manifest.subagents);
   const commands = mapEntries(manifest.commands, 'command');
 
   const abilities: RegistryEntry[] = (manifest.abilities ?? []).map((ability) => {
@@ -127,7 +144,7 @@ export function buildRegistry(domainDir: string, generatedAt: string): Registry 
         return false;
       }
     })();
-    return { id: ability, name: ability, path: rel, realisedAs: exists ? rel : undefined };
+    return { id: ability, name: ability, path: rel, realisedAs: exists ? rel : undefined, layer: 'ability' };
   });
 
   const contextFiles = (manifest.context ?? []).flatMap((rel) => {
@@ -139,7 +156,7 @@ export function buildRegistry(domainDir: string, generatedAt: string): Registry 
     .map((rel) => entry(domainDir, rel, basename(rel, '.md'), consumedOutputs(rel, basename(rel, '.md'), consumers)));
   const workflows = context.filter((c) => c.path.includes('/workflows/'));
 
-  const tools: RegistryEntry[] = (manifest.tools ?? []).map((tool) => ({ id: tool, name: tool, path: `tools/${tool}` }));
+  const tools: RegistryEntry[] = (manifest.tools ?? []).map((tool) => ({ id: tool, name: tool, path: `tools/${tool}`, layer: 'tool' as const }));
   const scripts: RegistryEntry[] = (manifest.scripts ?? []).map((script) => ({ id: basename(script), name: basename(script), path: script }));
 
   const outputs = (projections.outputs ?? []).map((output) => {
@@ -148,6 +165,22 @@ export function buildRegistry(domainDir: string, generatedAt: string): Registry 
       .map(([consumer]) => consumer);
     return { file: output.file, title: output.title ?? output.file, consumedBy };
   });
+
+  const edges: RegistryEdge[] = [];
+  const addEdges = (type: RegistryEdgeType, from: string, tos: string[]): void => {
+    for (const to of tos) edges.push({ type, from, to });
+  };
+
+  for (const rel of [...(manifest.agents ?? []), ...(manifest.subagents ?? [])]) {
+    const fm = readFrontmatter(join(domainDir, rel));
+    addEdges('agent-ability', basename(rel, '.md'), frontmatterStringArray(fm, 'abilities') ?? []);
+  }
+
+  for (const workflow of workflows) {
+    const fm = readFrontmatter(join(domainDir, workflow.path));
+    addEdges('workflow-ability', workflow.id, frontmatterStringArray(fm, 'abilities') ?? []);
+    addEdges('workflow-agent', workflow.id, frontmatterStringArray(fm, 'agents') ?? []);
+  }
 
   const counts = {
     agents: agents.length,
@@ -158,6 +191,7 @@ export function buildRegistry(domainDir: string, generatedAt: string): Registry 
     workflows: workflows.length,
     tools: tools.length,
     scripts: scripts.length,
+    edges: edges.length,
   };
 
   return {
@@ -176,6 +210,7 @@ export function buildRegistry(domainDir: string, generatedAt: string): Registry 
     workflows,
     tools,
     scripts,
+    edges,
     projections: { outputDir: projections.outputDir ?? null, outputs },
   };
 }

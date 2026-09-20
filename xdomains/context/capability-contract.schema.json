@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Capability Contract",
+  "description": "Unified frontmatter contract for every OAC capability: abilities, commands, tools, and primitives (ADR-0012). Declares identity, family/mode, inputs/outputs, safety, compatibility, and composition edges (uses/usedBy/provides/requires) as machine-readable data.",
+  "schemaVersion": 1,
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["id", "summary"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Stable kebab-case capability id, e.g. 'gather-unity-context'."
+    },
+    "summary": {
+      "type": "string",
+      "description": "One-to-two sentence, searchable description of what the capability does."
+    },
+    "family": {
+      "type": "string",
+      "enum": ["sense", "act", "verify", "run", "compose"],
+      "description": "The capability family this asset belongs to."
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["offline", "live", "both"],
+      "description": "Execution mode: offline (no Editor), live (needs a running Editor/bridge), or both. Offline-first per ADR-0012."
+    },
+    "requires": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Capability or resource ids this capability depends on (composition edge)."
+    },
+    "provides": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Capability or resource ids this capability produces (composition edge)."
+    },
+    "uses": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Capability ids this capability consumes directly (composition edge)."
+    },
+    "usedBy": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Capability ids that consume this capability (composition edge)."
+    },
+    "compatiblePrimitives": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Primitive ids known to compose well with this one."
+    },
+    "conflictsWith": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Capability or primitive ids this one conflicts with."
+    },
+    "setupSteps": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Step-by-step setup instructions an agent follows literally."
+    },
+    "testPlan": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Steps to verify the capability works after setup."
+    },
+    "failureModes": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Common breakages and their fixes; check these first when debugging."
+    },
+    "codeFiles": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Paths (relative to the capability directory) of the source files."
+    },
+    "inputs": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Maps named inputs to a type or spec, e.g. { projectRoot: \"string\", depth: 3 }."
+    },
+    "outputs": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Maps named outputs to a type or spec, e.g. { files: [\"a.md\", \"b.md\"] }."
+    },
+    "sideEffects": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Side effects (e.g. writes, mutations) the capability performs."
+    },
+    "safetyGate": {
+      "oneOf": [
+        { "type": "string" },
+        { "type": "object", "additionalProperties": true }
+      ],
+      "description": "Approval or safety gate that must be satisfied before the capability runs."
+    },
+    "versionCompatibility": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Declared version range(s) and any version-specific notes."
+    }
+  }
+}

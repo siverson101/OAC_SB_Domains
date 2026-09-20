@@ -1,6 +1,7 @@
 ---
 name: UnityScene
 description: Unity 3D scene and prefab specialist - safe scene/prefab structuring, component wiring, lighting/URP setup
+abilities: [unity-read-project]
 mode: subagent
 temperature: 0.2
 permission:

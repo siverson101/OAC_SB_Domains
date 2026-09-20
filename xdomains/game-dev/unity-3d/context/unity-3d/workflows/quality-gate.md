@@ -1,3 +1,9 @@
+---
+description: Full QA validation of Unity 3D changes - compile, tests, build smoke
+abilities: [unity-build, unity-run-tests]
+agents: [qa]
+---
+
 <!-- Context: unity-3d/workflows/quality-gate | Priority: high | Version: 1.0 | Updated: 2026-09-07 -->
 
 # Workflow: Unity Quality Gate

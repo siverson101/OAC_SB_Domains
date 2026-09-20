@@ -1,3 +1,9 @@
+---
+description: Create or restructure a Unity 3D scene/prefab safely
+abilities: [unity-read-project]
+agents: [scene, artasset, shadervfx]
+---
+
 <!-- Context: unity-3d/workflows/scene-assembly | Priority: high | Version: 1.0 | Updated: 2026-09-07 -->
 
 # Workflow: Unity Scene Assembly

@@ -41,6 +41,41 @@ describe('registry build', () => {
     expect(md).toContain('## Abilities');
     expect(md).toContain('## Projected Context');
   });
+
+  test('tags every capability with its layer', () => {
+    expect(registry.commands.length).toBeGreaterThan(0);
+    for (const command of registry.commands) expect(command.layer).toBe('command');
+    expect(registry.abilities.length).toBeGreaterThan(0);
+    for (const ability of registry.abilities) expect(ability.layer).toBe('ability');
+    expect(registry.tools.length).toBeGreaterThan(0);
+    for (const tool of registry.tools) expect(tool.layer).toBe('tool');
+  });
+
+  test('records agent↔ability edges from allowlists', () => {
+    expect(registry.edges).toContainEqual({ type: 'agent-ability', from: 'unity-3d-orchestrator', to: 'gather-unity-context' });
+    expect(registry.edges).toContainEqual({ type: 'agent-ability', from: 'unity-3d-orchestrator', to: 'unity-read-project' });
+    expect(registry.edges).toContainEqual({ type: 'agent-ability', from: 'implementer', to: 'unity-read-project' });
+    expect(registry.edges).toContainEqual({ type: 'agent-ability', from: 'qa', to: 'unity-run-tests' });
+    expect(registry.edges).toContainEqual({ type: 'agent-ability', from: 'qa', to: 'unity-build' });
+  });
+
+  test('records workflow edges from frontmatter declarations', () => {
+    expect(registry.edges).toContainEqual({ type: 'workflow-ability', from: 'feature-delivery', to: 'gather-unity-context' });
+    expect(registry.edges).toContainEqual({ type: 'workflow-ability', from: 'feature-delivery', to: 'unity-run-tests' });
+    expect(registry.edges).toContainEqual({ type: 'workflow-agent', from: 'feature-delivery', to: 'implementer' });
+    expect(registry.edges).toContainEqual({ type: 'workflow-agent', from: 'feature-delivery', to: 'qa' });
+    expect(registry.edges).toContainEqual({ type: 'workflow-agent', from: 'feature-delivery', to: 'scene' });
+  });
+
+  test('counts edges and renders an Edges section', () => {
+    expect(registry.counts.edges).toBe(registry.edges.length);
+    const md = renderRegistry(registry);
+    expect(md).toContain('## Edges');
+    expect(md).toContain('### agent-ability');
+    expect(md).toContain('### workflow-ability');
+    expect(md).toContain('### workflow-agent');
+    expect(md).toContain('`unity-3d-orchestrator` → `gather-unity-context`');
+  });
 });
 
 describe('registry bundle', () => {
@@ -57,6 +92,9 @@ describe('registry bundle', () => {
       expect(existsSync(join(out, 'context', 'unity-3d', 'registry.md'))).toBe(true);
       const json = JSON.parse(readFileSync(join(out, 'registry.json'), 'utf8'));
       expect(json.subdomain).toBe('unity-3d');
+      const md = readFileSync(join(out, 'context', 'unity-3d', 'registry.md'), 'utf8');
+      expect(md).toContain('## Edges');
+      expect(md).toContain('Layer');
     } finally {
       rmSync(out, { recursive: true, force: true });
     }

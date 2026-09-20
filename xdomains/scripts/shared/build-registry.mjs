@@ -21,20 +21,185 @@ import { basename, join, relative, sep } from "node:path";
 
 // tools/shared/registry/src/frontmatter.ts
 import { readFileSync as readFileSync2 } from "node:fs";
+function stripQuotes(value) {
+  if (value.startsWith('"') && value.endsWith('"') || value.startsWith("'") && value.endsWith("'")) {
+    return value.slice(1, -1);
+  }
+  return value;
+}
+function tryParseJson(input) {
+  try {
+    return JSON.parse(input);
+  } catch {
+    return;
+  }
+}
+function normalizeQuotes(input) {
+  let out = "";
+  let inDouble = false;
+  for (let i = 0;i < input.length; i++) {
+    const ch = input[i];
+    if (ch === '"') {
+      inDouble = !inDouble;
+      out += ch;
+      continue;
+    }
+    if (ch === "'" && !inDouble) {
+      let j = i + 1;
+      let inner = "";
+      while (j < input.length && input[j] !== "'") {
+        inner += input[j];
+        j++;
+      }
+      out += '"' + inner.replace(/"/g, "\\\"") + '"';
+      i = j;
+      continue;
+    }
+    out += ch;
+  }
+  return out;
+}
+function quoteBareWords(input) {
+  return input.replace(/([{,]\s*)([A-Za-z_][A-Za-z0-9_-]*)(\s*:)/g, '$1"$2"$3').replace(/(:\s*)([A-Za-z_][A-Za-z0-9_-]*)(?=\s*[,}\]])/g, '$1"$2"');
+}
+function splitTopLevel(input, delimiter) {
+  const parts = [];
+  let depth = 0;
+  let current = "";
+  let inSingle = false;
+  let inDouble = false;
+  for (let i = 0;i < input.length; i++) {
+    const ch = input[i];
+    if (inSingle) {
+      current += ch;
+      if (ch === "'")
+        inSingle = false;
+      continue;
+    }
+    if (inDouble) {
+      current += ch;
+      if (ch === '"')
+        inDouble = false;
+      continue;
+    }
+    if (ch === "'") {
+      inSingle = true;
+      current += ch;
+      continue;
+    }
+    if (ch === '"') {
+      inDouble = true;
+      current += ch;
+      continue;
+    }
+    if (ch === "[" || ch === "{" || ch === "(")
+      depth++;
+    if (ch === "]" || ch === "}" || ch === ")")
+      depth--;
+    if (ch === delimiter && depth === 0) {
+      parts.push(current);
+      current = "";
+      continue;
+    }
+    current += ch;
+  }
+  if (current.trim() !== "")
+    parts.push(current);
+  return parts;
+}
+function parseFlowArray(raw) {
+  const inner = raw.slice(1, -1).trim();
+  if (inner === "")
+    return [];
+  const json = tryParseJson(normalizeQuotes(raw));
+  if (Array.isArray(json))
+    return json;
+  return splitTopLevel(inner, ",").map((item) => parseInlineValue(item.trim()));
+}
+function parseFlowObject(raw) {
+  const normalized = normalizeQuotes(raw);
+  const direct = tryParseJson(normalized);
+  if (direct !== undefined && direct !== null && typeof direct === "object" && !Array.isArray(direct)) {
+    return direct;
+  }
+  const lenient = tryParseJson(quoteBareWords(normalized));
+  if (lenient !== undefined && lenient !== null && typeof lenient === "object" && !Array.isArray(lenient)) {
+    return lenient;
+  }
+  return raw;
+}
+function parseInlineValue(rest) {
+  const trimmed = rest.trim();
+  if (trimmed.startsWith("["))
+    return parseFlowArray(trimmed);
+  if (trimmed.startsWith("{"))
+    return parseFlowObject(trimmed);
+  return stripQuotes(trimmed);
+}
+function readBlock(lines, start) {
+  const collected = [];
+  let i = start;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (line.trim() === "") {
+      let j = i + 1;
+      while (j < lines.length && lines[j].trim() === "")
+        j++;
+      if (j < lines.length && /^\s/.test(lines[j])) {
+        i++;
+        continue;
+      }
+      break;
+    }
+    if (!/^\s/.test(line))
+      break;
+    collected.push(line);
+    i++;
+  }
+  const trimmed = collected.map((line) => line.trim()).filter((line) => line !== "");
+  if (trimmed.length > 0 && trimmed.every((line) => line.startsWith("-"))) {
+    return { value: trimmed.map((line) => parseInlineValue(line.replace(/^-\s*/, ""))), nextIndex: i };
+  }
+  if (trimmed.length > 0 && trimmed.every((line) => /^[A-Za-z0-9_-]+:\s/.test(line) && !line.startsWith("-"))) {
+    const obj = {};
+    for (const line of trimmed) {
+      const m = /^([A-Za-z0-9_-]+):\s*(.*)$/.exec(line);
+      if (!m)
+        continue;
+      obj[m[1]] = m[2] === "" ? "" : parseInlineValue(m[2]);
+    }
+    return { value: obj, nextIndex: i };
+  }
+  return { value: trimmed, nextIndex: i };
+}
 function parseFrontmatter(content) {
   const match = /^---\r?\n([\s\S]*?)\r?\n---/.exec(content);
   if (!match)
     return {};
   const fm = {};
-  for (const line of match[1].split(/\r?\n/)) {
-    const m = /^([A-Za-z0-9_-]+):\s*(.*)$/.exec(line);
-    if (!m)
+  const lines = match[1].split(/\r?\n/);
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (line.trim() === "") {
+      i++;
       continue;
-    let value = m[2].trim();
-    if (value.startsWith('"') && value.endsWith('"') || value.startsWith("'") && value.endsWith("'")) {
-      value = value.slice(1, -1);
     }
-    fm[m[1]] = value;
+    const m = /^([A-Za-z0-9_-]+):\s*(.*)$/.exec(line);
+    if (!m) {
+      i++;
+      continue;
+    }
+    const key = m[1];
+    const rest = m[2];
+    if (rest !== "") {
+      fm[key] = parseInlineValue(rest);
+      i++;
+      continue;
+    }
+    const block = readBlock(lines, i + 1);
+    fm[key] = block.value;
+    i = block.nextIndex;
   }
   return fm;
 }
@@ -44,6 +209,14 @@ function readFrontmatter(path) {
   } catch {
     return {};
   }
+}
+function frontmatterString(fm, key) {
+  const value = fm[key];
+  return typeof value === "string" ? value : undefined;
+}
+function frontmatterStringArray(fm, key) {
+  const value = fm[key];
+  return Array.isArray(value) && value.every((item) => typeof item === "string") ? value : undefined;
 }
 
 // tools/shared/registry/src/build.ts
@@ -73,14 +246,15 @@ function walkFiles(dir, base, out = []) {
   }
   return out;
 }
-function entry(domainDir, relPath, id, consumes) {
+function entry(domainDir, relPath, id, consumes, layer) {
   const fm = readFrontmatter(join(domainDir, relPath));
   return {
     id,
-    name: fm.name || id,
+    name: frontmatterString(fm, "name") || id,
     path: relPath,
-    description: fm.description,
-    consumes: consumes.length > 0 ? consumes : undefined
+    description: frontmatterString(fm, "description"),
+    consumes: consumes.length > 0 ? consumes : undefined,
+    layer
   };
 }
 function candidateKeys(path, id) {
@@ -103,9 +277,9 @@ function buildRegistry(domainDir, generatedAt) {
   const manifest = readJson(join(domainDir, "sb-domain.json")) ?? {};
   const projections = readJson(join(domainDir, "context-projections.json")) ?? {};
   const consumers = projections.consumers ?? {};
-  const mapEntries = (paths, folder) => (paths ?? []).map((rel) => entry(domainDir, rel, basename(rel, ".md"), consumedOutputs(rel, basename(rel, ".md"), consumers)));
-  const agents = mapEntries(manifest.agents, "agent");
-  const subagents = mapEntries(manifest.subagents, "subagents");
+  const mapEntries = (paths, layer) => (paths ?? []).map((rel) => entry(domainDir, rel, basename(rel, ".md"), consumedOutputs(rel, basename(rel, ".md"), consumers), layer));
+  const agents = mapEntries(manifest.agents);
+  const subagents = mapEntries(manifest.subagents);
   const commands = mapEntries(manifest.commands, "command");
   const abilities = (manifest.abilities ?? []).map((ability) => {
     const rel = `command/${ability}.md`;
@@ -116,7 +290,7 @@ function buildRegistry(domainDir, generatedAt) {
         return false;
       }
     })();
-    return { id: ability, name: ability, path: rel, realisedAs: exists ? rel : undefined };
+    return { id: ability, name: ability, path: rel, realisedAs: exists ? rel : undefined, layer: "ability" };
   });
   const contextFiles = (manifest.context ?? []).flatMap((rel) => {
     const full = join(domainDir, rel);
@@ -124,12 +298,26 @@ function buildRegistry(domainDir, generatedAt) {
   });
   const context = contextFiles.filter((rel) => rel.endsWith(".md")).map((rel) => entry(domainDir, rel, basename(rel, ".md"), consumedOutputs(rel, basename(rel, ".md"), consumers)));
   const workflows = context.filter((c) => c.path.includes("/workflows/"));
-  const tools = (manifest.tools ?? []).map((tool) => ({ id: tool, name: tool, path: `tools/${tool}` }));
+  const tools = (manifest.tools ?? []).map((tool) => ({ id: tool, name: tool, path: `tools/${tool}`, layer: "tool" }));
   const scripts = (manifest.scripts ?? []).map((script) => ({ id: basename(script), name: basename(script), path: script }));
   const outputs = (projections.outputs ?? []).map((output) => {
     const consumedBy = Object.entries(consumers).filter(([, files]) => files.includes(output.file)).map(([consumer]) => consumer);
     return { file: output.file, title: output.title ?? output.file, consumedBy };
   });
+  const edges = [];
+  const addEdges = (type, from, tos) => {
+    for (const to of tos)
+      edges.push({ type, from, to });
+  };
+  for (const rel of [...manifest.agents ?? [], ...manifest.subagents ?? []]) {
+    const fm = readFrontmatter(join(domainDir, rel));
+    addEdges("agent-ability", basename(rel, ".md"), frontmatterStringArray(fm, "abilities") ?? []);
+  }
+  for (const workflow of workflows) {
+    const fm = readFrontmatter(join(domainDir, workflow.path));
+    addEdges("workflow-ability", workflow.id, frontmatterStringArray(fm, "abilities") ?? []);
+    addEdges("workflow-agent", workflow.id, frontmatterStringArray(fm, "agents") ?? []);
+  }
   const counts = {
     agents: agents.length,
     subagents: subagents.length,
@@ -138,7 +326,8 @@ function buildRegistry(domainDir, generatedAt) {
     context: context.length,
     workflows: workflows.length,
     tools: tools.length,
-    scripts: scripts.length
+    scripts: scripts.length,
+    edges: edges.length
   };
   return {
     schemaVersion: 1,
@@ -156,6 +345,7 @@ function buildRegistry(domainDir, generatedAt) {
     workflows,
     tools,
     scripts,
+    edges,
     projections: { outputDir: projections.outputDir ?? null, outputs }
   };
 }
@@ -167,6 +357,8 @@ function escapeCell(value) {
 function entriesTable(entries, options = {}) {
   const lines = [];
   const header = ["Id", "Name", "Path", "Description"];
+  if (options.layer)
+    header.push("Layer");
   if (options.realised)
     header.push("Realised as");
   if (options.consumes)
@@ -175,6 +367,8 @@ function entriesTable(entries, options = {}) {
   lines.push(`|${header.map(() => "---").join("|")}|`);
   for (const entry of entries) {
     const row = [entry.id, entry.name, `\`${entry.path}\``, escapeCell(entry.description)];
+    if (options.layer)
+      row.push(entry.layer ?? "");
     if (options.realised)
       row.push(entry.realisedAs ? `\`${entry.realisedAs}\`` : "");
     if (options.consumes)
@@ -190,6 +384,23 @@ function section(lines, title, entries, options) {
   lines.push("");
   lines.push(...entriesTable(entries, options));
   lines.push("");
+}
+var EDGE_ORDER = ["agent-ability", "workflow-ability", "workflow-agent"];
+function edgesSection(lines, edges) {
+  if (edges.length === 0)
+    return;
+  lines.push("## Edges");
+  lines.push("");
+  for (const type of EDGE_ORDER) {
+    const group = edges.filter((edge) => edge.type === type);
+    if (group.length === 0)
+      continue;
+    lines.push(`### ${type}`);
+    lines.push("");
+    for (const edge of group)
+      lines.push(`- \`${edge.from}\` → \`${edge.to}\``);
+    lines.push("");
+  }
 }
 function renderRegistry(registry) {
   const lines = [];
@@ -211,14 +422,17 @@ function renderRegistry(registry) {
   for (const [key, value] of Object.entries(registry.counts))
     lines.push(`- ${key}: ${value}`);
   lines.push("");
+  lines.push("> Layering: **tool** = thin typed adapter (no workflow logic); **ability** = named capability composing tools; **command** = user-invocable entry realising an ability (ADR-0004 / ADR-0012).");
+  lines.push("");
   section(lines, "Agents", registry.agents, { consumes: true });
   section(lines, "SubAgents", registry.subagents, { consumes: true });
-  section(lines, "Commands", registry.commands, { consumes: true });
-  section(lines, "Abilities", registry.abilities, { realised: true });
+  section(lines, "Commands", registry.commands, { consumes: true, layer: true });
+  section(lines, "Abilities", registry.abilities, { realised: true, layer: true });
   section(lines, "Context", registry.context, { consumes: true });
   section(lines, "Workflows", registry.workflows, { consumes: true });
-  section(lines, "Tools", registry.tools);
+  section(lines, "Tools", registry.tools, { layer: true });
   section(lines, "Scripts", registry.scripts);
+  edgesSection(lines, registry.edges);
   if (registry.projections.outputs.length > 0) {
     lines.push("## Projected Context");
     lines.push("");
