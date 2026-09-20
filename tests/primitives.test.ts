@@ -44,12 +44,13 @@ const importedIds = readdirSync(primitivesDir)
 
 // The external `unity-skills` source registry is a sibling checkout, so it is
 // absent in a bare clone. When present, the ledger is checked against every
-// source primitive that was not imported.
+// source primitive that was not imported. It is deliberately never resolved
+// from inside this repo: this repo must not ship a checked-in copy of the
+// third-party registry.
 const sourcePrimitivesDir =
   [
     process.env.OAC_UNITY_SKILLS_PRIMITIVES,
     join(repoRoot, '..', 'unity-skills', 'primitives'),
-    join(repoRoot, 'unity-skills', 'primitives'),
   ]
     .filter((candidate): candidate is string => Boolean(candidate))
     .find((candidate) => existsSync(candidate)) ?? null;

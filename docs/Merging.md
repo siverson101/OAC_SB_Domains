@@ -26,6 +26,7 @@
 
 - **Document provenance in the registry:**  
   - **Rule:** For every Ability/Command/Agent added or modified, record its **source(s)** (repos, docs) in the registry doc so provenance is traceable.
+  - **Rule:** No tooling may glob `**/registry.md`: the hand-maintained provenance registry (`xdomains/game-dev/<sub>/registry.md`) shares its basename with the generated capability registry at `<opencode-dir>/context/<sub>/registry.md`.  
 
 #### Extending OAC Unity plugin
 

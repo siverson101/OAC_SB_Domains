@@ -44,7 +44,7 @@ reimplementation is authored.
 | id | license | source_repo |
 |---|---|---|
 | `unity.input.mouserotate` | GPL-3.0 | https://github.com/imengyu/Ballance |
-| `unity.rendering.npr.starrail` | GPL-3.0 | https://github.com/stalomeow/StarRailNPRShader |
+| `unity.rendering.npr.starrail` (absent from local snapshot) | GPL-3.0 | https://github.com/stalomeow/StarRailNPRShader |
 | `unity.rendering.toon.primotoon` | GPL-3.0 | https://github.com/festivities/PrimoToon |
 | `unity.simulation.aerodynamics_solver` | GPL-3.0 | https://github.com/ertanturan/Unity-Helicopter-Physics |
 | `unity.system.kengine_logger` | LGPL-3.0 | https://github.com/mr-kelly/KEngine |
@@ -116,7 +116,7 @@ domain needs it (no license obstacle).
 - `unity.coroutines.utils` — MIT
 - `unity.events.scriptable_object_channels` — MIT
 - `unity.mechanics.magnetic_pickup` — MIT
-- `unity.networking.lmtdownload` — Apache-2.0
+- `unity.networking.lmtdownload` (absent from local snapshot) — Apache-2.0
 - `unity.networking.mirage.tank` — MIT
 - `unity.particle.auto_destroy` — MIT
 - `unity.rendering.texturepanner` — MIT
@@ -148,7 +148,7 @@ against the original archives / candidate upstream repos.
 - `unity.audio.volume_unit_utils`
 - `unity.audio.fader`
 - `csharp.algorithms.concave_hull`
-- `csharp.snapshot_interpolation`
+- `csharp.snapshot_interpolation` (absent from local snapshot)
 - `unity.math.orthographic_fitter`
 - `unity.camera.follower`
 - `unity.rendering.ui_blur`

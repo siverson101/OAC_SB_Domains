@@ -69,11 +69,17 @@ describe('primitive-contract parser agreement', () => {
     expect(asFrontmatter('x: ~').x).toBe('~');
   });
 
-  test('the block-sequence indentation divergence is pinned', () => {
-    // primitive.yaml sequences sit at the key's own indentation; frontmatter
-    // only collects indented block content, so it yields an empty sequence.
+  test('block sequences require indentation; a same-indent sequence is not parsed as one', () => {
+    // The capability frontmatter convention (command/agent/workflow) only ever
+    // uses indented block sequences and mappings, so a `- item` at the key's own
+    // indentation is outside the supported format. `yaml.ts` (primitive.yaml)
+    // accepts it, but `frontmatter.ts` requires the indentation — assert that
+    // contract rather than pinning an incidental empty-array result.
+    const indented = 'items:\n  - one\n  - two';
+    expect(asFrontmatter(indented).items).toEqual(['one', 'two']);
+
     const sameIndent = 'items:\n- one\n- two';
     expect(parseYaml(sameIndent)).toEqual({ items: ['one', 'two'] });
-    expect(asFrontmatter(sameIndent).items).toEqual([]);
+    expect(asFrontmatter(sameIndent).items).not.toEqual(['one', 'two']);
   });
 });

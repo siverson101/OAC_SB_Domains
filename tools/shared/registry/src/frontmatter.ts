@@ -160,9 +160,11 @@ function readBlock(lines: string[], start: number): { value: FrontmatterValue; n
   }
 
   // Comment lines are ignored when deciding the block kind and when building
-  // the object/array. Limitation: blocks are shallow — no nested blocks, and
-  // a block that is neither a sequence nor a flat mapping falls back to its
-  // raw string lines (flow syntax inside a single line still parses).
+  // the object/array. Block sequences and objects must be indented relative to
+  // their key: a `- item` or `k: v` at the key's own column is not part of the
+  // block. Limitation: blocks are shallow — no nested blocks, and a block that
+  // is neither a sequence nor a flat mapping falls back to its raw string lines
+  // (flow syntax inside a single line still parses).
   const trimmed = collected
     .map((line) => line.trim())
     .filter((line) => line !== '' && !line.startsWith('#'));
