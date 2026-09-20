@@ -7,7 +7,7 @@ description: Drive runtime UI validation (ui_snapshot, ui_find, ui_click, ui_key
 inputs: { projectRoot: "string", opencodeDir: "string", operation: "ui_snapshot|ui_find|ui_click|ui_key" }
 outputs: { status: "string", operation: "string", transport: "string", data: "object" }
 sideEffects: ["ui_click/ui_key may mutate Player UI state"]
-safetyGate: { requiresEditor: true, requiresApproval: false }
+safetyGate: { mutates: false, requiresEditor: true, requiresApproval: false }
 uses: [gather-unity-context]
 provides: [runtime-ui-validation]
 requires: [unity-cli]

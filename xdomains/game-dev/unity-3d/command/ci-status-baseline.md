@@ -7,7 +7,7 @@ description: Record or read .opencode/project-data/ci-status-baseline.json. Reco
 inputs: { projectRoot: "string", opencodeDir: "string", verb: "read|record", source: "string?" }
 outputs: { status: "string", action: "string", baselinePath: "string", baseline: "object?" }
 sideEffects: ["record writes .opencode/project-data/ci-status-baseline.json"]
-safetyGate: { mutates: false, requiresEditor: false, recordWrites: true }
+safetyGate: { mutates: false, requiresEditor: false }
 uses: [gather-unity-context, compile-and-verify-project]
 provides: [ci-status-baseline]
 requires: [compile-state, log-digest, unity-verification-report]

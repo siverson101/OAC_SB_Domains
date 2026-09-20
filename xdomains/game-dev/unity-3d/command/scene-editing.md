@@ -7,7 +7,7 @@ description: Choose the safest rung for a scene or prefab change and hand the ca
 inputs: { projectRoot: "string", opencodeDir: "string", changeKind: "single-property|multi-property|structural|unsupported", gate: "boolean" }
 outputs: { rung: "string", ladder: "array", requiresDryRun: "boolean", fallback: "string", steps: "array", gate: "object" }
 sideEffects: []
-safetyGate: { dryRunFirst: true, requireConfirm: true }
+safetyGate: { mutates: true, requiresApproval: true, dryRunFirst: true }
 uses: [inspector, prefab-automation]
 provides: [scene-editing]
 requires: [unity-project]

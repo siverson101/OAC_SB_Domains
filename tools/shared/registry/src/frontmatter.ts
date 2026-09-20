@@ -54,10 +54,14 @@ function normalizeQuotes(input: string): string {
   return out;
 }
 
+const JSON_LITERALS = new Set(['true', 'false', 'null']);
+
 function quoteBareWords(input: string): string {
   return input
     .replace(/([{,]\s*)([A-Za-z_][A-Za-z0-9_-]*)(\s*:)/g, '$1"$2"$3')
-    .replace(/(:\s*)([A-Za-z_][A-Za-z0-9_-]*)(?=\s*[,}\]])/g, '$1"$2"');
+    .replace(/(:\s*)([A-Za-z_][A-Za-z0-9_-]*)(?=\s*[,}\]])/g, (match: string, prefix: string, word: string) =>
+      JSON_LITERALS.has(word) ? match : `${prefix}"${word}"`,
+    );
 }
 
 function splitTopLevel(input: string, delimiter: string): string[] {

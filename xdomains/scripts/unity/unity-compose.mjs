@@ -259,8 +259,9 @@ function normalizeQuotes(input) {
   }
   return out;
 }
+var JSON_LITERALS = new Set(["true", "false", "null"]);
 function quoteBareWords(input) {
-  return input.replace(/([{,]\s*)([A-Za-z_][A-Za-z0-9_-]*)(\s*:)/g, '$1"$2"$3').replace(/(:\s*)([A-Za-z_][A-Za-z0-9_-]*)(?=\s*[,}\]])/g, '$1"$2"');
+  return input.replace(/([{,]\s*)([A-Za-z_][A-Za-z0-9_-]*)(\s*:)/g, '$1"$2"$3').replace(/(:\s*)([A-Za-z_][A-Za-z0-9_-]*)(?=\s*[,}\]])/g, (match, prefix, word) => JSON_LITERALS.has(word) ? match : `${prefix}"${word}"`);
 }
 function splitTopLevel(input, delimiter) {
   const parts = [];

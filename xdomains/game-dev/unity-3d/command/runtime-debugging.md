@@ -7,7 +7,7 @@ description: Surface runtime logs and errors (get_logs --logType Error) from a l
 inputs: { projectRoot: "string", opencodeDir: "string", operation: "get_logs|execute-code", code: "string?" }
 outputs: { status: "string", operation: "string", transport: "string", data: "object", approval: "object" }
 sideEffects: ["read-only log reads", "approval-gated runtime code execution may mutate Player state"]
-safetyGate: { requiresEditor: true, requiresApproval: true, codeExecution: "approval-gated" }
+safetyGate: { requiresEditor: true, requiresApproval: true }
 uses: [gather-unity-context]
 provides: [runtime-debugging]
 requires: [unity-cli]

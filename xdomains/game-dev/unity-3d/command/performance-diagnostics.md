@@ -7,7 +7,7 @@ description: Read profiler counters and take profiler snapshots (profiler_counte
 inputs: { projectRoot: "string", opencodeDir: "string", operation: "profiler_counters|profiler_snapshot" }
 outputs: { status: "string", operation: "string", transport: "string", data: "object" }
 sideEffects: []
-safetyGate: { requiresEditor: true, requiresApproval: false }
+safetyGate: { mutates: false, requiresEditor: true, requiresApproval: false }
 uses: [gather-unity-context]
 provides: [performance-diagnostics]
 requires: [unity-cli]

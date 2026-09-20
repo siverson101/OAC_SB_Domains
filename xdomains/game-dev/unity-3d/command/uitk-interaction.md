@@ -7,7 +7,7 @@ description: Read the UI Toolkit tree and click elements (uitk_tree, uitk_click)
 inputs: { projectRoot: "string", opencodeDir: "string", operation: "uitk_tree|uitk_click" }
 outputs: { status: "string", operation: "string", transport: "string", data: "object" }
 sideEffects: ["uitk_click may mutate Player UI state"]
-safetyGate: { requiresEditor: true, requiresApproval: false }
+safetyGate: { mutates: false, requiresEditor: true, requiresApproval: false }
 uses: [gather-unity-context]
 provides: [uitk-interaction]
 requires: [unity-cli]

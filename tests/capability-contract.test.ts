@@ -56,6 +56,26 @@ describe('capability contract schema', () => {
     expect(schema.properties?.inputs?.type).toBe('object');
     expect(schema.properties?.outputs?.type).toBe('object');
   });
+
+  test('declares safetyGate as an object of optional booleans', () => {
+    const gate = schema.properties?.safetyGate as {
+      type?: string;
+      additionalProperties?: boolean;
+      properties?: Record<string, { type?: string }>;
+    };
+    expect(gate?.type).toBe('object');
+    expect(gate?.additionalProperties).toBe(false);
+    expect(Object.keys(gate?.properties ?? {}).sort()).toEqual([
+      'advisory',
+      'dryRunFirst',
+      'mutates',
+      'requiresApproval',
+      'requiresEditor',
+    ]);
+    for (const property of Object.values(gate?.properties ?? {})) {
+      expect(property.type).toBe('boolean');
+    }
+  });
 });
 
 describe('frontmatter parser', () => {
@@ -86,6 +106,17 @@ describe('frontmatter parser', () => {
     expect(fm.provides).toEqual(['gate.md', 'preferences.md']);
     expect(fm.inputs).toEqual({ projectRoot: 'string', depth: 3 });
     expect(fm.outputs).toEqual({ files: ['a.md', 'b.md'] });
+  });
+
+  test('keeps flow-object boolean literals as real booleans', () => {
+    const content = [
+      '---',
+      'safetyGate: { mutates: false, requiresEditor: true, advisory: false }',
+      '---',
+    ].join('\n');
+
+    const fm = parseFrontmatter(content);
+    expect(fm.safetyGate).toEqual({ mutates: false, requiresEditor: true, advisory: false });
   });
 });
 

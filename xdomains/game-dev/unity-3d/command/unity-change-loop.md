@@ -7,7 +7,7 @@ description: Fold the offline evidence produced by the Sense/Verify families (co
 inputs: { projectRoot: "string", opencodeDir: "string", claim: "string?" }
 outputs: { status: "string", stages: "array", gates: "array", evidence: "array", done: "boolean", refusals: "array" }
 sideEffects: []
-safetyGate: { mutates: false, requiresEditor: false }
+safetyGate: { mutates: false, requiresEditor: false, requiresApproval: false }
 uses: [gather-unity-context, compile-and-verify-project, run-edit-mode-tests, run-play-mode-tests]
 provides: [unity-change-loop]
 requires: [compile-state, log-digest, test-inventory]

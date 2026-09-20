@@ -7,7 +7,7 @@ description: Wrap the existing runGate/parseNUnit path for EditMode tests; prefe
 inputs: { projectRoot: "string", opencodeDir: "string", unityCli: "string" }
 outputs: { status: "string", testRun: "object", checkpoint: "object", delta: "object" }
 sideEffects: []
-safetyGate: { mutates: false, requiresEditor: true }
+safetyGate: { mutates: false, requiresEditor: true, requiresApproval: false }
 uses: [gather-unity-context]
 provides: [run-edit-mode-tests]
 requires: [unity-cli, test-inventory]

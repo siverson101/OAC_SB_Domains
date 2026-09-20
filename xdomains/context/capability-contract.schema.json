@@ -91,11 +91,16 @@
       "description": "Side effects (e.g. writes, mutations) the capability performs."
     },
     "safetyGate": {
-      "oneOf": [
-        { "type": "string" },
-        { "type": "object", "additionalProperties": true }
-      ],
-      "description": "Approval or safety gate that must be satisfied before the capability runs."
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mutates": { "type": "boolean" },
+        "requiresEditor": { "type": "boolean" },
+        "requiresApproval": { "type": "boolean" },
+        "dryRunFirst": { "type": "boolean" },
+        "advisory": { "type": "boolean" }
+      },
+      "description": "Approval or safety gate declared as an object of optional boolean flags: mutates, requiresEditor, requiresApproval, dryRunFirst, advisory."
     },
     "versionCompatibility": {
       "type": "object",

@@ -7,7 +7,7 @@ description: Produce fresh Unity shader templates for a named shader; writes onl
 inputs: { projectRoot: "string", opencodeDir: "string", template: "string", name: "string", out: "string", dryRun: "boolean", confirm: "boolean" }
 outputs: { template: "string", language: "string", fileName: "string", content: "string", written: "boolean", outPath: "string" }
 sideEffects: ["writes a .shader file only when --confirm is supplied with --out"]
-safetyGate: { dryRunFirst: true, requireConfirm: true }
+safetyGate: { mutates: true, requiresApproval: true, dryRunFirst: true }
 uses: [gather-unity-context]
 provides: [shader-helper]
 requires: [unity-project]

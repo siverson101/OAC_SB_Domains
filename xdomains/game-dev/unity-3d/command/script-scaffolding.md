@@ -7,7 +7,7 @@ description: Produce fresh Unity C# scaffolding for a named type; writes only wh
 inputs: { projectRoot: "string", opencodeDir: "string", template: "string", name: "string", namespace: "string", out: "string", dryRun: "boolean", confirm: "boolean" }
 outputs: { template: "string", language: "string", fileName: "string", content: "string", written: "boolean", outPath: "string" }
 sideEffects: ["writes a .cs/.asmdef file only when --confirm is supplied with --out"]
-safetyGate: { dryRunFirst: true, requireConfirm: true }
+safetyGate: { mutates: true, requiresApproval: true, dryRunFirst: true }
 uses: [gather-unity-context]
 provides: [script-scaffolding]
 requires: [unity-project]

@@ -7,7 +7,7 @@ description: Read xdomains/context/programming-patterns.json (categories, patter
 inputs: { projectRoot: "string", opencodeDir: "string", query: "string", category: "string", pattern: "string", enabled: "array" }
 outputs: { table: "object", categories: "array", matches: "array", selected: "object", conflicts: "array" }
 sideEffects: []
-safetyGate: "none (read-only)"
+safetyGate: { mutates: false, requiresEditor: false }
 uses: [gather-unity-context]
 provides: [pattern-library]
 requires: [programming-patterns]

@@ -7,7 +7,7 @@ description: Produce fresh Input System .inputactions/JSON/C# templates; writes 
 inputs: { projectRoot: "string", opencodeDir: "string", template: "string", name: "string", namespace: "string", map: "string", out: "string", dryRun: "boolean", confirm: "boolean" }
 outputs: { template: "string", language: "string", fileName: "string", content: "string", written: "boolean", outPath: "string" }
 sideEffects: ["writes an .inputactions/.json/.cs file only when --confirm is supplied with --out"]
-safetyGate: { dryRunFirst: true, requireConfirm: true }
+safetyGate: { mutates: true, requiresApproval: true, dryRunFirst: true }
 uses: [asset-intelligence]
 provides: [input-automation]
 requires: [unity-project]

@@ -34,6 +34,19 @@ const commandDir = join(repoRoot, 'xdomains', 'game-dev', 'unity-3d', 'command')
 const schemaPath = join(repoRoot, 'xdomains', 'context', 'capability-contract.schema.json');
 const bundle = join(repoRoot, 'xdomains', 'scripts', 'unity', 'unity-compose.mjs');
 
+const SAFETY_GATE_KEYS = ['mutates', 'requiresEditor', 'requiresApproval', 'dryRunFirst', 'advisory'];
+
+function assertSafetyGate(fm: Record<string, unknown>): void {
+  const gate = fm.safetyGate;
+  if (gate === undefined) return;
+  expect(typeof gate).toBe('object');
+  expect(Array.isArray(gate)).toBe(false);
+  for (const [key, value] of Object.entries(gate as Record<string, unknown>)) {
+    expect(SAFETY_GATE_KEYS).toContain(key);
+    expect(typeof value).toBe('boolean');
+  }
+}
+
 const T0 = '2026-01-01T00:00:00.000Z';
 const T0B = '2026-01-01T00:00:30.000Z';
 const T2 = '2026-01-01T00:20:00.000Z';
@@ -378,13 +391,14 @@ describe('Compose command contracts', () => {
       expect(fm.id).toBe(ability);
       const result = validateContract(fm as Record<string, unknown>, schema);
       expect(result.errors).toEqual([]);
+      assertSafetyGate(fm as Record<string, unknown>);
     });
   }
 
   test('the coordination board is declared advisory', () => {
     const fm = parseFrontmatter(readFileSync(join(commandDir, 'coordination-board.md'), 'utf8'));
     const gate = fm.safetyGate as Record<string, unknown>;
-    expect(gate.advisory).toBe('true');
+    expect(gate.advisory).toBe(true);
   });
 });
 
