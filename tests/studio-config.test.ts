@@ -9,6 +9,7 @@ import { resolveStudioConfig } from '../tools/unity/studio-config/src/resolver';
 import type { PatternCatalog, StudioConfig } from '../tools/unity/studio-config/src/types';
 import { buildRegistry } from '../tools/shared/registry/src/build';
 import { renderRegistry } from '../tools/shared/registry/src/render';
+import { findPatternCatalog } from '../tools/shared/context-files';
 
 const repoRoot = resolve(import.meta.dir, '..');
 const unity3dDir = join(repoRoot, 'xdomains', 'game-dev', 'unity-3d');
@@ -267,7 +268,14 @@ describe('registry studio config integration', () => {
     expect(registry.studioConfig.toggles).toEqual({ tdd: false, ftf: false });
     expect(registry.studioConfig.patterns).toEqual([]);
     expect(registry.studioConfig.valid).toBe(true);
+    // The catalog is found via the `domainDir` candidate, so no catalog problem
+    // is reported (`patterns: []` means there are no conflicts either way).
+    expect(registry.studioConfig.problems).toEqual([]);
     expect(renderRegistry(registry)).toContain('## Studio Config');
+  });
+
+  test('the domainDir candidate resolves the repo-layout catalog', () => {
+    expect(findPatternCatalog({ domainDir: unity3dDir })).toBe(catalogPath);
   });
 
   test('surfaces enabled patterns, toggles and mode from .opencode/unity-studio.json', () => {
