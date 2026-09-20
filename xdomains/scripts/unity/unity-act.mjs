@@ -255,7 +255,7 @@ function makeResult(ability, status, summary, errors, route = "offline") {
   return {
     ...makeEnvelope({ ability, family: "act", mode: "offline", status, summary, errors, route }),
     mutated: false,
-    safetyGate: { dryRunFirst: true, requireConfirm: true }
+    safetyGate: { mutates: true, dryRunFirst: true, requiresApproval: true }
   };
 }
 
@@ -649,8 +649,8 @@ function sceneEditing(options, cliAvailable = null) {
 }
 
 // tools/unity/unity-act/src/templates.ts
-import { mkdirSync as mkdirSync2, writeFileSync as writeFileSync2 } from "node:fs";
-import { dirname as dirname3, join as join4 } from "node:path";
+import { existsSync as existsSync2, mkdirSync as mkdirSync2, statSync as statSync2, writeFileSync as writeFileSync2 } from "node:fs";
+import { dirname as dirname3, extname, join as join4 } from "node:path";
 function namespaceWrap(namespace, body) {
   if (!namespace)
     return body;
@@ -1082,11 +1082,17 @@ function renderInputActions(name, map) {
   return JSON.stringify(document, null, 2) + `
 `;
 }
+function resolveOutTarget(outPath, fileName) {
+  if (existsSync2(outPath)) {
+    return statSync2(outPath).isDirectory() ? join4(outPath, fileName) : outPath;
+  }
+  return extname(outPath) !== "" ? outPath : join4(outPath, fileName);
+}
 function emit(options, registry, defaultTemplate, label) {
   const template = options.template?.trim() || defaultTemplate;
   const available = Object.keys(registry);
   const entry = registry[template];
-  const base = makeResult(options.ability, "unknown", `${label} template`, [], "local");
+  const base = makeResult(options.ability, "unknown", `${label} template`, [], "offline");
   const result = {
     ...base,
     template,
@@ -1127,7 +1133,7 @@ function emit(options, registry, defaultTemplate, label) {
     result.summary = "Refused: writing a file requires --confirm";
     return result;
   }
-  const target = outPath.endsWith(fileName) ? outPath : join4(outPath, fileName);
+  const target = resolveOutTarget(outPath, fileName);
   mkdirSync2(dirname3(target), { recursive: true });
   writeFileSync2(target, content);
   result.status = "written";

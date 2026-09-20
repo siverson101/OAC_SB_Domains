@@ -3,8 +3,8 @@
 // These templates are authored for OAC. They reimplement only the *data shapes*
 // of the old Unity-Developer-Tools utilities (which are CC BY-NC-ND, design
 // reference only); no content is copied verbatim.
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
+import { dirname, extname, join } from 'node:path';
 import { makeResult, type ActOptions } from './shared';
 import type { ActBase, ActStatus } from './types';
 
@@ -479,12 +479,24 @@ function renderInputActions(name: string, map: string): string {
   return JSON.stringify(document, null, 2) + '\n';
 }
 
+// Resolve `--out` to a concrete file path. An existing path is classified by
+// `statSync` (directory -> append the file name, file -> write verbatim). A
+// non-existent path is treated as a directory unless it already looks like a
+// file: a non-empty extension (e.g. `Player.cs`) names the target explicitly,
+// while a bare path (`Assets/Scripts`) is the folder to create the file in.
+function resolveOutTarget(outPath: string, fileName: string): string {
+  if (existsSync(outPath)) {
+    return statSync(outPath).isDirectory() ? join(outPath, fileName) : outPath;
+  }
+  return extname(outPath) !== '' ? outPath : join(outPath, fileName);
+}
+
 function emit(options: ActOptions, registry: Registry, defaultTemplate: string, label: string): TemplateResult {
   const template = options.template?.trim() || defaultTemplate;
   const available = Object.keys(registry);
   const entry = registry[template];
 
-  const base = makeResult(options.ability, 'unknown', `${label} template`, [], 'local');
+  const base = makeResult(options.ability, 'unknown', `${label} template`, [], 'offline');
   const result: TemplateResult = {
     ...base,
     template,
@@ -532,7 +544,7 @@ function emit(options: ActOptions, registry: Registry, defaultTemplate: string, 
     return result;
   }
 
-  const target = outPath.endsWith(fileName) ? outPath : join(outPath, fileName);
+  const target = resolveOutTarget(outPath, fileName);
   mkdirSync(dirname(target), { recursive: true });
   writeFileSync(target, content);
   result.status = 'written';

@@ -43,8 +43,9 @@ export type ActStatus =
   | 'not_run';
 
 export interface ActSafetyGate {
+  mutates: boolean;
   dryRunFirst: boolean;
-  requireConfirm: boolean;
+  requiresApproval: boolean;
 }
 
 export interface ActBase {

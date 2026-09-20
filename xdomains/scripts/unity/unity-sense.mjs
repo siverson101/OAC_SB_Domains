@@ -394,10 +394,7 @@ function projectDataDir(options) {
   return join3(options.opencodeDir, "project-data");
 }
 function makeResult(ability, status, summary, errors) {
-  return {
-    ...makeEnvelope({ ability, family: "sense", mode: "offline", status, summary, errors }),
-    route: "offline"
-  };
+  return makeEnvelope({ ability, family: "sense", mode: "offline", status, summary, errors });
 }
 
 // tools/unity/unity-sense/src/code-navigation.ts

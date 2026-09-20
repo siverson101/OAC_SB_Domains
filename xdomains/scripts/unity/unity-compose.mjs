@@ -156,7 +156,9 @@ function makeResult(ability, status, summary, errors, options = {}) {
     safetyGate: {
       requiresEditor: options.requiresEditor ?? false,
       requiresApproval: options.requiresApproval ?? false,
-      approved: options.approved ?? false
+      approved: options.approved ?? false,
+      writesState: options.writesState ?? false,
+      advisory: options.advisory ?? false
     }
   };
 }
@@ -228,15 +230,15 @@ function runCiStatusBaseline(options) {
   if (action === "record") {
     const baseline = gatherBaseline(options);
     writeJson(path, baseline);
-    const base = makeResult("ci-status-baseline", "recorded", `recorded CI baseline: ${baseline.status}`, []);
+    const base = makeResult("ci-status-baseline", "recorded", `recorded CI baseline: ${baseline.status}`, [], { writesState: true });
     return { ...base, action, baselinePath: toPosix(path), baseline };
   }
   const baseline = readBaseline(path);
   if (!baseline) {
-    const base = makeResult("ci-status-baseline", "not_found", `no CI baseline at ${toPosix(path)}`, []);
+    const base = makeResult("ci-status-baseline", "not_found", `no CI baseline at ${toPosix(path)}`, [], { writesState: true });
     return { ...base, action, baselinePath: toPosix(path), baseline: null };
   }
-  const base = makeResult("ci-status-baseline", "ok", `CI baseline: ${baseline.status} (recorded ${baseline.recordedAt})`, []);
+  const base = makeResult("ci-status-baseline", "ok", `CI baseline: ${baseline.status} (recorded ${baseline.recordedAt})`, [], { writesState: true });
   return { ...base, action, baselinePath: toPosix(path), baseline };
 }
 
@@ -562,6 +564,7 @@ function runContractAwareDesign(options) {
 // tools/unity/unity-compose/src/coordination-board.ts
 import { mkdirSync as mkdirSync2, renameSync, writeFileSync as writeFileSync2 } from "node:fs";
 import { join as join3 } from "node:path";
+var COORDINATION_SAFETY = { advisory: true, writesState: true };
 var BOARD_FILE = "board.json";
 var BOARD_MARKDOWN_FILE = "board.md";
 var BOARD_SCHEMA_VERSION = 1;
@@ -791,7 +794,7 @@ async function runCoordinationBoard(options) {
   const board = readBoard(dir);
   if (verb === "claim") {
     if (!options.resource || !options.holder) {
-      const base = makeResult("coordination-board", "refused", "claim requires --resource and --holder", ["claim requires --resource and --holder"]);
+      const base = makeResult("coordination-board", "refused", "claim requires --resource and --holder", ["claim requires --resource and --holder"], COORDINATION_SAFETY);
       return { ...base, action: "claim", holder: null, expiresAt: null, board };
     }
     const mutation = await claimResourceWithWait(dir, {
@@ -807,7 +810,7 @@ async function runCoordinationBoard(options) {
   }
   if (verb === "release") {
     if (!options.resource || !options.holder) {
-      const base = makeResult("coordination-board", "refused", "release requires --resource and --holder", ["release requires --resource and --holder"]);
+      const base = makeResult("coordination-board", "refused", "release requires --resource and --holder", ["release requires --resource and --holder"], COORDINATION_SAFETY);
       return { ...base, action: "release", holder: null, expiresAt: null, board };
     }
     const mutation = releaseResource(board, { resource: options.resource, holder: options.holder }, now);
@@ -817,7 +820,7 @@ async function runCoordinationBoard(options) {
   }
   if (verb === "hold") {
     if (!options.holder) {
-      const base = makeResult("coordination-board", "refused", "hold requires --holder", ["hold requires --holder"]);
+      const base = makeResult("coordination-board", "refused", "hold requires --holder", ["hold requires --holder"], COORDINATION_SAFETY);
       return { ...base, action: "hold", holder: null, expiresAt: null, board };
     }
     const mutation = acquireEditorHold(board, { holder: options.holder, note: options.note, leaseSeconds: options.leaseSeconds }, now);
@@ -827,7 +830,7 @@ async function runCoordinationBoard(options) {
   }
   if (verb === "release-hold") {
     if (!options.holder) {
-      const base = makeResult("coordination-board", "refused", "release-hold requires --holder", ["release-hold requires --holder"]);
+      const base = makeResult("coordination-board", "refused", "release-hold requires --holder", ["release-hold requires --holder"], COORDINATION_SAFETY);
       return { ...base, action: "release-hold", holder: null, expiresAt: null, board };
     }
     const mutation = releaseEditorHold(board, { holder: options.holder }, now);
@@ -839,7 +842,7 @@ async function runCoordinationBoard(options) {
   return toResult(mutation, errors, options);
 }
 function toResult(mutation, extraErrors, options) {
-  const base = makeResult("coordination-board", mutation.status, mutation.summary, [...mutation.errors, ...extraErrors]);
+  const base = makeResult("coordination-board", mutation.status, mutation.summary, [...mutation.errors, ...extraErrors], COORDINATION_SAFETY);
   const result = {
     ...base,
     action: mutation.action,

@@ -21,7 +21,13 @@ import {
   type ComposeOptions,
   type ComposeStatus,
   type Json,
+  type MakeResultOptions,
 } from './shared';
+
+// The board declares `advisory` (conflicts are reported, never queued) and
+// `writesState` (it persists under .opencode/coordination/) in its contract, so
+// the runtime envelope carries the same flags.
+const COORDINATION_SAFETY: MakeResultOptions = { advisory: true, writesState: true };
 
 export const BOARD_FILE = 'board.json';
 export const BOARD_MARKDOWN_FILE = 'board.md';
@@ -168,6 +174,10 @@ export async function claimResourceWithWait(dir: string, input: ClaimInput, now:
   const waitSeconds = clampWaitSeconds(input.waitSeconds);
   if (mutation.ok || mutation.status !== 'conflict' || waitSeconds <= 0) return mutation;
 
+  // The first attempt honours the caller's injected `now` (so `--now` is
+  // deterministic for the fail-fast path); the wait loop then runs against real
+  // time, because leases genuinely elapse on the wall clock while queued. So
+  // `--now` affects the first attempt only, not the retries.
   const deadline = Date.now() + waitSeconds * 1000;
   while (Date.now() < deadline) {
     await sleep(Math.min(CLAIM_POLL_MS, deadline - Date.now()));
@@ -369,9 +379,15 @@ export async function runCoordinationBoard(options: ComposeOptions): Promise<Coo
   const { verb, errors } = normalizeBoardVerb(options.verb);
   const board = readBoard(dir);
 
+  // Only successful mutations are persisted (`if (mutation.ok) writeBoard`). A
+  // conflict/not_found result still returns a pruned board (expired entries
+  // dropped, `updatedAt` bumped), but that pruned view is deliberately NOT
+  // written: reads prune lazily via `pruneBoard`, and persisting a pruned board
+  // from a losing racer would clobber a peer's concurrent claim on this advisory
+  // board. The returned board is a read-model snapshot, not a write intent.
   if (verb === 'claim') {
     if (!options.resource || !options.holder) {
-      const base = makeResult('coordination-board', 'refused', 'claim requires --resource and --holder', ['claim requires --resource and --holder']);
+      const base = makeResult('coordination-board', 'refused', 'claim requires --resource and --holder', ['claim requires --resource and --holder'], COORDINATION_SAFETY);
       return { ...base, action: 'claim', holder: null, expiresAt: null, board };
     }
     const mutation = await claimResourceWithWait(
@@ -391,7 +407,7 @@ export async function runCoordinationBoard(options: ComposeOptions): Promise<Coo
 
   if (verb === 'release') {
     if (!options.resource || !options.holder) {
-      const base = makeResult('coordination-board', 'refused', 'release requires --resource and --holder', ['release requires --resource and --holder']);
+      const base = makeResult('coordination-board', 'refused', 'release requires --resource and --holder', ['release requires --resource and --holder'], COORDINATION_SAFETY);
       return { ...base, action: 'release', holder: null, expiresAt: null, board };
     }
     const mutation = releaseResource(board, { resource: options.resource, holder: options.holder }, now);
@@ -401,7 +417,7 @@ export async function runCoordinationBoard(options: ComposeOptions): Promise<Coo
 
   if (verb === 'hold') {
     if (!options.holder) {
-      const base = makeResult('coordination-board', 'refused', 'hold requires --holder', ['hold requires --holder']);
+      const base = makeResult('coordination-board', 'refused', 'hold requires --holder', ['hold requires --holder'], COORDINATION_SAFETY);
       return { ...base, action: 'hold', holder: null, expiresAt: null, board };
     }
     const mutation = acquireEditorHold(board, { holder: options.holder, note: options.note, leaseSeconds: options.leaseSeconds }, now);
@@ -411,7 +427,7 @@ export async function runCoordinationBoard(options: ComposeOptions): Promise<Coo
 
   if (verb === 'release-hold') {
     if (!options.holder) {
-      const base = makeResult('coordination-board', 'refused', 'release-hold requires --holder', ['release-hold requires --holder']);
+      const base = makeResult('coordination-board', 'refused', 'release-hold requires --holder', ['release-hold requires --holder'], COORDINATION_SAFETY);
       return { ...base, action: 'release-hold', holder: null, expiresAt: null, board };
     }
     const mutation = releaseEditorHold(board, { holder: options.holder }, now);
@@ -424,7 +440,7 @@ export async function runCoordinationBoard(options: ComposeOptions): Promise<Coo
 }
 
 function toResult(mutation: BoardMutation, extraErrors: string[], options: ComposeOptions): CoordinationBoardResult {
-  const base = makeResult('coordination-board', mutation.status, mutation.summary, [...mutation.errors, ...extraErrors]);
+  const base = makeResult('coordination-board', mutation.status, mutation.summary, [...mutation.errors, ...extraErrors], COORDINATION_SAFETY);
   const result: CoordinationBoardResult = {
     ...base,
     action: mutation.action,

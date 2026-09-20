@@ -48,6 +48,8 @@ export interface MakeResultOptions {
   requiresEditor?: boolean;
   requiresApproval?: boolean;
   approved?: boolean;
+  writesState?: boolean;
+  advisory?: boolean;
 }
 
 export function makeResult(
@@ -71,6 +73,8 @@ export function makeResult(
       requiresEditor: options.requiresEditor ?? false,
       requiresApproval: options.requiresApproval ?? false,
       approved: options.approved ?? false,
+      writesState: options.writesState ?? false,
+      advisory: options.advisory ?? false,
     },
   };
 }

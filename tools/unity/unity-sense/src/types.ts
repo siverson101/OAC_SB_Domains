@@ -3,6 +3,7 @@
 // Every ability is `family: sense`, `mode: offline`: it reads on-disk state only
 // and never needs a running Editor. Results are fail-soft — a missing file or
 // folder yields `unavailable`/`unknown`, never a thrown error.
+import type { Route } from '../../../shared/tool-routing';
 
 const SENSE_ABILITY_NAMES = [
   'project-status',
@@ -25,7 +26,7 @@ export interface SenseBase {
   ability: SenseAbility;
   family: 'sense';
   mode: 'offline';
-  route: 'offline';
+  route: Route;
   status: SenseStatus;
   summary: string;
   errors: string[];

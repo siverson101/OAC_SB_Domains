@@ -29,6 +29,6 @@ export function makeResult(
   return {
     ...makeEnvelope({ ability, family: 'act', mode: 'offline', status, summary, errors, route }),
     mutated: false,
-    safetyGate: { dryRunFirst: true, requireConfirm: true },
+    safetyGate: { mutates: true, dryRunFirst: true, requiresApproval: true },
   };
 }

@@ -67,6 +67,7 @@ describe('capability contract schema', () => {
     expect(gate?.additionalProperties).toBe(false);
     expect(Object.keys(gate?.properties ?? {}).sort()).toEqual([
       'advisory',
+      'approved',
       'dryRunFirst',
       'mutates',
       'requiresApproval',

@@ -43,6 +43,8 @@ export interface ComposeSafetyGate {
   requiresEditor: boolean;
   requiresApproval: boolean;
   approved: boolean;
+  writesState: boolean;
+  advisory: boolean;
 }
 
 export interface ComposeBase {

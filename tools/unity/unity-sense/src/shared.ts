@@ -24,8 +24,6 @@ export function makeResult(
   summary: string,
   errors: string[]
 ): SenseBase {
-  return {
-    ...makeEnvelope({ ability, family: 'sense', mode: 'offline', status, summary, errors }),
-    route: 'offline',
-  };
+  // `makeEnvelope` defaults the route to 'offline'; no override is needed.
+  return makeEnvelope({ ability, family: 'sense', mode: 'offline', status, summary, errors });
 }

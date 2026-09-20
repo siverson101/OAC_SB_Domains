@@ -99,9 +99,10 @@
         "requiresApproval": { "type": "boolean" },
         "dryRunFirst": { "type": "boolean" },
         "advisory": { "type": "boolean" },
-        "writesState": { "type": "boolean" }
+        "writesState": { "type": "boolean" },
+        "approved": { "type": "boolean" }
       },
-      "description": "Approval or safety gate declared as an object of optional boolean flags: mutates, requiresEditor, requiresApproval, dryRunFirst, advisory, writesState. Every flag is optional; an absent flag means 'not declared' and must be treated as false (never 'unknown'). writesState records that the capability persists state under .opencode/ even when it does not mutate project assets (mutates stays false)."
+      "description": "Approval or safety gate. The six declared flags (mutates, requiresEditor, requiresApproval, dryRunFirst, advisory, writesState) are optional; an absent flag means 'not declared' and must be treated as false (never 'unknown'). writesState records that the capability persists state under .opencode/ even when it does not mutate project assets (mutates stays false). Runtime envelopes additionally carry `approved`: the gate has been satisfied (approval granted / Editor available), so the same key set covers both declarations and emitted results."
     },
     "versionCompatibility": {
       "type": "object",

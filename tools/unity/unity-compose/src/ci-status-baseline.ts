@@ -95,15 +95,15 @@ export function runCiStatusBaseline(options: ComposeOptions): CiStatusBaselineRe
   if (action === 'record') {
     const baseline = gatherBaseline(options);
     writeJson(path, baseline);
-    const base = makeResult('ci-status-baseline', 'recorded', `recorded CI baseline: ${baseline.status}`, []);
+    const base = makeResult('ci-status-baseline', 'recorded', `recorded CI baseline: ${baseline.status}`, [], { writesState: true });
     return { ...base, action, baselinePath: toPosix(path), baseline };
   }
 
   const baseline = readBaseline(path);
   if (!baseline) {
-    const base = makeResult('ci-status-baseline', 'not_found', `no CI baseline at ${toPosix(path)}`, []);
+    const base = makeResult('ci-status-baseline', 'not_found', `no CI baseline at ${toPosix(path)}`, [], { writesState: true });
     return { ...base, action, baselinePath: toPosix(path), baseline: null };
   }
-  const base = makeResult('ci-status-baseline', 'ok', `CI baseline: ${baseline.status} (recorded ${baseline.recordedAt})`, []);
+  const base = makeResult('ci-status-baseline', 'ok', `CI baseline: ${baseline.status} (recorded ${baseline.recordedAt})`, [], { writesState: true });
   return { ...base, action, baselinePath: toPosix(path), baseline };
 }

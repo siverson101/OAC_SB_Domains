@@ -333,6 +333,33 @@ describe('fresh templates', () => {
     expect(written.mutated).toBe(true);
     expect(existsSync(join(out, 'Written.cs'))).toBe(true);
   });
+
+  test('resolves --out as a file path or a directory explicitly', () => {
+    const dir = join(fixture, 'out-resolve');
+    const explicitFile = join(dir, 'Explicit.cs');
+
+    const toFile = scriptScaffolding({
+      ...base,
+      ability: 'script-scaffolding',
+      name: 'Explicit',
+      out: explicitFile,
+      dryRun: false,
+      confirm: true,
+    });
+    expect(toFile.outPath).toBe(explicitFile);
+    expect(existsSync(explicitFile)).toBe(true);
+
+    const toDir = scriptScaffolding({
+      ...base,
+      ability: 'script-scaffolding',
+      name: 'InDir',
+      out: dir,
+      dryRun: false,
+      confirm: true,
+    });
+    expect(toDir.outPath).toBe(join(dir, 'InDir.cs'));
+    expect(existsSync(join(dir, 'InDir.cs'))).toBe(true);
+  });
 });
 
 describe('act gate plan', () => {
