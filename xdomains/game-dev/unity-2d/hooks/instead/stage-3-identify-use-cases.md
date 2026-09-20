@@ -22,7 +22,7 @@ The scanner writes raw project data to `.opencode/project-data/` and intermediat
 `.opencode/xdomains/context/project/`, then prints a `scan-result.json` summary (project name,
 Unity version, packages, preferences, input flags). Use it to inform the questions and Stage 4.
 
-Then gather the full Unity context (project structure, toolchain, commands, pipeline, MCP, and —
+Then gather the full Unity context (project structure, toolchain, commands, pipeline, Unity CLI MCP, and —
 when the Editor is available — the verification gate). Also fail-soft:
 
 ```bash

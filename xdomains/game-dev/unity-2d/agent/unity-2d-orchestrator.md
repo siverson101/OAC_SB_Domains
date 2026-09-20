@@ -51,6 +51,11 @@ BEFORE any implementation, load:
   <rule id="context_first" scope="discovery">
     Use ContextScout before routing. Match request → specialist. Don't guess.
   </rule>
+
+  <unity_cli scope="editor_control">
+    Drive the Editor through the Unity CLI: prefer `unity command` / `unity eval` (main-thread; `eval` compiles via Roslyn without a domain reload). Use the CLI's stdio MCP (`unity mcp`) only when shell execution isn't viable.
+    The deprecated in-editor Unity MCP is not used; do not configure it. Never invoke bare `unity mcp` in a shell (it starts a stdio server).
+  </unity_cli>
 </critical_rules>
 
 <roles_and_routing>

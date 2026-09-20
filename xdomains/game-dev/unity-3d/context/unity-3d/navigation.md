@@ -57,7 +57,7 @@ Per-project context is generated under `project/` by the stage-3/stage-7 hooks, 
 | Structure | `project/structure.md` |
 | Commands | `project/commands.md` |
 | Pipeline | `project/pipeline.md` |
-| MCP | `project/mcp.md` |
+| Unity CLI MCP | `project/mcp.md` |
 | Verification gate | `project/gate.md` |
 
 The full sub-domain registry (agents, sub-agents, commands, abilities, context, consumers) is at
