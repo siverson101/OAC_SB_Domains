@@ -1,0 +1,81 @@
+{
+  "schemaVersion": 1,
+  "description": "Offline Unity platform/build-target and version-define reference used by the platform-info Sense ability. Lists the predefined symbols Unity defines per platform and the version-gate defines used for conditional compilation. Read-only, no Editor required.",
+  "platforms": [
+    {
+      "name": "Windows",
+      "displayName": "Windows Standalone",
+      "buildTarget": "StandaloneWindows64",
+      "defines": ["UNITY_STANDALONE", "UNITY_STANDALONE_WIN", "UNITY_64", "PLATFORM_STANDALONE_WIN"],
+      "scriptingBackend": "Mono or IL2CPP",
+      "notes": "StandaloneWindows is the 32-bit build target; prefer StandaloneWindows64."
+    },
+    {
+      "name": "macOS",
+      "displayName": "macOS Standalone",
+      "buildTarget": "StandaloneOSX",
+      "defines": ["UNITY_STANDALONE", "UNITY_STANDALONE_OSX", "UNITY_64", "PLATFORM_STANDALONE_OSX"],
+      "scriptingBackend": "Mono or IL2CPP",
+      "notes": "Universal (Intel + Apple silicon) builds target StandaloneOSX."
+    },
+    {
+      "name": "Linux",
+      "displayName": "Linux Standalone",
+      "buildTarget": "StandaloneLinux64",
+      "defines": ["UNITY_STANDALONE", "UNITY_STANDALONE_LINUX", "UNITY_64", "PLATFORM_STANDALONE_LINUX"],
+      "scriptingBackend": "Mono or IL2CPP",
+      "notes": "Only 64-bit Linux is supported in current Unity versions."
+    },
+    {
+      "name": "Android",
+      "displayName": "Android",
+      "buildTarget": "Android",
+      "defines": ["UNITY_ANDROID", "UNITY_ANDROID_API", "PLATFORM_ANDROID"],
+      "scriptingBackend": "IL2CPP (Mono removed in modern Unity)",
+      "notes": "Split by architecture (ARM64, ARMv7) with UNITY_ANDROID; IL2CPP is the default backend."
+    },
+    {
+      "name": "iOS",
+      "displayName": "iOS",
+      "buildTarget": "iOS",
+      "defines": ["UNITY_IOS", "UNITY_IPHONE", "PLATFORM_IOS"],
+      "scriptingBackend": "IL2CPP",
+      "notes": "Requires an Apple developer toolchain to produce the Xcode project."
+    },
+    {
+      "name": "WebGL",
+      "displayName": "WebGL",
+      "buildTarget": "WebGL",
+      "defines": ["UNITY_WEBGL", "UNITY_WEBGL_1_0", "PLATFORM_WEBGL"],
+      "scriptingBackend": "IL2CPP (emscripten)",
+      "notes": "No threads or sockets by default; keep managed allocations low."
+    },
+    {
+      "name": "UWP",
+      "displayName": "Universal Windows Platform",
+      "buildTarget": "WSAPlayer",
+      "defines": ["UNITY_WSA", "UNITY_WSA_10_0", "UNITY_UWP", "PLATFORM_WSA"],
+      "scriptingBackend": "IL2CPP",
+      "notes": "Targets Windows 10/11 and Xbox via the WSA platform."
+    },
+    {
+      "name": "Editor",
+      "displayName": "Unity Editor",
+      "buildTarget": "Editor",
+      "defines": ["UNITY_EDITOR", "UNITY_EDITOR_WIN", "UNITY_EDITOR_OSX", "UNITY_EDITOR_LINUX"],
+      "scriptingBackend": "Mono",
+      "notes": "UNITY_EDITOR is defined only in the Editor; guard editor-only code with it."
+    }
+  ],
+  "versionDefines": [
+    { "define": "UNITY_2021_1_OR_NEWER", "since": "2021.1", "summary": "True on 2021.1 and later." },
+    { "define": "UNITY_2021_2_OR_NEWER", "since": "2021.2", "summary": "True on 2021.2 and later." },
+    { "define": "UNITY_2022_1_OR_NEWER", "since": "2022.1", "summary": "True on 2022.1 and later." },
+    { "define": "UNITY_2022_3_OR_NEWER", "since": "2022.3", "summary": "True on 2022.3 LTS and later." },
+    { "define": "UNITY_2023_1_OR_NEWER", "since": "2023.1", "summary": "True on 2023.1 and later; FindFirstObjectByType APIs are current here." },
+    { "define": "UNITY_6000_0_OR_NEWER", "since": "6000.0", "summary": "True on Unity 6 (6000.0) and later." },
+    { "define": "UNITY_6000_1_OR_NEWER", "since": "6000.1", "summary": "True on Unity 6.1 and later." },
+    { "define": "UNITY_6000_3_OR_NEWER", "since": "6000.3", "summary": "True on Unity 6.3 and later." },
+    { "define": "UNITY_6000_5_OR_NEWER", "since": "6000.5", "summary": "True on Unity 6.5 and later." }
+  ]
+}

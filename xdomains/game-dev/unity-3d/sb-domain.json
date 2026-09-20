@@ -48,7 +48,13 @@
     "unity-read-project",
     "gather-unity-context",
     "unity-build",
-    "unity-run-tests"
+    "unity-run-tests",
+    "project-status",
+    "asset-intelligence",
+    "offline-project-inspection",
+    "unity-api-lookup",
+    "platform-info",
+    "code-navigation"
   ],
     "skills": [],
     "tools": [
