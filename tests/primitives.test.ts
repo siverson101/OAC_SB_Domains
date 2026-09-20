@@ -148,6 +148,13 @@ describe('primitive contract parser', () => {
     expect(contract.license).toBe('MIT');
   });
 
+  test('folds multi-line scalar sequence items instead of truncating them', () => {
+    const contract = parsePrimitiveYaml(
+      ['id: unity.example.thing', 'setup_steps:', '- Do the thing', '  and continue it.'].join('\n')
+    );
+    expect(contract.setupSteps).toEqual(['Do the thing and continue it.']);
+  });
+
   test('validates required fields and the extracted-source rules', () => {
     expect(validateContract(parsePrimitiveYaml(fixture), 'unity.example.thing')).toEqual([]);
 

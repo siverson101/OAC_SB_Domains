@@ -11,6 +11,7 @@ import { asRecord } from '../../../shared/json-helpers';
 import {
   DEFAULT_STUDIO_CONFIG,
   REVIEW_INTENSITIES,
+  STUDIO_CONFIG_SCHEMA_VERSION,
   STUDIO_MODES,
   type ConfigProblem,
   type ReviewIntensity,
@@ -122,10 +123,15 @@ export function parseStudioConfig(value: unknown): { config: StudioConfig; probl
 
   let schemaVersion = DEFAULT_STUDIO_CONFIG.schemaVersion;
   if (record.schemaVersion !== undefined) {
-    if (typeof record.schemaVersion === 'number' && Number.isFinite(record.schemaVersion)) {
-      schemaVersion = record.schemaVersion;
-    } else {
+    if (typeof record.schemaVersion !== 'number' || !Number.isFinite(record.schemaVersion)) {
       problems.push({ field: 'schemaVersion', message: `expected a number, got ${JSON.stringify(record.schemaVersion)}` });
+    } else if (record.schemaVersion !== STUDIO_CONFIG_SCHEMA_VERSION) {
+      problems.push({
+        field: 'schemaVersion',
+        message: `unsupported schema version ${JSON.stringify(record.schemaVersion)}, expected ${STUDIO_CONFIG_SCHEMA_VERSION}`,
+      });
+    } else {
+      schemaVersion = record.schemaVersion;
     }
   }
 

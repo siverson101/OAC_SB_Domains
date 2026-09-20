@@ -305,6 +305,17 @@ describe('primitive-composition', () => {
     expect(result.status).toBe('observed_locally');
     expect(result.report.primitives).toHaveLength(2);
   });
+
+  test('reports conflicts to non-imported primitives as unresolved', () => {
+    const shipped = join(repoRoot, 'xdomains', 'game-dev', 'unity-3d', 'primitives');
+    const report = analyzeComposition(discoverPrimitives(shipped));
+    const hasConflictEdge = (from: string, to: string): boolean =>
+      report.edges.some((edge) => edge.kind === 'conflicts' && edge.from === from && edge.to === to);
+    expect(hasConflictEdge('csharp.gameplay.match3', 'csharp.match3.grid_core')).toBe(true);
+    expect(hasConflictEdge('csharp.utils.crc32', 'yarnspinner.dialogue.core')).toBe(true);
+    expect(report.unresolved).toContain('csharp.gameplay.match3 conflicts with unknown primitive "csharp.match3.grid_core"');
+    expect(report.unresolved).toContain('csharp.utils.crc32 conflicts with unknown primitive "yarnspinner.dialogue.core"');
+  });
 });
 
 describe('contract-aware-design', () => {

@@ -76,8 +76,9 @@ function asRecord(value) {
 // tools/unity/studio-config/src/types.ts
 var STUDIO_MODES = ["lean", "full"];
 var REVIEW_INTENSITIES = ["full", "lean", "solo"];
+var STUDIO_CONFIG_SCHEMA_VERSION = 1;
 var DEFAULT_STUDIO_CONFIG = {
-  schemaVersion: 1,
+  schemaVersion: STUDIO_CONFIG_SCHEMA_VERSION,
   studioMode: "lean",
   reviewIntensity: "full",
   toggles: { tdd: false, ftf: false },
@@ -181,10 +182,15 @@ function parseStudioConfig(value) {
   }
   let schemaVersion = DEFAULT_STUDIO_CONFIG.schemaVersion;
   if (record.schemaVersion !== undefined) {
-    if (typeof record.schemaVersion === "number" && Number.isFinite(record.schemaVersion)) {
-      schemaVersion = record.schemaVersion;
-    } else {
+    if (typeof record.schemaVersion !== "number" || !Number.isFinite(record.schemaVersion)) {
       problems.push({ field: "schemaVersion", message: `expected a number, got ${JSON.stringify(record.schemaVersion)}` });
+    } else if (record.schemaVersion !== STUDIO_CONFIG_SCHEMA_VERSION) {
+      problems.push({
+        field: "schemaVersion",
+        message: `unsupported schema version ${JSON.stringify(record.schemaVersion)}, expected ${STUDIO_CONFIG_SCHEMA_VERSION}`
+      });
+    } else {
+      schemaVersion = record.schemaVersion;
     }
   }
   const config = {

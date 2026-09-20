@@ -1087,12 +1087,9 @@ function parseSequence(lines, start, indent) {
       arr.push(obj);
       continue;
     }
-    const value = parseScalar(rest);
-    let j = i + 1;
-    while (j < lines.length && lines[j].indent > indent && !isSequenceLine(lines[j].content))
-      j++;
-    arr.push(value);
-    i = j;
+    const folded = foldContinuations(lines, i + 1, indent, parseScalar(rest));
+    arr.push(folded.value);
+    i = folded.next;
   }
   return { value: arr, next: i };
 }
@@ -1138,9 +1135,9 @@ function toPrimitiveRecord(id, path, parsed) {
     path,
     summary: str(record, "summary"),
     requires: asStrings(requiresBlock?.primitives),
-    events: asStrings(record?.wireThroughEvents ?? record?.events),
-    compatiblePrimitives: asStrings(record?.compatiblePrimitives),
-    conflictsWith: asStrings(record?.conflictsWith)
+    events: asStrings(record?.wireThroughEvents ?? record?.wire_through_events ?? record?.events),
+    compatiblePrimitives: asStrings(record?.compatiblePrimitives ?? record?.compatible_primitives),
+    conflictsWith: asStrings(record?.conflictsWith ?? record?.conflicts_with)
   };
 }
 function discoverPrimitives(dir) {
@@ -1225,6 +1222,8 @@ function analyzeComposition(records) {
     }
     for (const conflict of record.conflictsWith) {
       edges.push({ from: record.id, to: conflict, kind: "conflicts" });
+      if (!ids.has(conflict))
+        unresolved.push(`${record.id} conflicts with unknown primitive "${conflict}"`);
       const pair = [record.id, conflict].sort().join("|");
       if (seenPairs.has(pair))
         continue;

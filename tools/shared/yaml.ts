@@ -251,13 +251,12 @@ function parseSequence(lines: YamlLine[], start: number, indent: number): { valu
       arr.push(obj);
       continue;
     }
-    // A scalar sequence item keeps only its first line; any more-indented
-    // continuation is consumed (not folded) so later keys still parse.
-    const value = parseScalar(rest);
-    let j = i + 1;
-    while (j < lines.length && lines[j].indent > indent && !isSequenceLine(lines[j].content)) j++;
-    arr.push(value);
-    i = j;
+    // A scalar sequence item folds its more-indented continuation lines, just
+    // like the mapping path, so multi-line prose is preserved rather than
+    // silently truncated to its first line.
+    const folded = foldContinuations(lines, i + 1, indent, parseScalar(rest));
+    arr.push(folded.value);
+    i = folded.next;
   }
   return { value: arr, next: i };
 }

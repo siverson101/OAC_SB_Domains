@@ -93,6 +93,12 @@ describe('studio config schema', () => {
     expect(parsed.patterns).toEqual(['a', 'b']);
     expect(parsed.packages).toEqual(['p']);
   });
+
+  test('flags an unsupported schemaVersion but still returns a config', () => {
+    const { config: parsed, problems } = parseStudioConfig({ schemaVersion: 999 });
+    expect(problems).toEqual([{ field: 'schemaVersion', message: 'unsupported schema version 999, expected 1' }]);
+    expect(parsed.schemaVersion).toBe(1);
+  });
 });
 
 describe('studio config loader', () => {
@@ -284,6 +290,15 @@ describe('registry studio config integration', () => {
       expect(registry.studioConfig.conflicts.some((entry) => entry.kind === 'conflictsWith')).toBe(true);
       const md = renderRegistry(registry);
       expect(md).toContain('### Pattern conflicts');
+    });
+  });
+
+  test('an unsupported schemaVersion makes the resolved config invalid', () => {
+    withTempDir((dir) => {
+      writeConfig(dir, { schemaVersion: 999 });
+      const registry = buildRegistry(unity3dDir, '2026-09-20T00:00:00.000Z', dir);
+      expect(registry.studioConfig.valid).toBe(false);
+      expect(registry.studioConfig.problems.some((problem) => problem.field === 'schemaVersion')).toBe(true);
     });
   });
 });

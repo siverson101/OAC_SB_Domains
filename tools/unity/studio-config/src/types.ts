@@ -16,6 +16,10 @@ export interface StudioToggles {
   ftf: boolean;
 }
 
+// The only schema version this loader understands. An unknown version is
+// recorded as a problem (fail-soft) rather than silently accepted.
+export const STUDIO_CONFIG_SCHEMA_VERSION = 1;
+
 export interface StudioConfig {
   schemaVersion: number;
   studioMode: StudioMode;
@@ -28,7 +32,7 @@ export interface StudioConfig {
 // The fail-soft default when the file is missing or unreadable: Lean hierarchy,
 // full review, no patterns/packages, both toggles off.
 export const DEFAULT_STUDIO_CONFIG: StudioConfig = {
-  schemaVersion: 1,
+  schemaVersion: STUDIO_CONFIG_SCHEMA_VERSION,
   studioMode: 'lean',
   reviewIntensity: 'full',
   toggles: { tdd: false, ftf: false },
