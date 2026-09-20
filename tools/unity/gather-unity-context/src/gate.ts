@@ -66,7 +66,16 @@ interface LiveSummary {
   Inconclusive?: number;
 }
 
-function runLiveTest(options: GatherOptions, mode: 'editor' | 'playmode'): TestRun {
+// The minimal option surface a single test run needs. GatherOptions is a
+// superset, so callers can pass the full options object; the Verify family
+// passes only these fields.
+export interface TestRunOptions {
+  projectRoot: string;
+  scratchDir: string;
+  cliCommand: string;
+}
+
+function runLiveTest(options: TestRunOptions, mode: 'editor' | 'playmode'): TestRun {
   const env = runCli(
     options.cliCommand,
     [
@@ -107,7 +116,7 @@ function runLiveTest(options: GatherOptions, mode: 'editor' | 'playmode'): TestR
   };
 }
 
-function runBatchTest(options: GatherOptions, mode: 'EditMode' | 'PlayMode'): TestRun {
+function runBatchTest(options: TestRunOptions, mode: 'EditMode' | 'PlayMode'): TestRun {
   const output = join(options.scratchDir, `${mode.toLowerCase()}-results.xml`);
   const res = run(
     options.cliCommand,
@@ -125,6 +134,17 @@ function runBatchTest(options: GatherOptions, mode: 'EditMode' | 'PlayMode'): Te
   };
 }
 
+// Run a single mode. With a live instance the run goes through the Unity CLI's
+// live channel; without one it falls back to a batch Editor run.
+export function runTestMode(
+  options: TestRunOptions,
+  mode: 'editor' | 'playmode',
+  instance: EditorInstance | null
+): TestRun {
+  if (instance) return runLiveTest(options, mode);
+  return runBatchTest(options, mode === 'editor' ? 'EditMode' : 'PlayMode');
+}
+
 // The caller owns the Editor lifecycle (see editor.ts): it ensures an instance
 // exists before calling this and stops it afterwards if it started one.
 export function runGate(options: GatherOptions, instance: EditorInstance | null): GateResult {
@@ -132,21 +152,13 @@ export function runGate(options: GatherOptions, instance: EditorInstance | null)
     return { status: 'not_run', editMode: null, playMode: null, instance: null };
   }
 
-  if (!instance) {
-    // No Editor available; try a batch run as a last resort.
-    const editMode = runBatchTest(options, 'EditMode');
-    const playMode = runBatchTest(options, 'PlayMode');
-    const failed = [editMode, playMode].some((r) => r.status === 'failed');
-    return { status: failed ? 'failed' : 'passed', editMode, playMode, instance: null };
-  }
-
-  const editMode = runLiveTest(options, 'editor');
-  const playMode = runLiveTest(options, 'playmode');
+  const editMode = runTestMode(options, 'editor', instance);
+  const playMode = runTestMode(options, 'playmode', instance);
   const failed = [editMode, playMode].some((r) => r.status === 'failed');
   return {
     status: failed ? 'failed' : 'passed',
     editMode,
     playMode,
-    instance: instance.project ?? options.projectRoot,
+    instance: instance ? instance.project ?? options.projectRoot : null,
   };
 }

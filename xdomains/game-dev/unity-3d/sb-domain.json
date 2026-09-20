@@ -60,7 +60,11 @@
     "script-scaffolding",
     "shader-helper",
     "pattern-library",
-    "input-automation"
+    "input-automation",
+    "compile-and-verify-project",
+    "run-edit-mode-tests",
+    "run-play-mode-tests",
+    "gate-review"
   ],
     "skills": [],
     "tools": [

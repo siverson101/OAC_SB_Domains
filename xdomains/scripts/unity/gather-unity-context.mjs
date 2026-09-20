@@ -513,24 +513,23 @@ function runBatchTest(options, mode) {
     artifact: output
   };
 }
+function runTestMode(options, mode, instance) {
+  if (instance)
+    return runLiveTest(options, mode);
+  return runBatchTest(options, mode === "editor" ? "EditMode" : "PlayMode");
+}
 function runGate(options, instance) {
   if (!options.runGate) {
     return { status: "not_run", editMode: null, playMode: null, instance: null };
   }
-  if (!instance) {
-    const editMode = runBatchTest(options, "EditMode");
-    const playMode = runBatchTest(options, "PlayMode");
-    const failed = [editMode, playMode].some((r) => r.status === "failed");
-    return { status: failed ? "failed" : "passed", editMode, playMode, instance: null };
-  }
-  const editMode = runLiveTest(options, "editor");
-  const playMode = runLiveTest(options, "playmode");
+  const editMode = runTestMode(options, "editor", instance);
+  const playMode = runTestMode(options, "playmode", instance);
   const failed = [editMode, playMode].some((r) => r.status === "failed");
   return {
     status: failed ? "failed" : "passed",
     editMode,
     playMode,
-    instance: instance.project ?? options.projectRoot
+    instance: instance ? instance.project ?? options.projectRoot : null
   };
 }
 
