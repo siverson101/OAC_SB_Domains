@@ -1,3 +1,10 @@
+---
+name: feature-delivery
+description: Implement a Unity 3D gameplay feature end-to-end - implement, test, validate
+abilities: [gather-unity-context, unity-read-project, unity-run-tests]
+agents: [implementer, qa, scene]
+---
+
 <!-- Context: unity-3d/workflows/feature-delivery | Priority: high | Version: 1.0 | Updated: 2026-09-07 -->
 
 # Workflow: Unity Feature Delivery

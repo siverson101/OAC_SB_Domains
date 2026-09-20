@@ -1,6 +1,7 @@
 ---
 name: UnityUITK
 description: Unity UI Toolkit specialist - UI Toolkit panels, UXML/USS authoring, runtime UI screens, editor UI
+abilities: [unity-read-project]
 mode: subagent
 temperature: 0.2
 permission:

@@ -5,6 +5,7 @@
 
 name: Unity3DOrchestrator
 description: "Main orchestrator for Unity 3D game development - routes to Unity specialists, coordinates feature→test→build workflows, and validates quality"
+abilities: [gather-unity-context, unity-read-project]
 mode: primary
 temperature: 0.2
 permission:

@@ -1,6 +1,7 @@
 ---
 name: UnityQA
 description: Unity 3D QA and test specialist - Unity Test Runner (EditMode/PlayMode), compile checks, batch-mode test runs, build smoke tests
+abilities: [unity-run-tests, unity-build]
 mode: subagent
 temperature: 0.2
 permission:

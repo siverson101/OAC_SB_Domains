@@ -1,6 +1,7 @@
 ---
 name: UnityImplementer
 description: Unity 3D gameplay feature implementer - C# MonoBehaviour scripting, input handling, movement, and gameplay systems
+abilities: [unity-read-project]
 mode: subagent
 temperature: 0.2
 permission:

@@ -1,6 +1,7 @@
 ---
 name: UnityShaderVFX
 description: Unity 3D shader and VFX specialist - Shader Graph, Amplify Shader Editor graphs, VFX Graph, materials, post-processing
+abilities: [unity-read-project]
 mode: subagent
 temperature: 0.2
 permission:

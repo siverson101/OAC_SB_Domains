@@ -1,6 +1,7 @@
 ---
 name: UnityAnimator
 description: Unity 3D animation specialist - Animator controllers, animation clips, humanoid retargeting, blend trees
+abilities: [unity-read-project]
 mode: subagent
 temperature: 0.2
 permission:

@@ -1,6 +1,7 @@
 ---
 name: UnityArtAsset
 description: Unity 3D art and asset pipeline specialist - model/texture/audio import settings, materials, LOD, atlas, asset organization
+abilities: [unity-read-project]
 mode: subagent
 temperature: 0.2
 permission:
