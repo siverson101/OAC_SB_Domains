@@ -158,12 +158,16 @@ function findExecutable(name) {
 function stripAnsi(text) {
   return text.replace(/\u001b\[[0-9;]*m/g, "");
 }
-function unityVersionFromFile(projectRoot) {
+function editorVersionInfo(projectRoot) {
   const text = readText(join2(projectRoot, "ProjectSettings", "ProjectVersion.txt"));
   if (!text)
-    return null;
-  const match = text.match(/m_EditorVersion:\s*(\S+)/);
-  return match ? match[1] : null;
+    return { version: null, revision: null };
+  const version = text.match(/^\s*m_EditorVersion:\s*(\S+)\s*$/m)?.[1] ?? null;
+  const revision = text.match(/^\s*m_EditorVersionWithRevision:\s*\S+\s*\(([0-9a-fA-F]+)\)/m)?.[1] ?? null;
+  return { version, revision };
+}
+function unityVersionFromFile(projectRoot) {
+  return editorVersionInfo(projectRoot).version;
 }
 function activeInputHandler(projectRoot) {
   const text = readText(join2(projectRoot, "ProjectSettings", "ProjectSettings.asset"));
@@ -854,10 +858,13 @@ function produceProjectSettings(input) {
   const errors = [];
   const settingsPath = join7(input.projectRoot, "ProjectSettings", "ProjectSettings.asset");
   const text = readText(settingsPath);
+  const editor = editorVersionInfo(input.projectRoot);
   if (!text) {
     return {
       ...makeBase("unavailable", errors),
       settingsPath: toPosix(relative(input.projectRoot, settingsPath)),
+      editorVersion: editor.version,
+      editorVersionWithRevision: editor.revision,
       productName: null,
       companyName: null,
       scriptingBackend: {},
@@ -908,6 +915,8 @@ function produceProjectSettings(input) {
   return {
     ...makeBase("observed_locally", errors),
     settingsPath: toPosix(relative(input.projectRoot, settingsPath)),
+    editorVersion: editor.version,
+    editorVersionWithRevision: editor.revision,
     productName,
     companyName,
     scriptingBackend,

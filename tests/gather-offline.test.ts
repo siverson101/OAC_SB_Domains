@@ -82,6 +82,10 @@ beforeAll(() => {
     ].join('\n')
   );
   write(join(root, 'ProjectSettings', 'EditorUserBuildSettings.asset'), '  m_ActiveBuildTarget: StandaloneWindows64\n');
+  write(
+    join(root, 'ProjectSettings', 'ProjectVersion.txt'),
+    'm_EditorVersion: 6000.1.3f1\nm_EditorVersionWithRevision: 6000.1.3f1 (f34db9734971)\n'
+  );
 
   const dll = join(root, 'Library', 'ScriptAssemblies', 'Assembly-CSharp.dll');
   write(dll, 'dll');
@@ -193,6 +197,8 @@ describe('project-settings producer', () => {
   test('parses backend, color space, graphics API and input handler', () => {
     const result = produceProjectSettings(input);
     expect(result.status).toBe('observed_locally');
+    expect(result.editorVersion).toBe('6000.1.3f1');
+    expect(result.editorVersionWithRevision).toBe('f34db9734971');
     expect(result.productName).toBe('FixtureGame');
     expect(result.companyName).toBe('FixtureCo');
     expect(result.il2cpp).toBe(true);
