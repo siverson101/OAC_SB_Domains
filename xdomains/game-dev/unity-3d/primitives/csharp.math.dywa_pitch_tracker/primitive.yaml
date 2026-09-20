@@ -1,0 +1,40 @@
+id: csharp.math.dywa_pitch_tracker
+name: Dynamic Wavelet Algorithm Pitch Tracker
+engine: C#
+language: C#
+category: math
+status: extracted
+genre_tags:
+- Audio
+- Algorithm
+- Mathematics
+summary: A pure C# port of the dywapitchtrack algorithm by Antoine Schmitt, optimized for zero-allocation
+  loops via cached WorkingBuffers. Used for real-time time-domain pitch tracking using wavelets.
+when_to_use:
+- When you need to analyze microphone input or raw audio samples to determine the pitch/frequency (e.g.,
+  karaoke, rhythm games, or voice-controlled mechanics).
+when_not_to_use:
+- When you only need simple volume detection (RMS).
+requires:
+  components: []
+  scene_objects: []
+  primitives: []
+provides:
+  events: []
+  state: []
+config_schema: {}
+compatible_primitives: []
+conflicts_with: []
+setup_steps:
+- Feed an array of raw audio float samples (usually from `AudioClip.GetData` or `Microphone`) into `ComputePitch`.
+- The output frequency is in Hz.
+test_plan:
+- Generate a sine wave array at 440Hz.
+- Pass the array to `ComputePitch`.
+- Verify the result is approximately 440.0.
+failure_modes:
+- Returns 0.0 if the pitch is unidentifiable or the signal is pure noise.
+code_files:
+- DywaPitchTracker.cs
+source_repo: https://github.com/UltraStar-Deluxe/Play
+license: MIT

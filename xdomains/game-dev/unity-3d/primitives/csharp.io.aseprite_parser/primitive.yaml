@@ -1,0 +1,38 @@
+id: csharp.io.aseprite_parser
+name: Pure Aseprite File Parser
+engine: C#
+language: C#
+category: io
+status: extracted
+genre_tags:
+- aseprite
+- parser
+- file
+- asset
+- importer
+- tool
+summary: A completely standalone, dependency-free C# parser for Aseprite (.ase / .aseprite) files.
+when_to_use:
+- When building custom Unity Editor importers for Aseprite files.
+- When loading Aseprite files directly at runtime for modding support.
+when_not_to_use:
+- In hot-path update loops (file parsing allocates memory dynamically).
+requires:
+  components: []
+  scene_objects: []
+  primitives: []
+provides:
+  events: []
+  state: []
+config_schema: {}
+compatible_primitives: []
+conflicts_with: []
+setup_steps:
+- Call AsepriteParser.Parse(bytes) passing the raw byte array of the .aseprite file.
+- Read the resulting ASEFile object to extract layers, cels, frame tags, and color buffers.
+test_plan: []
+failure_modes: []
+code_files:
+- Scripts/AsepriteParser.cs
+source_repo: https://github.com/WeAthFoLD/MetaSprite
+license: MIT

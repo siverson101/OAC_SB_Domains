@@ -1,0 +1,42 @@
+id: unity.entitas.coreloop
+name: Entitas Core Loop
+engine: Unity
+language: C#
+category: frameworks
+status: extracted
+genre_tags:
+- all
+summary: A strict ECS core loop using Entitas Systems for determinism and clear execution order.
+when_to_use:
+- When using the Entitas ECS framework.
+- When you need strict control over the execution order of systems.
+- When decoupling data (components) from logic (systems).
+when_not_to_use:
+- When building a small prototype where MonoBehaviour is sufficient.
+- If you prefer Unity's native DOTS/Entities package.
+requires:
+  components: []
+  scene_objects:
+  - GameController
+  primitives: []
+provides:
+  events: []
+  state: []
+config_schema: {}
+compatible_primitives: []
+conflicts_with: []
+setup_steps:
+- Add the EntitasCoreLoop script to a root GameObject in your scene (e.g., 'GameController').
+- Create a new subclass of Entitas.Systems to group your specific game features.
+- Instantiate your custom Systems class in the CreateSystems method of EntitasCoreLoop.
+test_plan:
+- Run the game in the Unity Editor.
+- Ensure no errors are thrown during start.
+- Verify that Initialize, Execute, Cleanup, and TearDown are correctly invoked on your systems.
+failure_modes:
+- Memory leaks if TearDown is not called on destroy (handled by the primitive).
+- Order of execution issues if systems are added in the wrong order.
+code_files:
+- EntitasCoreLoop.cs
+source_repo: https://github.com/sschmid/Entitas
+license: MIT

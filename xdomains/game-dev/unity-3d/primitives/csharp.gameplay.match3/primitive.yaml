@@ -1,0 +1,46 @@
+id: csharp.gameplay.match3
+name: Match3 Engine SDK
+engine: C#
+language: C#
+category: gameplay
+status: extracted
+genre_tags:
+- Puzzle
+- Match-3
+summary: A robust, fully decoupled Match-3 engine core utilizing UniTask for async job execution and pure
+  generic C# interfaces for logic.
+when_to_use:
+- When building a Match-3 game and you want to completely separate grid logic from visual rendering.
+- When you need an easily testable match solver.
+when_not_to_use:
+- When building a game that doesn't use grid-based pattern matching.
+requires:
+  components: []
+  scene_objects: []
+  primitives: []
+provides:
+  events:
+  - Finished
+  - LevelGoalAchieved
+  state:
+  - GameBoard
+config_schema: {}
+compatible_primitives: []
+conflicts_with:
+- csharp.match3.grid_core
+setup_steps:
+- Install UniTask package.
+- Implement `IGridSlot` and visual renderers in your specific game project.
+- Initialize `Match3Game<TGridSlot>`.
+test_plan:
+- Initialize `GameBoard` with test data.
+- Run `GameBoardSolver` with `HorizontalLineDetector`.
+- Assert sequences are detected.
+failure_modes:
+- N/A
+- Both declare `Match3.Core.GridMath`. Copying both causes a CS0101 duplicate-definition error; these
+  are overlapping extractions of the same match-3 core.
+code_files:
+- Match3SDK.cs
+source_repo: https://github.com/LibraStack/Match3-SDK
+license: MIT

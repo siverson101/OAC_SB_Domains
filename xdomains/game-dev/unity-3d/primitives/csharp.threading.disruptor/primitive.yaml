@@ -1,0 +1,38 @@
+id: csharp.threading.disruptor
+name: Disruptor Ring Buffer
+engine: Unity
+language: C#
+category: threading
+status: extracted
+genre_tags:
+- threading
+- performance
+- networking
+- jobs
+summary: 'A pure C# implementation of the Disruptor pattern: a lock-free ring buffer for thread-safe data
+  transfer utilizing cache-line padded longs to prevent false sharing.'
+when_to_use:
+- When passing high-frequency data (like network packets or job results) between exactly two distinct
+  threads (Single Producer, Single Consumer) without locks or mutexes.
+when_not_to_use:
+- When single-threaded (use a standard RingBuffer). When you have multiple producers or multiple consumers
+  (requires a different synchronization primitive).
+requires:
+  components: []
+  scene_objects: []
+  primitives: []
+provides:
+  events: []
+  state: []
+config_schema: {}
+compatible_primitives: []
+conflicts_with: []
+setup_steps:
+- Instantiate `DisruptorRingBuffer<T>` with a capacity (it will auto-round up to a power of two).
+- Producer thread calls `Enqueue()`. Consumer thread calls `Dequeue()` or `TryDequeue()`.
+test_plan: []
+failure_modes: []
+code_files:
+- Scripts/DisruptorRingBuffer.cs
+source_repo: https://github.com/dave-hillier/disruptor-unity3d
+license: Apache-2.0

@@ -1,0 +1,42 @@
+id: unity.data.fastlz
+name: FastLZ Compression
+engine: Unity
+language: C#
+category: data
+status: extracted
+genre_tags:
+- all
+summary: A pure C# port of the FastLZ byte-aligned LZ77 compression algorithm. Prioritizes extreme speed
+  over compression ratio, perfect for games.
+when_to_use:
+- When compressing dynamic, real-time networking packets where latency and allocation speeds matter.
+- When dumping telemetry or large debug logs where running standard ZIP/GZIP would cause framerate drops.
+- When generating fast save-states in memory.
+when_not_to_use:
+- When building asset bundles or doing one-off large compressions where disk space/bandwidth is the absolute
+  priority (use LZMA, LZ4, or GZIP instead).
+requires:
+  components: []
+  scene_objects: []
+  primitives: []
+provides:
+  events: []
+  state: []
+config_schema: {}
+compatible_primitives: []
+conflicts_with: []
+setup_steps:
+- Allocate a `byte[]` output array using `FastLZ.EstimateCompressedSize`.
+- Call `FastLZ.CompressLevel(1, inputBytes, inputLength, outputBytes)` to compress.
+- Call `FastLZ.Decompress` to decompress the data back to its original form.
+test_plan:
+- Create a byte array of 10,000 repeating characters.
+- Compress it with FastLZ and assert the returned compressed length is vastly smaller than 10,000.
+- Decompress it and assert the output bytes exactly match the original string.
+failure_modes:
+- If the allocated output array for decompression is smaller than the required size, it will throw an
+  `IndexOutOfRangeException`.
+code_files:
+- FastLZ.cs
+source_repo: https://github.com/ikpil/DotFastLZ
+license: MIT
