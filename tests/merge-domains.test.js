@@ -69,6 +69,7 @@ describe('collectAssets', () => {
         expect(rels).toContain('command/unity-feature.md');
         expect(rels).toContain('context/unity-3d/navigation.md');
         expect(rels).toContain('context/domain/unity-common.md');
+        expect(rels).toContain('unity-studio.json');
         // Only declared assets are selected; meta files are excluded.
         expect(rels).not.toContain('sb-domain.json');
         expect(rels).not.toContain('README.md');

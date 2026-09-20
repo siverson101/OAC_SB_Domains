@@ -1,3 +1,4 @@
+// Derived from https://github.com/WeAthFoLD/MetaSprite (MIT).
 using System.Collections.Generic;
 using System.IO;
 using UnityEngine;

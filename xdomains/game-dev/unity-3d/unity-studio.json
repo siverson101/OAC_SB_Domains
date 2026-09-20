@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "studioMode": "lean",
+  "reviewIntensity": "full",
+  "toggles": {
+    "tdd": false,
+    "ftf": false
+  },
+  "patterns": [],
+  "packages": []
+}

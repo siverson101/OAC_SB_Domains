@@ -8,30 +8,12 @@
 // conflict. Never exits non-zero for a config problem: conflicts are surfaced
 // in the output, not enforced by failing a build.
 import { runCli } from '../../../shared/cli-bootstrap';
-import { loadPatternCatalog } from './catalog';
 import { resolveOptions, type StudioConfigOptions } from './cli';
-import { loadStudioConfig } from './config';
-import { resolveStudioConfig } from './resolver';
-import type { ConfigProblem, ResolvedStudioConfig } from './types';
-
-export interface StudioConfigResult {
-  configPath: string;
-  catalogPath: string | null;
-  present: boolean;
-  resolution: ResolvedStudioConfig;
-}
+import { renderStudioConfigLines } from './render';
+import { resolveStudioConfigProject, type StudioConfigResult } from './resolve';
 
 function run(options: StudioConfigOptions): StudioConfigResult {
-  const load = loadStudioConfig(options.configPath);
-  const catalog = options.catalogPath ? loadPatternCatalog(options.catalogPath) : null;
-
-  const problems: ConfigProblem[] = [...load.problems];
-  if (load.present && !catalog) {
-    problems.push({ field: 'catalog', message: 'pattern catalog not found; pattern conflicts were not validated' });
-  }
-
-  const resolution = resolveStudioConfig(load.config, catalog ?? { categories: [], patterns: [] }, problems);
-  return { configPath: options.configPath, catalogPath: options.catalogPath, present: load.present, resolution };
+  return resolveStudioConfigProject({ configPath: options.configPath, catalogPath: options.catalogPath });
 }
 
 function render(result: StudioConfigResult): string {
@@ -39,18 +21,17 @@ function render(result: StudioConfigResult): string {
   const lines: string[] = [];
   lines.push(`Studio config: ${result.present ? result.configPath : 'not present (using defaults)'}`);
   lines.push(`Pattern catalog: ${result.catalogPath ?? 'not found'}`);
-  lines.push(`Studio mode: ${resolution.config.studioMode} | Review intensity: ${resolution.config.reviewIntensity}`);
-  lines.push(`Toggles: tdd=${resolution.config.toggles.tdd}, ftf=${resolution.config.toggles.ftf}`);
-  lines.push(`Patterns (${resolution.enabledPatterns.length}): ${resolution.enabledPatterns.join(', ') || '(none)'}`);
-  lines.push(`Packages (${resolution.enabledPackages.length}): ${resolution.enabledPackages.join(', ') || '(none)'}`);
-  if (resolution.conflicts.length > 0) {
-    lines.push(`Conflicts (${resolution.conflicts.length}):`);
-    for (const conflict of resolution.conflicts) lines.push(`  - [${conflict.kind}] ${conflict.message}`);
-  }
-  if (resolution.problems.length > 0) {
-    lines.push(`Problems (${resolution.problems.length}):`);
-    for (const problem of resolution.problems) lines.push(`  - [${problem.field}] ${problem.message}`);
-  }
+  lines.push(
+    ...renderStudioConfigLines({
+      studioMode: resolution.config.studioMode,
+      reviewIntensity: resolution.config.reviewIntensity,
+      toggles: resolution.config.toggles,
+      patterns: resolution.enabledPatterns,
+      packages: resolution.enabledPackages,
+      conflicts: resolution.conflicts,
+      problems: resolution.problems,
+    })
+  );
   lines.push(`Valid: ${resolution.valid}`);
   return lines.join('\n');
 }

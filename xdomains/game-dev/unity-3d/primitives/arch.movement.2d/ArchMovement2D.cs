@@ -1,3 +1,4 @@
+// Derived from https://github.com/genaray/Arch (Apache-2.0).
 using Arch.Core;
 using UnityEngine;
 using System.Runtime.CompilerServices;

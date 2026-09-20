@@ -9,6 +9,7 @@
 // Every violation is returned in `conflicts`; the enabled set is never pruned to
 // pick a winner. The effective config is the deduplicated input.
 
+import { unique } from '../../../shared/io';
 import type {
   CatalogPattern,
   ConfigProblem,
@@ -18,10 +19,6 @@ import type {
   StudioConfig,
 } from './types';
 
-function uniqueStrings(values: string[]): string[] {
-  return Array.from(new Set(values));
-}
-
 export function resolveStudioConfig(
   config: StudioConfig,
   catalog: PatternCatalog,
@@ -30,8 +27,8 @@ export function resolveStudioConfig(
   const problems: ConfigProblem[] = [...extraProblems];
   const conflicts: PatternConflict[] = [];
 
-  const patterns = uniqueStrings(config.patterns);
-  const packages = uniqueStrings(config.packages);
+  const patterns = unique(config.patterns);
+  const packages = unique(config.packages);
   const enabled = new Set(patterns);
 
   const patternById = new Map<string, CatalogPattern>(
@@ -48,7 +45,7 @@ export function resolveStudioConfig(
   // category's list is still checked).
   const byCategory: Record<string, string[]> = {};
   for (const category of catalog.categories ?? []) {
-    const members = uniqueStrings((category.patterns ?? []).filter((id) => enabled.has(id)));
+    const members = unique((category.patterns ?? []).filter((id) => enabled.has(id)));
     for (const id of patterns) {
       if (patternById.get(id)?.category === category.id && !members.includes(id)) members.push(id);
     }

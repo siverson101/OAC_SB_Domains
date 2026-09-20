@@ -1,3 +1,4 @@
+// Derived from https://github.com/yimengfan/BDFramework.Core (Apache-2.0).
 namespace BDFramework.ResourceMgr
 {
 	/// <summary>

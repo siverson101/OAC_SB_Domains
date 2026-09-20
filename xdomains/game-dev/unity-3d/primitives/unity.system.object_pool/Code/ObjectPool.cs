@@ -1,3 +1,4 @@
+// Derived from https://github.com/yimengfan/BDFramework.Core (Apache-2.0).
 using System;
 using System.Collections.Generic;
 using UnityEngine;

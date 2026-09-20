@@ -1,3 +1,4 @@
+// Derived from https://github.com/Alex-Rachel/TEngine (MIT).
 using System;
 using System.Collections;
 using System.Collections.Generic;

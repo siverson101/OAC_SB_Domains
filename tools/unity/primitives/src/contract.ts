@@ -1,11 +1,11 @@
-// Minimal, dependency-free reader for `primitive.yaml` contracts (Phase 3
-// Step 3.3).
+// Minimal reader for `primitive.yaml` contracts (Phase 3 Step 3.3).
 //
-// The build toolchain has no YAML dependency, and the contract files use a
-// flat, predictable shape, so this reader extracts only the fields the
-// structural check needs: the scalar identity fields and the `setup_steps` /
-// `code_files` lists. It deliberately ignores nested maps (`requires`,
-// `provides`) and unrelated keys.
+// The build toolchain has no YAML dependency, so the shared `tools/shared/yaml`
+// subset parser is reused here. This module maps its generic tree onto the
+// contract fields the structural check needs: the scalar identity fields and the
+// `setup_steps` / `code_files` lists. Nested maps (`requires`, `provides`) and
+// unrelated keys are ignored.
+import { parseYaml, type YamlValue } from '../../../shared/yaml';
 
 export interface PrimitiveContract {
   id: string;
@@ -24,76 +24,30 @@ export interface ContractIssue {
   message: string;
 }
 
-const SCALAR_KEYS = new Set(['id', 'name', 'category', 'status', 'summary', 'source_repo', 'license']);
-const LIST_KEYS = new Set(['setup_steps', 'code_files']);
-
-function stripQuotes(value: string): string {
-  const trimmed = value.trim();
-  const quoted =
-    (trimmed.startsWith('"') && trimmed.endsWith('"') && trimmed.length >= 2) ||
-    (trimmed.startsWith("'") && trimmed.endsWith("'") && trimmed.length >= 2);
-  return quoted ? trimmed.slice(1, -1) : trimmed;
+function asRecord(value: YamlValue): Record<string, YamlValue> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
 }
 
-function splitInlineList(value: string): string[] {
-  const inner = value.slice(1, -1).trim();
-  if (!inner) return [];
-  return inner
-    .split(',')
-    .map(stripQuotes)
-    .filter((entry) => entry.length > 0);
+function asString(value: YamlValue | undefined): string {
+  return typeof value === 'string' ? value : '';
+}
+
+function asStringList(value: YamlValue | undefined): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
 }
 
 export function parsePrimitiveYaml(text: string): PrimitiveContract {
-  const scalars: Record<string, string> = {};
-  const setupSteps: string[] = [];
-  const codeFiles: string[] = [];
-  let currentKey = '';
-
-  for (const rawLine of text.split(/\r?\n/)) {
-    const trimmed = rawLine.trim();
-    if (!trimmed || trimmed.startsWith('#')) continue;
-    const indent = rawLine.length - rawLine.trimStart().length;
-    const topLevel = indent === 0 ? /^([A-Za-z_][A-Za-z0-9_]*):(.*)$/.exec(rawLine) : null;
-
-    if (topLevel) {
-      currentKey = topLevel[1];
-      const inline = topLevel[2].trim();
-      if (LIST_KEYS.has(currentKey)) {
-        if (inline.startsWith('[') && inline.endsWith(']')) {
-          const items = splitInlineList(inline);
-          if (currentKey === 'code_files') codeFiles.push(...items);
-          else setupSteps.push(...items);
-        }
-      } else if (SCALAR_KEYS.has(currentKey) && inline) {
-        scalars[currentKey] = stripQuotes(inline);
-      }
-      continue;
-    }
-
-    if (/^\s*-\s+/.test(rawLine)) {
-      const item = stripQuotes(rawLine.replace(/^\s*-\s+/, ''));
-      if (currentKey === 'code_files') codeFiles.push(item);
-      else if (currentKey === 'setup_steps') setupSteps.push(item);
-      continue;
-    }
-
-    // Folded/scalar continuation (e.g. a wrapped `summary`).
-    if (indent > 0 && SCALAR_KEYS.has(currentKey) && scalars[currentKey]) {
-      scalars[currentKey] = `${scalars[currentKey]} ${trimmed}`;
-    }
-  }
-
+  const record = asRecord(parseYaml(text));
   return {
-    id: scalars.id ?? '',
-    name: scalars.name ?? '',
-    category: scalars.category ?? '',
-    status: scalars.status ?? '',
-    summary: scalars.summary ?? '',
-    sourceRepo: scalars.source_repo ?? '',
-    license: scalars.license ?? '',
-    setupSteps,
-    codeFiles,
+    id: asString(record.id),
+    name: asString(record.name),
+    category: asString(record.category),
+    status: asString(record.status),
+    summary: asString(record.summary),
+    sourceRepo: asString(record.source_repo),
+    license: asString(record.license),
+    setupSteps: asStringList(record.setup_steps),
+    codeFiles: asStringList(record.code_files),
   };
 }
 

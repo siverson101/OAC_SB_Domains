@@ -1,3 +1,4 @@
+// Derived from https://github.com/LibraStack/Match3-SDK (MIT).
 // --- Match3.Core ---
 
 // Match3.Core/Interfaces/IGrid.cs

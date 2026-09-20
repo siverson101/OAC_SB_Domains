@@ -1,5 +1,7 @@
 # Attribution
 
+<!-- File name is PascalCase to match the sibling docs (Plan.md, Requirements.md, Merging.md). -->
+
 Central attribution record for the Unity domains in this repository (LR1–LR3 in
 `docs/Requirements.md`). It lists every third-party repository that was analysed, imported, or
 reused, the copyright holder, the license, and which parts of the domain rely on it.
@@ -72,9 +74,11 @@ Imported primitive code files retain the copyright/license headers present upstr
 verified byte-for-byte against the source registry for `DywaPitchTracker.cs` (Antoine Schmitt, MIT),
 `CsvParser.cs` (Cragon), `FastLZ.cs` (Ariya Hidayat / Choi Ikpil, MIT),
 `UnityMainThreadDispatcher.cs` (Pim de Witte, Apache-2.0), and
-`Scripts/DisruptorRingBuffer.cs` (dave-hillier/disruptor-unity3d, Apache-2.0). Files whose upstream
-copy carried no header are left unmodified — no notice is fabricated. Per-primitive provenance is
-always recorded in `primitive.yaml`.
+`Scripts/DisruptorRingBuffer.cs` (dave-hillier/disruptor-unity3d, Apache-2.0). The remaining ten
+imported `.cs` files carried no upstream header, so each was given a one-line
+`// Derived from <source_repo> (<license>).` notice naming its upstream repository and SPDX license
+(no copyright holder is fabricated). Per-primitive provenance is always recorded in `primitive.yaml`,
+and `tests/attribution.test.ts` asserts that every imported code file carries a notice.
 
 Original OAC content (knowledge files, snippets, templates, abilities, commands) is authored for this
 repository and carries no third-party notice.

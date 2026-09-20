@@ -19,10 +19,50 @@ const primitiveLicenses = primitiveIds.map((id) => {
   return { id, license: parsePrimitiveYaml(readFileSync(yamlPath, 'utf8')).license };
 });
 
+function walkFiles(dir: string, out: string[] = []): string[] {
+  for (const name of readdirSync(dir)) {
+    const full = join(dir, name);
+    if (statSync(full).isDirectory()) walkFiles(full, out);
+    else out.push(full);
+  }
+  return out;
+}
+
+// The imported source files (the `.cs` files under each primitive directory).
+const importedCodeFiles = primitiveIds.flatMap((id) => walkFiles(join(primitivesDir, id)).filter((file) => file.endsWith('.cs')));
+
+// A per-file notice is a `Derived from …` line (added for files with no upstream
+// header) or any retained upstream copyright/license header.
+const NOTICE = /Derived from |Copyright|Licensed under|License|SPDX-License-Identifier|Permission is hereby granted/;
+
+function markdownSection(markdown: string, heading: string): string {
+  const start = markdown.indexOf(heading);
+  if (start === -1) return '';
+  const rest = markdown.slice(start + heading.length);
+  const next = rest.indexOf('\n## ');
+  return next === -1 ? rest : rest.slice(0, next);
+}
+
+const importedSection = markdownSection(attribution, '## Imported primitives');
+const declaredCount = Number(/\((\d+)\)/.exec(importedSection)?.[1] ?? -1);
+const declaredIds = [...importedSection.matchAll(/^\|\s*`([^`]+)`\s*\|/gm)].map((match) => match[1]).sort();
+
 describe('attribution file', () => {
   test('exists and is non-empty', () => {
     expect(existsSync(attributionPath)).toBe(true);
     expect(attribution.trim().length).toBeGreaterThan(0);
+  });
+
+  test('declared import count and ids equal the primitives on disk', () => {
+    expect(primitiveIds.length).toBeGreaterThan(0);
+    expect(declaredCount).toBe(primitiveIds.length);
+    expect(declaredIds).toEqual(primitiveIds);
+  });
+
+  test('every imported code file carries a notice', () => {
+    expect(importedCodeFiles.length).toBeGreaterThan(0);
+    const missing = importedCodeFiles.filter((file) => !NOTICE.test(readFileSync(file, 'utf8')));
+    expect(missing).toEqual([]);
   });
 
   test('records every imported primitive id (parity with the primitives on disk)', () => {

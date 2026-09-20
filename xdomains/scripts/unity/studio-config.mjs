@@ -49,40 +49,8 @@ function runCli(config) {
   emit(result);
 }
 
-// tools/shared/io.ts
-import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-function fileExists(path) {
-  try {
-    return statSync(path).isFile();
-  } catch {
-    return false;
-  }
-}
-function readJson(path) {
-  try {
-    return JSON.parse(readFileSync(path, "utf8"));
-  } catch {
-    return null;
-  }
-}
-function readText(path) {
-  try {
-    return readFileSync(path, "utf8");
-  } catch {
-    return null;
-  }
-}
-
-// tools/unity/studio-config/src/catalog.ts
-function loadPatternCatalog(path) {
-  const catalog = readJson(path);
-  if (!catalog || typeof catalog !== "object")
-    return null;
-  return catalog;
-}
-
 // tools/unity/studio-config/src/cli.ts
-import { join, resolve } from "node:path";
+import { join as join2, resolve } from "node:path";
 
 // tools/shared/cli-args.ts
 function isFlag(token) {
@@ -131,17 +99,62 @@ function firstString(args, keys) {
   return;
 }
 
+// tools/shared/context-files.ts
+import { join } from "node:path";
+
+// tools/shared/io.ts
+import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+function fileExists(path) {
+  try {
+    return statSync(path).isFile();
+  } catch {
+    return false;
+  }
+}
+function readJson(path) {
+  try {
+    return JSON.parse(readFileSync(path, "utf8"));
+  } catch {
+    return null;
+  }
+}
+function readText(path) {
+  try {
+    return readFileSync(path, "utf8");
+  } catch {
+    return null;
+  }
+}
+function unique(values) {
+  return Array.from(new Set(values));
+}
+
+// tools/shared/context-files.ts
+var PATTERN_CATALOG_FILENAME = "programming-patterns.json";
+function patternCatalogCandidates(search) {
+  const candidates = [];
+  if (search.contextDir)
+    candidates.push(join(search.contextDir, PATTERN_CATALOG_FILENAME));
+  if (search.domainDir) {
+    candidates.push(join(search.domainDir, "..", "..", "context", PATTERN_CATALOG_FILENAME));
+  }
+  if (search.moduleDir) {
+    candidates.push(join(search.moduleDir, "..", "..", "context", PATTERN_CATALOG_FILENAME));
+    candidates.push(join(search.moduleDir, "..", "..", "..", "..", "xdomains", "context", PATTERN_CATALOG_FILENAME));
+  }
+  if (search.opencodeDir) {
+    candidates.push(join(search.opencodeDir, "xdomains", "context", PATTERN_CATALOG_FILENAME));
+    candidates.push(join(search.opencodeDir, "..", "xdomains", "context", PATTERN_CATALOG_FILENAME));
+  }
+  return candidates;
+}
+function findPatternCatalog(search) {
+  return patternCatalogCandidates(search).find((candidate) => fileExists(candidate)) ?? null;
+}
+
 // tools/unity/studio-config/src/cli.ts
 function findCatalog(opencodeDir) {
-  const candidates = [
-    join(opencodeDir, "xdomains", "context", "programming-patterns.json"),
-    join(opencodeDir, "..", "xdomains", "context", "programming-patterns.json")
-  ];
-  for (const candidate of candidates) {
-    if (fileExists(candidate))
-      return candidate;
-  }
-  return null;
+  return findPatternCatalog({ opencodeDir });
 }
 function resolveOptions(argv) {
   const { values: args, positional } = parseArgs(argv);
@@ -153,9 +166,44 @@ function resolveOptions(argv) {
     list: Boolean(args.list),
     json: Boolean(args.json),
     opencodeDir,
-    configPath: configArg ? resolve(configArg) : join(opencodeDir, "unity-studio.json"),
+    configPath: configArg ? resolve(configArg) : join2(opencodeDir, "unity-studio.json"),
     catalogPath: catalogArg ? resolve(catalogArg) : findCatalog(opencodeDir)
   };
+}
+
+// tools/unity/studio-config/src/render.ts
+function escapeCell(value) {
+  return value.replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
+}
+function formatIds(ids) {
+  return ids.map((id) => `\`${id}\``).join(", ") || "(none)";
+}
+function renderStudioConfigLines(view) {
+  const lines = [];
+  lines.push(`- Studio mode: ${view.studioMode}`);
+  lines.push(`- Review intensity: ${view.reviewIntensity}`);
+  lines.push(`- Toggles: tdd=${view.toggles.tdd}, ftf=${view.toggles.ftf}`);
+  lines.push(`- Enabled patterns: ${formatIds(view.patterns)}`);
+  lines.push(`- Enabled packages: ${formatIds(view.packages)}`);
+  if (view.conflicts.length > 0) {
+    lines.push("", "### Pattern conflicts", "");
+    for (const conflict of view.conflicts)
+      lines.push(`- **${conflict.kind}**: ${escapeCell(conflict.message)}`);
+  }
+  if (view.problems.length > 0) {
+    lines.push("", "### Config problems", "");
+    for (const problem of view.problems)
+      lines.push(`- \`${problem.field}\`: ${escapeCell(problem.message)}`);
+  }
+  return lines;
+}
+
+// tools/unity/studio-config/src/catalog.ts
+function loadPatternCatalog(path) {
+  const catalog = readJson(path);
+  if (!catalog || typeof catalog !== "object")
+    return null;
+  return catalog;
 }
 
 // tools/shared/json-helpers.ts
@@ -307,14 +355,11 @@ function loadStudioConfig(path) {
 }
 
 // tools/unity/studio-config/src/resolver.ts
-function uniqueStrings(values) {
-  return Array.from(new Set(values));
-}
 function resolveStudioConfig(config, catalog, extraProblems = []) {
   const problems = [...extraProblems];
   const conflicts = [];
-  const patterns = uniqueStrings(config.patterns);
-  const packages = uniqueStrings(config.packages);
+  const patterns = unique(config.patterns);
+  const packages = unique(config.packages);
   const enabled = new Set(patterns);
   const patternById = new Map((catalog.patterns ?? []).map((pattern) => [pattern.id, pattern]));
   const categoryById = new Map((catalog.categories ?? []).map((category) => [category.id, category]));
@@ -324,7 +369,7 @@ function resolveStudioConfig(config, catalog, extraProblems = []) {
   }
   const byCategory = {};
   for (const category of catalog.categories ?? []) {
-    const members = uniqueStrings((category.patterns ?? []).filter((id) => enabled.has(id)));
+    const members = unique((category.patterns ?? []).filter((id) => enabled.has(id)));
     for (const id of patterns) {
       if (patternById.get(id)?.category === category.id && !members.includes(id))
         members.push(id);
@@ -386,8 +431,8 @@ function resolveStudioConfig(config, catalog, extraProblems = []) {
   };
 }
 
-// tools/unity/studio-config/src/index.ts
-function run(options) {
+// tools/unity/studio-config/src/resolve.ts
+function resolveStudioConfigProject(options) {
   const load = loadStudioConfig(options.configPath);
   const catalog = options.catalogPath ? loadPatternCatalog(options.catalogPath) : null;
   const problems = [...load.problems];
@@ -397,25 +442,25 @@ function run(options) {
   const resolution = resolveStudioConfig(load.config, catalog ?? { categories: [], patterns: [] }, problems);
   return { configPath: options.configPath, catalogPath: options.catalogPath, present: load.present, resolution };
 }
+
+// tools/unity/studio-config/src/index.ts
+function run(options) {
+  return resolveStudioConfigProject({ configPath: options.configPath, catalogPath: options.catalogPath });
+}
 function render(result) {
   const { resolution } = result;
   const lines = [];
   lines.push(`Studio config: ${result.present ? result.configPath : "not present (using defaults)"}`);
   lines.push(`Pattern catalog: ${result.catalogPath ?? "not found"}`);
-  lines.push(`Studio mode: ${resolution.config.studioMode} | Review intensity: ${resolution.config.reviewIntensity}`);
-  lines.push(`Toggles: tdd=${resolution.config.toggles.tdd}, ftf=${resolution.config.toggles.ftf}`);
-  lines.push(`Patterns (${resolution.enabledPatterns.length}): ${resolution.enabledPatterns.join(", ") || "(none)"}`);
-  lines.push(`Packages (${resolution.enabledPackages.length}): ${resolution.enabledPackages.join(", ") || "(none)"}`);
-  if (resolution.conflicts.length > 0) {
-    lines.push(`Conflicts (${resolution.conflicts.length}):`);
-    for (const conflict of resolution.conflicts)
-      lines.push(`  - [${conflict.kind}] ${conflict.message}`);
-  }
-  if (resolution.problems.length > 0) {
-    lines.push(`Problems (${resolution.problems.length}):`);
-    for (const problem of resolution.problems)
-      lines.push(`  - [${problem.field}] ${problem.message}`);
-  }
+  lines.push(...renderStudioConfigLines({
+    studioMode: resolution.config.studioMode,
+    reviewIntensity: resolution.config.reviewIntensity,
+    toggles: resolution.config.toggles,
+    patterns: resolution.enabledPatterns,
+    packages: resolution.enabledPackages,
+    conflicts: resolution.conflicts,
+    problems: resolution.problems
+  }));
   lines.push(`Valid: ${resolution.valid}`);
   return lines.join(`
 `);

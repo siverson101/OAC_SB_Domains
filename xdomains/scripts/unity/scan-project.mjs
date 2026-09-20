@@ -176,12 +176,13 @@ function nowIso() {
 }
 
 // tools/shared/context-files.ts
+var PATTERN_CATALOG_FILENAME = "programming-patterns.json";
 function contextPaths(contextDir) {
   return {
     filetypes: join3(contextDir, "filetypes.json"),
     packageChoices: join3(contextDir, "unity", "package-choices.json"),
     understoodPackages: join3(contextDir, "unity", "understood-package-categories.json"),
-    patterns: join3(contextDir, "programming-patterns.json")
+    patterns: join3(contextDir, PATTERN_CATALOG_FILENAME)
   };
 }
 function loadFiletypes(path) {

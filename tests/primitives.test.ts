@@ -42,6 +42,18 @@ const importedIds = readdirSync(primitivesDir)
   .filter((name) => statSync(join(primitivesDir, name)).isDirectory())
   .sort();
 
+// The external `unity-skills` source registry is a sibling checkout, so it is
+// absent in a bare clone. When present, the ledger is checked against every
+// source primitive that was not imported.
+const sourcePrimitivesDir =
+  [
+    process.env.OAC_UNITY_SKILLS_PRIMITIVES,
+    join(repoRoot, '..', 'unity-skills', 'primitives'),
+    join(repoRoot, 'unity-skills', 'primitives'),
+  ]
+    .filter((candidate): candidate is string => Boolean(candidate))
+    .find((candidate) => existsSync(candidate)) ?? null;
+
 describe('license gate', () => {
   test('allowlisted licenses are importable', () => {
     for (const license of ALLOWED_LICENSES) {
@@ -195,4 +207,19 @@ describe('not-imported ledger', () => {
     expect(ledger).toContain('license unclear');
     expect(ledger).toContain('authored');
   });
+
+  if (sourcePrimitivesDir) {
+    test('enumerates every source primitive that was not imported', () => {
+      const sourceIds = readdirSync(sourcePrimitivesDir).filter((name) =>
+        statSync(join(sourcePrimitivesDir, name)).isDirectory()
+      );
+      const imported = new Set(importedIds);
+      const skipped = sourceIds.filter((id) => !imported.has(id));
+      expect(skipped.length).toBeGreaterThan(0);
+      const missing = skipped.filter((id) => !ledger.includes(`\`${id}\``));
+      expect(missing).toEqual([]);
+    });
+  } else {
+    test.skip('enumerates every source primitive that was not imported (source tree not found)', () => {});
+  }
 });

@@ -28,24 +28,44 @@ function readText(path) {
 function nowIso() {
   return new Date().toISOString();
 }
+function unique(values) {
+  return Array.from(new Set(values));
+}
 
 // tools/shared/registry/src/build.ts
 import { readdirSync, statSync as statSync2 } from "node:fs";
 import { basename, join as join2, relative, sep } from "node:path";
 
-// tools/unity/studio-config/src/catalog.ts
+// tools/shared/context-files.ts
 import { join } from "node:path";
+var PATTERN_CATALOG_FILENAME = "programming-patterns.json";
+function patternCatalogCandidates(search) {
+  const candidates = [];
+  if (search.contextDir)
+    candidates.push(join(search.contextDir, PATTERN_CATALOG_FILENAME));
+  if (search.domainDir) {
+    candidates.push(join(search.domainDir, "..", "..", "context", PATTERN_CATALOG_FILENAME));
+  }
+  if (search.moduleDir) {
+    candidates.push(join(search.moduleDir, "..", "..", "context", PATTERN_CATALOG_FILENAME));
+    candidates.push(join(search.moduleDir, "..", "..", "..", "..", "xdomains", "context", PATTERN_CATALOG_FILENAME));
+  }
+  if (search.opencodeDir) {
+    candidates.push(join(search.opencodeDir, "xdomains", "context", PATTERN_CATALOG_FILENAME));
+    candidates.push(join(search.opencodeDir, "..", "xdomains", "context", PATTERN_CATALOG_FILENAME));
+  }
+  return candidates;
+}
+function findPatternCatalog(search) {
+  return patternCatalogCandidates(search).find((candidate) => fileExists(candidate)) ?? null;
+}
+
+// tools/unity/studio-config/src/catalog.ts
 function loadPatternCatalog(path) {
   const catalog = readJson(path);
   if (!catalog || typeof catalog !== "object")
     return null;
   return catalog;
-}
-function patternCatalogCandidates(domainDir, opencodeDir) {
-  const candidates = [join(domainDir, "..", "..", "context", "programming-patterns.json")];
-  if (opencodeDir)
-    candidates.push(join(opencodeDir, "xdomains", "context", "programming-patterns.json"));
-  return candidates;
 }
 
 // tools/shared/json-helpers.ts
@@ -197,14 +217,11 @@ function loadStudioConfig(path) {
 }
 
 // tools/unity/studio-config/src/resolver.ts
-function uniqueStrings(values) {
-  return Array.from(new Set(values));
-}
 function resolveStudioConfig(config, catalog, extraProblems = []) {
   const problems = [...extraProblems];
   const conflicts = [];
-  const patterns = uniqueStrings(config.patterns);
-  const packages = uniqueStrings(config.packages);
+  const patterns = unique(config.patterns);
+  const packages = unique(config.packages);
   const enabled = new Set(patterns);
   const patternById = new Map((catalog.patterns ?? []).map((pattern) => [pattern.id, pattern]));
   const categoryById = new Map((catalog.categories ?? []).map((category) => [category.id, category]));
@@ -214,7 +231,7 @@ function resolveStudioConfig(config, catalog, extraProblems = []) {
   }
   const byCategory = {};
   for (const category of catalog.categories ?? []) {
-    const members = uniqueStrings((category.patterns ?? []).filter((id) => enabled.has(id)));
+    const members = unique((category.patterns ?? []).filter((id) => enabled.has(id)));
     for (const id of patterns) {
       if (patternById.get(id)?.category === category.id && !members.includes(id))
         members.push(id);
@@ -274,6 +291,44 @@ function resolveStudioConfig(config, catalog, extraProblems = []) {
     problems,
     valid: conflicts.length === 0 && problems.length === 0
   };
+}
+// tools/unity/studio-config/src/render.ts
+function escapeCell(value) {
+  return value.replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
+}
+function formatIds(ids) {
+  return ids.map((id) => `\`${id}\``).join(", ") || "(none)";
+}
+function renderStudioConfigLines(view) {
+  const lines = [];
+  lines.push(`- Studio mode: ${view.studioMode}`);
+  lines.push(`- Review intensity: ${view.reviewIntensity}`);
+  lines.push(`- Toggles: tdd=${view.toggles.tdd}, ftf=${view.toggles.ftf}`);
+  lines.push(`- Enabled patterns: ${formatIds(view.patterns)}`);
+  lines.push(`- Enabled packages: ${formatIds(view.packages)}`);
+  if (view.conflicts.length > 0) {
+    lines.push("", "### Pattern conflicts", "");
+    for (const conflict of view.conflicts)
+      lines.push(`- **${conflict.kind}**: ${escapeCell(conflict.message)}`);
+  }
+  if (view.problems.length > 0) {
+    lines.push("", "### Config problems", "");
+    for (const problem of view.problems)
+      lines.push(`- \`${problem.field}\`: ${escapeCell(problem.message)}`);
+  }
+  return lines;
+}
+
+// tools/unity/studio-config/src/resolve.ts
+function resolveStudioConfigProject(options) {
+  const load = loadStudioConfig(options.configPath);
+  const catalog = options.catalogPath ? loadPatternCatalog(options.catalogPath) : null;
+  const problems = [...load.problems];
+  if (load.present && !catalog) {
+    problems.push({ field: "catalog", message: "pattern catalog not found; pattern conflicts were not validated" });
+  }
+  const resolution = resolveStudioConfig(load.config, catalog ?? { categories: [], patterns: [] }, problems);
+  return { configPath: options.configPath, catalogPath: options.catalogPath, present: load.present, resolution };
 }
 
 // tools/shared/registry/src/frontmatter.ts
@@ -559,28 +614,26 @@ function absentStudioConfig() {
   };
 }
 function buildStudioConfig(domainDir, opencodeDir) {
-  if (!opencodeDir)
-    return absentStudioConfig();
-  const configPath = join2(opencodeDir, "unity-studio.json");
-  const load = loadStudioConfig(configPath);
-  const catalogPath = patternCatalogCandidates(domainDir, opencodeDir).find((candidate) => fileExists(candidate)) ?? null;
-  const catalog = catalogPath ? loadPatternCatalog(catalogPath) : null;
-  const problems = [...load.problems];
-  if (load.present && !catalog) {
-    problems.push({ field: "catalog", message: "pattern catalog not found; pattern conflicts were not validated" });
+  const opencodePath = opencodeDir ? join2(opencodeDir, "unity-studio.json") : null;
+  const domainPath = join2(domainDir, "unity-studio.json");
+  const catalogPath = findPatternCatalog({ domainDir, opencodeDir });
+  let resolved = resolveStudioConfigProject({ configPath: opencodePath ?? domainPath, catalogPath });
+  if (opencodePath && !resolved.present) {
+    resolved = resolveStudioConfigProject({ configPath: domainPath, catalogPath });
   }
-  const resolved = resolveStudioConfig(load.config, catalog ?? { categories: [], patterns: [] }, problems);
+  if (!resolved.present)
+    return absentStudioConfig();
   return {
-    present: load.present,
-    path: configPath,
-    studioMode: resolved.config.studioMode,
-    reviewIntensity: resolved.config.reviewIntensity,
-    toggles: resolved.config.toggles,
-    patterns: resolved.enabledPatterns,
-    packages: resolved.enabledPackages,
-    conflicts: resolved.conflicts,
-    problems: resolved.problems,
-    valid: resolved.valid
+    present: true,
+    path: resolved.configPath,
+    studioMode: resolved.resolution.config.studioMode,
+    reviewIntensity: resolved.resolution.config.reviewIntensity,
+    toggles: resolved.resolution.config.toggles,
+    patterns: resolved.resolution.enabledPatterns,
+    packages: resolved.resolution.enabledPackages,
+    conflicts: resolved.resolution.conflicts,
+    problems: resolved.resolution.problems,
+    valid: resolved.resolution.valid
   };
 }
 function buildRegistry(domainDir, generatedAt, opencodeDir) {
@@ -684,7 +737,7 @@ function buildRegistry(domainDir, generatedAt, opencodeDir) {
 }
 
 // tools/shared/registry/src/render.ts
-function escapeCell(value) {
+function escapeCell2(value) {
   return (value ?? "").replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
 }
 function entriesTable(entries, options = {}) {
@@ -701,13 +754,13 @@ function entriesTable(entries, options = {}) {
   lines.push(`| ${header.join(" | ")} |`);
   lines.push(`|${header.map(() => "---").join("|")}|`);
   for (const entry of entries) {
-    const row = [entry.id, entry.name, `\`${entry.path}\``, escapeCell(entry.description)];
+    const row = [entry.id, entry.name, `\`${entry.path}\``, escapeCell2(entry.description)];
     if (options.layer)
       row.push(entry.layer ?? "");
     if (options.realised)
       row.push(entry.realisedAs ? `\`${entry.realisedAs}\`` : "");
     if (options.consumes)
-      row.push(escapeCell((entry.consumes ?? []).join(", ")));
+      row.push(escapeCell2((entry.consumes ?? []).join(", ")));
     if (options.standards)
       row.push(entry.standardsVersion ?? "");
     lines.push(`| ${row.join(" | ")} |`);
@@ -732,30 +785,8 @@ function studioConfigSection(lines, studio) {
     lines.push("> No `.opencode/unity-studio.json` found; using defaults (fail-soft).");
     lines.push("");
   }
-  lines.push(`- Studio mode: ${studio.studioMode}`);
-  lines.push(`- Review intensity: ${studio.reviewIntensity}`);
-  lines.push(`- Toggles: tdd=${studio.toggles.tdd}, ftf=${studio.toggles.ftf}`);
-  const patterns = studio.patterns.map((id) => `\`${id}\``).join(", ");
-  const packages = studio.packages.map((id) => `\`${id}\``).join(", ");
-  lines.push(`- Enabled patterns: ${patterns || "(none)"}`);
-  lines.push(`- Enabled packages: ${packages || "(none)"}`);
+  lines.push(...renderStudioConfigLines(studio));
   lines.push("");
-  if (studio.conflicts.length > 0) {
-    lines.push("### Pattern conflicts");
-    lines.push("");
-    for (const conflict of studio.conflicts) {
-      lines.push(`- **${conflict.kind}**: ${escapeCell(conflict.message)}`);
-    }
-    lines.push("");
-  }
-  if (studio.problems.length > 0) {
-    lines.push("### Config problems");
-    lines.push("");
-    for (const problem of studio.problems) {
-      lines.push(`- \`${problem.field}\`: ${escapeCell(problem.message)}`);
-    }
-    lines.push("");
-  }
 }
 var EDGE_ORDER = ["agent-ability", "workflow-ability", "workflow-agent"];
 function edgesSection(lines, edges) {
@@ -818,7 +849,7 @@ function renderRegistry(registry) {
     lines.push("| File | Title | Consumed by |");
     lines.push("|---|---|---|");
     for (const output of registry.projections.outputs) {
-      lines.push(`| \`${output.file}\` | ${escapeCell(output.title)} | ${escapeCell(output.consumedBy.join(", "))} |`);
+      lines.push(`| \`${output.file}\` | ${escapeCell2(output.title)} | ${escapeCell2(output.consumedBy.join(", "))} |`);
     }
     lines.push("");
   }

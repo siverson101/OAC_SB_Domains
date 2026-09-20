@@ -1,13 +1,16 @@
 import { readdirSync, statSync } from 'node:fs';
 import { basename, join, relative, sep } from 'node:path';
-import { fileExists, readJson } from '../../../shared/io';
+import { findPatternCatalog } from '../../../shared/context-files';
+import { readJson } from '../../../shared/io';
 import {
-  loadPatternCatalog,
-  patternCatalogCandidates,
-} from '../../../unity/studio-config/src/catalog';
-import { defaultStudioConfig, loadStudioConfig } from '../../../unity/studio-config/src/config';
-import { resolveStudioConfig } from '../../../unity/studio-config/src/resolver';
-import type { ConfigProblem, PatternConflict, StudioToggles } from '../../../unity/studio-config/src/types';
+  defaultStudioConfig,
+  resolveStudioConfigProject,
+  type ConfigProblem,
+  type PatternConflict,
+  type ReviewIntensity,
+  type StudioMode,
+  type StudioToggles,
+} from '../../../unity/studio-config/src/resolve';
 import { frontmatterString, frontmatterStringArray, readFrontmatter } from './frontmatter';
 
 export interface RegistryEntry {
@@ -35,8 +38,8 @@ export interface RegistryEdge {
 export interface RegistryStudioConfig {
   present: boolean;
   path: string | null;
-  studioMode: string;
-  reviewIntensity: string;
+  studioMode: StudioMode;
+  reviewIntensity: ReviewIntensity;
   toggles: StudioToggles;
   patterns: string[];
   packages: string[];
@@ -212,31 +215,29 @@ function absentStudioConfig(): RegistryStudioConfig {
 }
 
 function buildStudioConfig(domainDir: string, opencodeDir?: string): RegistryStudioConfig {
-  if (!opencodeDir) return absentStudioConfig();
+  const opencodePath = opencodeDir ? join(opencodeDir, 'unity-studio.json') : null;
+  const domainPath = join(domainDir, 'unity-studio.json');
+  const catalogPath = findPatternCatalog({ domainDir, opencodeDir });
 
-  const configPath = join(opencodeDir, 'unity-studio.json');
-  const load = loadStudioConfig(configPath);
-
-  const catalogPath = patternCatalogCandidates(domainDir, opencodeDir).find((candidate) => fileExists(candidate)) ?? null;
-  const catalog = catalogPath ? loadPatternCatalog(catalogPath) : null;
-
-  const problems: ConfigProblem[] = [...load.problems];
-  if (load.present && !catalog) {
-    problems.push({ field: 'catalog', message: 'pattern catalog not found; pattern conflicts were not validated' });
+  // Prefer the installed `.opencode/unity-studio.json`; fall back to the default
+  // config shipped with the domain; otherwise the fail-soft defaults.
+  let resolved = resolveStudioConfigProject({ configPath: opencodePath ?? domainPath, catalogPath });
+  if (opencodePath && !resolved.present) {
+    resolved = resolveStudioConfigProject({ configPath: domainPath, catalogPath });
   }
+  if (!resolved.present) return absentStudioConfig();
 
-  const resolved = resolveStudioConfig(load.config, catalog ?? { categories: [], patterns: [] }, problems);
   return {
-    present: load.present,
-    path: configPath,
-    studioMode: resolved.config.studioMode,
-    reviewIntensity: resolved.config.reviewIntensity,
-    toggles: resolved.config.toggles,
-    patterns: resolved.enabledPatterns,
-    packages: resolved.enabledPackages,
-    conflicts: resolved.conflicts,
-    problems: resolved.problems,
-    valid: resolved.valid,
+    present: true,
+    path: resolved.configPath,
+    studioMode: resolved.resolution.config.studioMode,
+    reviewIntensity: resolved.resolution.config.reviewIntensity,
+    toggles: resolved.resolution.config.toggles,
+    patterns: resolved.resolution.enabledPatterns,
+    packages: resolved.resolution.enabledPackages,
+    conflicts: resolved.resolution.conflicts,
+    problems: resolved.resolution.problems,
+    valid: resolved.resolution.valid,
   };
 }
 

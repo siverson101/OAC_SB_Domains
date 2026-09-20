@@ -1,3 +1,4 @@
+// Derived from https://github.com/sschmid/Entitas (MIT).
 using UnityEngine;
 using Entitas;
 

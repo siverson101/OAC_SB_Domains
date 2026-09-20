@@ -27,7 +27,7 @@ import {
 import { runContractAwareDesign } from '../tools/unity/unity-compose/src/contract-aware-design';
 import { runCiStatusBaseline } from '../tools/unity/unity-compose/src/ci-status-baseline';
 import { runCompose } from '../tools/unity/unity-compose/src/abilities';
-import { parseYaml } from '../tools/unity/unity-compose/src/yaml';
+import { parseYaml } from '../tools/shared/yaml';
 import { COMPOSE_ABILITIES, COMPOSE_MODES, type ComposeOptions } from '../tools/unity/unity-compose/src/types';
 import { parseFrontmatter } from '../tools/shared/registry/src/frontmatter';
 import { validateContract } from '../tools/shared/registry/src/contract';

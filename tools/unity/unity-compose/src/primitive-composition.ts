@@ -13,7 +13,7 @@ import { readdirSync, statSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { dirExists, readText, toPosix } from '../../../shared/io';
 import { asRecord, makeResult, str, type ComposeBase, type ComposeOptions, type Json } from './shared';
-import { parseYaml } from './yaml';
+import { parseYaml } from '../../../shared/yaml';
 
 export interface PrimitiveRecord {
   id: string;

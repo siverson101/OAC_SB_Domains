@@ -1,6 +1,6 @@
 import { join, resolve } from 'node:path';
 import { firstString, parseArgs, rejectPositionals } from '../../../shared/cli-args';
-import { fileExists } from '../../../shared/io';
+import { findPatternCatalog } from '../../../shared/context-files';
 
 export interface StudioConfigOptions {
   list: boolean;
@@ -13,14 +13,7 @@ export interface StudioConfigOptions {
 // Look for the catalog in the installed layout (`.opencode/xdomains/context/`)
 // and then the repo layout (`xdomains/context/` one level above `.opencode`).
 export function findCatalog(opencodeDir: string): string | null {
-  const candidates = [
-    join(opencodeDir, 'xdomains', 'context', 'programming-patterns.json'),
-    join(opencodeDir, '..', 'xdomains', 'context', 'programming-patterns.json'),
-  ];
-  for (const candidate of candidates) {
-    if (fileExists(candidate)) return candidate;
-  }
-  return null;
+  return findPatternCatalog({ opencodeDir });
 }
 
 export function resolveOptions(argv: string[]): StudioConfigOptions {

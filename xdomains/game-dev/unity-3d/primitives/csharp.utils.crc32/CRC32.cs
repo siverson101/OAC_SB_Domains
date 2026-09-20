@@ -1,3 +1,4 @@
+// Derived from https://github.com/YarnSpinnerTool/YarnSpinner (MIT).
 using System;
 using System.Text;
 using System.Buffers;

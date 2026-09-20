@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, existsSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { loadPatternCatalog } from '../tools/unity/studio-config/src/catalog';
@@ -129,6 +129,19 @@ describe('studio config loader', () => {
   });
 });
 
+describe('domain default config', () => {
+  test('ships unity-studio.json that parses with no problems', () => {
+    const path = join(unity3dDir, 'unity-studio.json');
+    expect(existsSync(path)).toBe(true);
+    const load = loadStudioConfig(path);
+    expect(load.present).toBe(true);
+    expect(load.problems).toEqual([]);
+    expect(load.config.studioMode).toBe('lean');
+    expect(load.config.reviewIntensity).toBe('full');
+    expect(load.config.toggles).toEqual({ tdd: false, ftf: false });
+  });
+});
+
 describe('pattern resolver against the real catalog', () => {
   const catalog = loadPatternCatalog(catalogPath) as PatternCatalog;
 
@@ -224,10 +237,13 @@ describe('pattern resolver with a synthetic catalog', () => {
 });
 
 describe('registry studio config integration', () => {
-  test('is absent and valid without an .opencode dir', () => {
+  test('surfaces the domain default config when no .opencode dir is given', () => {
     const registry = buildRegistry(unity3dDir, '2026-09-20T00:00:00.000Z');
-    expect(registry.studioConfig.present).toBe(false);
-    expect(registry.studioConfig.path).toBeNull();
+    expect(registry.studioConfig.present).toBe(true);
+    expect(registry.studioConfig.path).toBe(join(unity3dDir, 'unity-studio.json'));
+    expect(registry.studioConfig.studioMode).toBe('lean');
+    expect(registry.studioConfig.reviewIntensity).toBe('full');
+    expect(registry.studioConfig.toggles).toEqual({ tdd: false, ftf: false });
     expect(registry.studioConfig.patterns).toEqual([]);
     expect(registry.studioConfig.valid).toBe(true);
     expect(renderRegistry(registry)).toContain('## Studio Config');
