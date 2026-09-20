@@ -44,7 +44,7 @@ async function main(): Promise<void> {
 
   const toolchain = probeToolchain(options.projectRoot, options.cliCommand);
   const cliAvailable = Boolean(toolchain.cliPath);
-  const selection = selectRoute({ bridge: null, cliAvailable });
+  const selection = selectRoute({ live: null, cliAvailable });
 
   // The gate needs the Editor. If one is not running, start it with -automated
   // and stop it again once we are done.

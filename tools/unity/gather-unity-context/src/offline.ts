@@ -34,9 +34,10 @@ export interface OfflineBase {
   errors: string[];
 }
 
-// Ticket 01 route selection: with no bridge and no CLI, the only possible route
-// is `offline`. Recording it here is the evidence trail for the producer.
-const OFFLINE_ROUTE: Route = selectRoute({ bridge: null, cliAvailable: false }).route;
+// Route selection: the offline readers never use a live channel, so with no CLI
+// the only possible route is `offline`. Recording it here is the evidence trail
+// for the producer.
+const OFFLINE_ROUTE: Route = selectRoute({ live: null, cliAvailable: false }).route;
 
 function makeBase(status: OfflineStatus, errors: string[] = []): OfflineBase {
   return { schemaVersion: 1, generatedAt: nowIso(), status, route: OFFLINE_ROUTE, errors };

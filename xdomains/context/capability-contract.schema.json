@@ -23,7 +23,7 @@
     "mode": {
       "type": "string",
       "enum": ["offline", "live", "both"],
-      "description": "Execution mode: offline (no Editor), live (needs a running Editor/bridge), or both. Offline-first per ADR-0012."
+      "description": "Execution mode: offline (no Editor), live (running Editor via the Unity CLI), or both. Offline-first per ADR-0012."
     },
     "requires": {
       "type": "array",

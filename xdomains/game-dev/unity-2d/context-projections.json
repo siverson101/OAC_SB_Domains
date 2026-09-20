@@ -87,7 +87,7 @@
     },
     {
       "file": "mcp.md",
-      "title": "Unity MCP",
+      "title": "Unity CLI MCP",
       "priority": "low",
       "sources": [
         { "file": "unity-mcp-status.json", "fields": ["status", "supportedClients", "configuredClients"] }

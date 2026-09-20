@@ -4,27 +4,31 @@ import {
   routedError,
   routedOk,
   selectRoute,
-  type RuntimeBridge,
+  type LiveEditorChannel,
+  type LiveTransport,
 } from '../tools/shared/tool-routing';
 
-function bridge(available: boolean): RuntimeBridge {
-  return {
-    kind: 'localhost-http',
-    available: () => available,
-    request: async () => null,
-  };
+function channel(available: boolean, transport: LiveTransport = 'cli'): LiveEditorChannel {
+  return { transport, available: () => available };
 }
 
 describe('selectRoute', () => {
-  test('falls back to offline with no bridge and no CLI', () => {
+  test('falls back to offline with no live channel and no CLI', () => {
     const selection = selectRoute({});
     expect(selection.route).toBe('offline');
     expect(selection.reason).toContain('on-disk');
   });
 
-  test('selects live when the bridge is available', () => {
-    const selection = selectRoute({ bridge: bridge(true), cliAvailable: true });
+  test('selects live when the CLI channel is available and records its transport', () => {
+    const selection = selectRoute({ live: channel(true, 'cli'), cliAvailable: true });
     expect(selection.route).toBe('live');
+    expect(selection.transport).toBe('cli');
+  });
+
+  test('selects live over the stdio MCP transport when shell execution is unavailable', () => {
+    const selection = selectRoute({ live: channel(true, 'mcp') });
+    expect(selection.route).toBe('live');
+    expect(selection.transport).toBe('mcp');
   });
 
   test('selects batch when only the CLI is available', () => {
@@ -32,26 +36,25 @@ describe('selectRoute', () => {
     expect(selection.route).toBe('batch');
   });
 
-  test('selects offline when the bridge reports unavailable', () => {
-    const selection = selectRoute({ bridge: bridge(false) });
+  test('selects offline when the live channel reports unavailable', () => {
+    const selection = selectRoute({ live: channel(false) });
     expect(selection.route).toBe('offline');
   });
 
-  test('selects local for local-only work even with a bridge', () => {
-    const selection = selectRoute({ localOnly: true, bridge: bridge(true), cliAvailable: true });
+  test('selects local for local-only work even with a live channel', () => {
+    const selection = selectRoute({ localOnly: true, live: channel(true), cliAvailable: true });
     expect(selection.route).toBe('local');
   });
 
-  test('treats a throwing bridge as absent (fail-soft)', () => {
-    const broken: RuntimeBridge = {
-      kind: 'localhost-http',
+  test('treats a throwing channel as absent (fail-soft)', () => {
+    const broken: LiveEditorChannel = {
+      transport: 'cli',
       available: () => {
-        throw new Error('no bridge');
+        throw new Error('no channel');
       },
-      request: async () => null,
     };
-    expect(selectRoute({ bridge: broken, cliAvailable: true }).route).toBe('batch');
-    expect(selectRoute({ bridge: broken }).route).toBe('offline');
+    expect(selectRoute({ live: broken, cliAvailable: true }).route).toBe('batch');
+    expect(selectRoute({ live: broken }).route).toBe('offline');
   });
 });
 

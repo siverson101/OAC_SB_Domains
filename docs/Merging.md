@@ -3,7 +3,7 @@
 #### General architecture and ownership
 
 - **Respect OAC as the primary architecture:**  
-  - **Rule:** Do not introduce new MCP servers or parallel architectures; all functionality must be expressed as OAC **Commands**, **Abilities**, **Agents/Sub-agents**, and **Knowledge**.  
+  - **Rule:** Do not introduce *new* MCP servers or parallel architectures; the Unity CLI's built-in stdio MCP is used. All functionality must be expressed as OAC **Commands**, **Abilities**, **Agents/Sub-agents**, and **Knowledge**.  
   - **Rule:** If an architecture change (new layer, new lifecycle, new coordination model) is required, **stop and propose it explicitly** for Scott’s review before implementing.
 
 - **No duplication, only refactoring and extension:**  
@@ -39,7 +39,7 @@
     - Not hard-coded; behavior must depend on project configuration.
 
 - **Version and conditional support:**  
-  - **Rule:** For Unity-specific features, declare supported versions (6.0, 6.3, 6.5, LTS) and implement conditionals; do not rely on deprecated Unity MCP.  
+  - **Rule:** For Unity-specific features, declare supported versions (6.0, 6.3, 6.5, LTS) and implement conditionals; do not rely on the deprecated in-editor Unity MCP — use the Unity CLI.  
   - **Rule:** If a feature is unavailable on a given version, fail gracefully and document the limitation.
 
 - **Consultation on architecture changes:**  

@@ -203,11 +203,11 @@ function probeToolchain(projectRoot, cliCommand = "unity") {
 }
 
 // tools/shared/tool-routing.ts
-function bridgeAvailable(bridge) {
-  if (!bridge)
+function liveAvailable(channel) {
+  if (!channel)
     return false;
   try {
-    return bridge.available() === true;
+    return channel.available() === true;
   } catch {
     return false;
   }
@@ -216,13 +216,17 @@ function selectRoute(caps) {
   if (caps.localOnly) {
     return { route: "local", reason: "local-only capability; plain filesystem/process work" };
   }
-  if (bridgeAvailable(caps.bridge)) {
-    return { route: "live", reason: "localhost bridge available; live Editor" };
+  if (liveAvailable(caps.live) && caps.live) {
+    return {
+      route: "live",
+      reason: `Unity CLI ${caps.live.transport} channel available; live Editor`,
+      transport: caps.live.transport
+    };
   }
   if (caps.cliAvailable) {
     return { route: "batch", reason: "Unity CLI available; batch execution" };
   }
-  return { route: "offline", reason: "no bridge or CLI; on-disk readers" };
+  return { route: "offline", reason: "no Unity CLI live channel; on-disk readers" };
 }
 
 // tools/unity/gather-unity-context/src/cli.ts
@@ -296,7 +300,7 @@ function runCli(cliCommand, args, timeout = 30000) {
   return {
     success: parsed?.success === true && res.ok,
     command: parsed?.command,
-    route: selectRoute({ bridge: null, cliAvailable: parsed != null }).route,
+    route: selectRoute({ live: null, cliAvailable: parsed != null }).route,
     data: parsed?.data ?? null,
     errors: parsed?.errors ?? (res.ok ? [] : [{ message: res.stderr || res.stdout || `exit ${res.status}` }]),
     warnings: parsed?.warnings ?? [],
@@ -531,7 +535,7 @@ import { readdirSync, statSync as statSync2 } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname as dirname3, isAbsolute, join as join7, relative } from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
-var OFFLINE_ROUTE = selectRoute({ bridge: null, cliAvailable: false }).route;
+var OFFLINE_ROUTE = selectRoute({ live: null, cliAvailable: false }).route;
 function makeBase(status, errors = []) {
   return { schemaVersion: 1, generatedAt: nowIso(), status, route: OFFLINE_ROUTE, errors };
 }
@@ -1368,7 +1372,7 @@ async function main() {
   const foundProject = scan?.foundProject ?? dirExists(assetFolder);
   const toolchain = probeToolchain(options.projectRoot, options.cliCommand);
   const cliAvailable = Boolean(toolchain.cliPath);
-  const selection = selectRoute({ bridge: null, cliAvailable });
+  const selection = selectRoute({ live: null, cliAvailable });
   let editorInstance = null;
   let editorStartedByUs = false;
   if (options.runGate) {
