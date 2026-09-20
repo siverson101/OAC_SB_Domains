@@ -160,14 +160,6 @@ function makeResult(ability, status, summary, errors, options = {}) {
     }
   };
 }
-function parseOptionalPositiveInt(value) {
-  if (value === undefined || value === null || value === "")
-    return;
-  const parsed = typeof value === "number" ? value : Number.parseInt(String(value), 10);
-  if (!Number.isFinite(parsed) || parsed <= 0)
-    return;
-  return Math.floor(parsed);
-}
 
 // tools/unity/unity-compose/src/ci-status-baseline.ts
 var CI_BASELINE_FILE = "ci-status-baseline.json";
@@ -1293,6 +1285,14 @@ function firstString(args, keys) {
 }
 function resolveAbility(requested, abilities, fallback) {
   return abilities.includes(requested) ? requested : fallback;
+}
+function parseOptionalPositiveInt(value) {
+  if (value === undefined || value === null || value === "")
+    return;
+  const parsed = typeof value === "number" ? value : Number.parseInt(String(value), 10);
+  if (!Number.isFinite(parsed) || parsed <= 0)
+    return;
+  return Math.floor(parsed);
 }
 
 // tools/unity/unity-compose/src/cli.ts

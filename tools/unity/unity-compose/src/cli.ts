@@ -1,6 +1,5 @@
 import { join, resolve } from 'node:path';
-import { firstString, parseArgs, rejectPositionals, resolveAbility } from '../../../shared/cli-args';
-import { parseOptionalPositiveInt } from './shared';
+import { firstString, parseArgs, parseOptionalPositiveInt, rejectPositionals, resolveAbility } from '../../../shared/cli-args';
 import { COMPOSE_ABILITIES, type ComposeOptions } from './types';
 
 export function resolveOptions(argv: string[]): ComposeOptions {

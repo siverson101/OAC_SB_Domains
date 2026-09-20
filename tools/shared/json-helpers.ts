@@ -46,11 +46,6 @@ export function canonicalize(value: unknown): unknown {
   return value;
 }
 
-// Convention for optional positive-int CLI flags (e.g. --lease-seconds,
-// --wait-seconds, --timeout): an absent, empty, non-numeric or `<= 0` value
-// means "unset", yielding `undefined` so the caller's default applies. The
-// helper for this lives in `tools/unity/unity-compose/src/shared.ts`
-// (`parseOptionalPositiveInt`); reuse that shape rather than re-inventing it.
 export function parseBool(value: unknown, fallback: boolean): boolean {
   if (value === undefined || value === null) return fallback;
   if (typeof value === 'boolean') return value;

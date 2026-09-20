@@ -26,6 +26,9 @@ compile → logs → tests → observe** — and each feeds a named gate (`compi
 - `project-data/unity-verification-report.json` (EditMode/PlayMode counts),
 - `project-data/run/screenshot.json` (observe evidence, when captured).
 
+The `uses` edge above records that this command **reads the on-disk artefacts produced by these
+abilities**; it does not invoke them.
+
 ```bash
 node .opencode/xdomains/scripts/unity/unity-run.mjs \
   --project-root . --opencode-dir .opencode \

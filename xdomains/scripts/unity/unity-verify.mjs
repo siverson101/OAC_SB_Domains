@@ -868,23 +868,28 @@ function gateEntriesFromState(sources) {
 }
 function parseGateOverrides(json) {
   if (!json)
-    return [];
+    return { entries: [], errors: [] };
   try {
     const parsed = JSON.parse(json);
     const entries = asArray(parsed).map(asRecord).filter((entry) => entry !== null);
     const out = [];
+    const errors = [];
     for (const entry of entries) {
       const gate = str(entry, "gate");
       const status = str(entry, "status");
-      if (!gate || !GATE_ORDER.includes(gate))
+      if (!gate || !GATE_ORDER.includes(gate)) {
+        errors.push(`ignored --gates override "${gate ?? "unknown"}": unknown gate`);
         continue;
-      if (!status || !(status in SEVERITY))
+      }
+      if (!status || !(status in SEVERITY)) {
+        errors.push(`ignored --gates override "${gate}": unknown status "${status ?? "unknown"}"`);
         continue;
+      }
       out.push({ gate, status, detail: str(entry, "detail") ?? undefined });
     }
-    return out;
+    return { entries: out, errors };
   } catch {
-    return [];
+    return { entries: [], errors: [] };
   }
 }
 
@@ -969,7 +974,7 @@ function verifyStatusFromGate(status) {
   }
 }
 function gateReview(options) {
-  const overrides = parseGateOverrides(options.gatesJson);
+  const { entries: overrides, errors: overrideErrors } = parseGateOverrides(options.gatesJson);
   const entries = gateEntriesFromState({
     gateState: readData(options, "gate-state.json"),
     verificationReport: readData(options, "unity-verification-report.json"),
@@ -981,6 +986,7 @@ function gateReview(options) {
   const base = makeResult(options.ability, verifyStatusFromGate(folded.status), `${folded.status} (strictest: ${folded.strictest ?? "none"}, intensity ${folded.intensity})`, [], "offline");
   base.mode = VERIFY_MODES[options.ability];
   base.delta = notComputedDelta("gate review folds named gates; no mutation delta computed");
+  base.errors.push(...overrideErrors);
   if (folded.hardFailures > 0) {
     base.errors.push(`${folded.hardFailures} hard gate failure(s)`);
   }

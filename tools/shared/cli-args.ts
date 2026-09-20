@@ -66,3 +66,16 @@ export function firstString(args: Record<string, string | boolean>, keys: string
 export function resolveAbility<T extends string>(requested: string, abilities: readonly T[], fallback: T): T {
   return (abilities as readonly string[]).includes(requested) ? (requested as T) : fallback;
 }
+
+// Convention for optional positive-int CLI flags (e.g. --lease-seconds,
+// --wait-seconds, --timeout): an absent, empty, non-numeric or `<= 0` value
+// means "unset", yielding `undefined` so the caller's default applies. Returns
+// `undefined` for a missing or non-positive value so callers resolve their
+// default in exactly one place; `--lease-seconds 0` therefore means "unset",
+// not "expire immediately".
+export function parseOptionalPositiveInt(value: unknown): number | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  const parsed = typeof value === 'number' ? value : Number.parseInt(String(value), 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return undefined;
+  return Math.floor(parsed);
+}

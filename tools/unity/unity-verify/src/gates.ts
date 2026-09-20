@@ -158,21 +158,33 @@ export function gateEntriesFromState(sources: GateStateSources): GateEntry[] {
   return entries;
 }
 
-export function parseGateOverrides(json: string | undefined): GateEntry[] {
-  if (!json) return [];
+export interface ParsedGateOverrides {
+  entries: GateEntry[];
+  errors: string[];
+}
+
+export function parseGateOverrides(json: string | undefined): ParsedGateOverrides {
+  if (!json) return { entries: [], errors: [] };
   try {
     const parsed = JSON.parse(json) as unknown;
     const entries = asArray(parsed).map(asRecord).filter((entry): entry is Json => entry !== null);
     const out: GateEntry[] = [];
+    const errors: string[] = [];
     for (const entry of entries) {
       const gate = str(entry, 'gate');
       const status = str(entry, 'status');
-      if (!gate || !GATE_ORDER.includes(gate as GateName)) continue;
-      if (!status || !(status in SEVERITY)) continue;
+      if (!gate || !GATE_ORDER.includes(gate as GateName)) {
+        errors.push(`ignored --gates override "${gate ?? 'unknown'}": unknown gate`);
+        continue;
+      }
+      if (!status || !(status in SEVERITY)) {
+        errors.push(`ignored --gates override "${gate}": unknown status "${status ?? 'unknown'}"`);
+        continue;
+      }
       out.push({ gate: gate as GateName, status: status as GateStatus, detail: str(entry, 'detail') ?? undefined });
     }
-    return out;
+    return { entries: out, errors };
   } catch {
-    return [];
+    return { entries: [], errors: [] };
   }
 }

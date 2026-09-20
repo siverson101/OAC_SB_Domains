@@ -17,13 +17,12 @@ import { VERIFY_ABILITIES, VERIFY_MODES, type VerifyOptions } from '../tools/uni
 import type { TestCounts } from '../tools/unity/gather-unity-context/src/gate';
 import { parseFrontmatter } from '../tools/shared/registry/src/frontmatter';
 import { validateContract } from '../tools/shared/registry/src/contract';
+import { SAFETY_GATE_KEYS } from '../tools/shared/safety-gate';
 
 const repoRoot = resolve(import.meta.dir, '..');
 const commandDir = join(repoRoot, 'xdomains', 'game-dev', 'unity-3d', 'command');
 const schemaPath = join(repoRoot, 'xdomains', 'context', 'capability-contract.schema.json');
 const bundle = join(repoRoot, 'xdomains', 'scripts', 'unity', 'unity-verify.mjs');
-
-const SAFETY_GATE_KEYS = ['mutates', 'requiresEditor', 'requiresApproval', 'dryRunFirst', 'advisory', 'writesState'];
 
 function assertSafetyGate(fm: Record<string, unknown>): void {
   const gate = fm.safetyGate;
@@ -31,7 +30,7 @@ function assertSafetyGate(fm: Record<string, unknown>): void {
   expect(typeof gate).toBe('object');
   expect(Array.isArray(gate)).toBe(false);
   for (const [key, value] of Object.entries(gate as Record<string, unknown>)) {
-    expect(SAFETY_GATE_KEYS).toContain(key);
+    expect(SAFETY_GATE_KEYS as readonly string[]).toContain(key);
     expect(typeof value).toBe('boolean');
   }
 }
@@ -249,10 +248,13 @@ describe('gate folding', () => {
     expect(byGate.build).toBe('not_run');
   });
 
-  test('parses gate overrides and ignores invalid entries', () => {
-    const overrides = parseGateOverrides('[{"gate":"build","status":"failed"},{"gate":"nope","status":"failed"}]');
-    expect(overrides).toEqual([{ gate: 'build', status: 'failed', detail: undefined }]);
-    expect(parseGateOverrides('not json')).toEqual([]);
+  test('parses gate overrides and reports dropped entries', () => {
+    const { entries, errors } = parseGateOverrides(
+      '[{"gate":"build","status":"failed"},{"gate":"nope","status":"failed"}]'
+    );
+    expect(entries).toEqual([{ gate: 'build', status: 'failed', detail: undefined }]);
+    expect(errors).toEqual(['ignored --gates override "nope": unknown gate']);
+    expect(parseGateOverrides('not json')).toEqual({ entries: [], errors: [] });
   });
 });
 
@@ -322,6 +324,15 @@ describe('gate-review', () => {
     });
     expect(result.status).toBe('failed');
     if ('gates' in result) expect(result.gates.strictest).toBe('build');
+  });
+
+  test('a dropped override is surfaced in the result errors, fail-soft', () => {
+    const result = runVerify({
+      ...options,
+      ability: 'gate-review',
+      gatesJson: '[{"gate":"nope","status":"failed"}]',
+    });
+    expect(result.errors).toContain('ignored --gates override "nope": unknown gate');
   });
 
   test('verify never mutates the existing gate-state / verification-report shape', () => {

@@ -21,13 +21,12 @@ import {
 import type { TestCounts } from '../tools/unity/gather-unity-context/src/gate';
 import { parseFrontmatter } from '../tools/shared/registry/src/frontmatter';
 import { validateContract } from '../tools/shared/registry/src/contract';
+import { SAFETY_GATE_KEYS } from '../tools/shared/safety-gate';
 
 const repoRoot = resolve(import.meta.dir, '..');
 const commandDir = join(repoRoot, 'xdomains', 'game-dev', 'unity-3d', 'command');
 const schemaPath = join(repoRoot, 'xdomains', 'context', 'capability-contract.schema.json');
 const bundle = join(repoRoot, 'xdomains', 'scripts', 'unity', 'unity-run.mjs');
-
-const SAFETY_GATE_KEYS = ['mutates', 'requiresEditor', 'requiresApproval', 'dryRunFirst', 'advisory', 'writesState'];
 
 function assertSafetyGate(fm: Record<string, unknown>): void {
   const gate = fm.safetyGate;
@@ -35,7 +34,7 @@ function assertSafetyGate(fm: Record<string, unknown>): void {
   expect(typeof gate).toBe('object');
   expect(Array.isArray(gate)).toBe(false);
   for (const [key, value] of Object.entries(gate as Record<string, unknown>)) {
-    expect(SAFETY_GATE_KEYS).toContain(key);
+    expect(SAFETY_GATE_KEYS as readonly string[]).toContain(key);
     expect(typeof value).toBe('boolean');
   }
 }

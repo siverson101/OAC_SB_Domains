@@ -168,7 +168,7 @@ function verifyStatusFromGate(status: GateStatus): VerifyStatus {
 }
 
 function gateReview(options: VerifyOptions): GateReviewResult {
-  const overrides = parseGateOverrides(options.gatesJson);
+  const { entries: overrides, errors: overrideErrors } = parseGateOverrides(options.gatesJson);
   const entries = gateEntriesFromState({
     gateState: readData(options, 'gate-state.json'),
     verificationReport: readData(options, 'unity-verification-report.json'),
@@ -187,6 +187,7 @@ function gateReview(options: VerifyOptions): GateReviewResult {
   );
   base.mode = VERIFY_MODES[options.ability];
   base.delta = notComputedDelta('gate review folds named gates; no mutation delta computed');
+  base.errors.push(...overrideErrors);
   if (folded.hardFailures > 0) {
     base.errors.push(`${folded.hardFailures} hard gate failure(s)`);
   }
