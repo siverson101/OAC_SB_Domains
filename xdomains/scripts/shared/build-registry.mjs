@@ -274,6 +274,18 @@ function consumedOutputs(path, id, consumers) {
   }
   return [...out];
 }
+function readKindManifest(domainDir, context, kind) {
+  for (const rel of context ?? []) {
+    const full = join(domainDir, rel);
+    if (!isDir(full))
+      continue;
+    const manifestPath = join(full, kind, "manifest.json");
+    const manifest = readJson(manifestPath);
+    if (manifest)
+      return { baseDir: toPosix(join(rel, kind)), manifest };
+  }
+  return null;
+}
 function buildRegistry(domainDir, generatedAt) {
   const manifest = readJson(join(domainDir, "sb-domain.json")) ?? {};
   const projections = readJson(join(domainDir, "context-projections.json")) ?? {};
@@ -297,8 +309,24 @@ function buildRegistry(domainDir, generatedAt) {
     const full = join(domainDir, rel);
     return isDir(full) ? walkFiles(full, domainDir) : [rel];
   });
-  const context = contextFiles.filter((rel) => rel.endsWith(".md")).map((rel) => entry(domainDir, rel, basename(rel, ".md"), consumedOutputs(rel, basename(rel, ".md"), consumers)));
+  const context = contextFiles.filter((rel) => rel.endsWith(".md")).filter((rel) => !rel.includes("/snippets/") && !rel.includes("/templates/")).map((rel) => entry(domainDir, rel, basename(rel, ".md"), consumedOutputs(rel, basename(rel, ".md"), consumers)));
   const workflows = context.filter((c) => c.path.includes("/workflows/"));
+  const snippetsManifest = readKindManifest(domainDir, manifest.context, "snippets");
+  const templatesManifest = readKindManifest(domainDir, manifest.context, "templates");
+  const snippets = (snippetsManifest?.manifest.snippets ?? []).map((snippet) => ({
+    id: snippet.id,
+    name: snippet.id,
+    path: `${snippetsManifest?.baseDir ?? "context/unity-3d/snippets"}/${snippet.path}`,
+    description: snippet.description,
+    standardsVersion: snippet.standardsVersion ?? snippetsManifest?.manifest.standardsVersion
+  }));
+  const templates = (templatesManifest?.manifest.templates ?? []).map((template) => ({
+    id: template.id,
+    name: template.id,
+    path: `${templatesManifest?.baseDir ?? "context/unity-3d/templates"}/${template.path}/README.md`,
+    description: template.description,
+    standardsVersion: template.standardsVersion ?? templatesManifest?.manifest.standardsVersion
+  }));
   const tools = (manifest.tools ?? []).map((tool) => ({ id: tool, name: tool, path: `tools/${tool}`, layer: "tool" }));
   const scripts = (manifest.scripts ?? []).map((script) => ({ id: basename(script), name: basename(script), path: script }));
   const outputs = (projections.outputs ?? []).map((output) => {
@@ -326,6 +354,8 @@ function buildRegistry(domainDir, generatedAt) {
     abilities: abilities.length,
     context: context.length,
     workflows: workflows.length,
+    snippets: snippets.length,
+    templates: templates.length,
     tools: tools.length,
     scripts: scripts.length,
     edges: edges.length
@@ -344,6 +374,8 @@ function buildRegistry(domainDir, generatedAt) {
     abilities,
     context,
     workflows,
+    snippets,
+    templates,
     tools,
     scripts,
     edges,
@@ -364,6 +396,8 @@ function entriesTable(entries, options = {}) {
     header.push("Realised as");
   if (options.consumes)
     header.push("Consumes");
+  if (options.standards)
+    header.push("Standards");
   lines.push(`| ${header.join(" | ")} |`);
   lines.push(`|${header.map(() => "---").join("|")}|`);
   for (const entry of entries) {
@@ -374,6 +408,8 @@ function entriesTable(entries, options = {}) {
       row.push(entry.realisedAs ? `\`${entry.realisedAs}\`` : "");
     if (options.consumes)
       row.push(escapeCell((entry.consumes ?? []).join(", ")));
+    if (options.standards)
+      row.push(entry.standardsVersion ?? "");
     lines.push(`| ${row.join(" | ")} |`);
   }
   return lines;
@@ -431,6 +467,8 @@ function renderRegistry(registry) {
   section(lines, "Abilities", registry.abilities, { realised: true, layer: true });
   section(lines, "Context", registry.context, { consumes: true });
   section(lines, "Workflows", registry.workflows, { consumes: true });
+  section(lines, "Snippets", registry.snippets, { standards: true });
+  section(lines, "Templates", registry.templates, { standards: true });
   section(lines, "Tools", registry.tools, { layer: true });
   section(lines, "Scripts", registry.scripts);
   edgesSection(lines, registry.edges);

@@ -11,6 +11,7 @@ export interface RegistryEntry {
   realisedAs?: string;
   consumes?: string[];
   layer?: 'tool' | 'ability' | 'command';
+  standardsVersion?: string;
 }
 
 export type RegistryEdgeType = 'agent-ability' | 'workflow-ability' | 'workflow-agent';
@@ -35,6 +36,8 @@ export interface Registry {
   abilities: RegistryEntry[];
   context: RegistryEntry[];
   workflows: RegistryEntry[];
+  snippets: RegistryEntry[];
+  templates: RegistryEntry[];
   tools: RegistryEntry[];
   scripts: RegistryEntry[];
   edges: RegistryEdge[];
@@ -60,6 +63,36 @@ interface Projections {
   outputDir?: string;
   outputs?: { file: string; title?: string }[];
   consumers?: Record<string, string[]>;
+}
+
+interface SnippetEntry {
+  id: string;
+  path: string;
+  description?: string;
+  language?: string;
+  priority?: string;
+  standardsVersion?: string;
+}
+
+interface SnippetManifest {
+  schemaVersion?: number;
+  standardsVersion?: string;
+  snippets?: SnippetEntry[];
+}
+
+interface TemplateEntry {
+  id: string;
+  path: string;
+  description?: string;
+  priority?: string;
+  standardsVersion?: string;
+  files?: string[];
+}
+
+interface TemplateManifest {
+  schemaVersion?: number;
+  standardsVersion?: string;
+  templates?: TemplateEntry[];
 }
 
 function toPosix(path: string): string {
@@ -123,6 +156,21 @@ function consumedOutputs(path: string, id: string, consumers: Record<string, str
   return [...out];
 }
 
+function readKindManifest<T>(
+  domainDir: string,
+  context: string[] | undefined,
+  kind: string
+): { baseDir: string; manifest: T } | null {
+  for (const rel of context ?? []) {
+    const full = join(domainDir, rel);
+    if (!isDir(full)) continue;
+    const manifestPath = join(full, kind, 'manifest.json');
+    const manifest = readJson<T>(manifestPath);
+    if (manifest) return { baseDir: toPosix(join(rel, kind)), manifest };
+  }
+  return null;
+}
+
 export function buildRegistry(domainDir: string, generatedAt: string): Registry {
   const manifest = readJson<Manifest>(join(domainDir, 'sb-domain.json')) ?? {};
   const projections = readJson<Projections>(join(domainDir, 'context-projections.json')) ?? {};
@@ -153,8 +201,28 @@ export function buildRegistry(domainDir: string, generatedAt: string): Registry 
   });
   const context = contextFiles
     .filter((rel) => rel.endsWith('.md'))
+    .filter((rel) => !rel.includes('/snippets/') && !rel.includes('/templates/'))
     .map((rel) => entry(domainDir, rel, basename(rel, '.md'), consumedOutputs(rel, basename(rel, '.md'), consumers)));
   const workflows = context.filter((c) => c.path.includes('/workflows/'));
+
+  const snippetsManifest = readKindManifest<SnippetManifest>(domainDir, manifest.context, 'snippets');
+  const templatesManifest = readKindManifest<TemplateManifest>(domainDir, manifest.context, 'templates');
+
+  const snippets: RegistryEntry[] = (snippetsManifest?.manifest.snippets ?? []).map((snippet) => ({
+    id: snippet.id,
+    name: snippet.id,
+    path: `${snippetsManifest?.baseDir ?? 'context/unity-3d/snippets'}/${snippet.path}`,
+    description: snippet.description,
+    standardsVersion: snippet.standardsVersion ?? snippetsManifest?.manifest.standardsVersion,
+  }));
+
+  const templates: RegistryEntry[] = (templatesManifest?.manifest.templates ?? []).map((template) => ({
+    id: template.id,
+    name: template.id,
+    path: `${templatesManifest?.baseDir ?? 'context/unity-3d/templates'}/${template.path}/README.md`,
+    description: template.description,
+    standardsVersion: template.standardsVersion ?? templatesManifest?.manifest.standardsVersion,
+  }));
 
   const tools: RegistryEntry[] = (manifest.tools ?? []).map((tool) => ({ id: tool, name: tool, path: `tools/${tool}`, layer: 'tool' as const }));
   const scripts: RegistryEntry[] = (manifest.scripts ?? []).map((script) => ({ id: basename(script), name: basename(script), path: script }));
@@ -189,6 +257,8 @@ export function buildRegistry(domainDir: string, generatedAt: string): Registry 
     abilities: abilities.length,
     context: context.length,
     workflows: workflows.length,
+    snippets: snippets.length,
+    templates: templates.length,
     tools: tools.length,
     scripts: scripts.length,
     edges: edges.length,
@@ -208,6 +278,8 @@ export function buildRegistry(domainDir: string, generatedAt: string): Registry 
     abilities,
     context,
     workflows,
+    snippets,
+    templates,
     tools,
     scripts,
     edges,
