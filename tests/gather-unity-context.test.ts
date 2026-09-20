@@ -104,9 +104,16 @@ describe('end-to-end gather (non-interactive)', () => {
   test('writes the Unity context files', () => {
     const root = join(fixture, 'e2e');
     mkdirSync(join(root, '.opencode', 'project-data'), { recursive: true });
-    write(join(root, 'Assets', '_Project', 'Scripts', 'Game.cs'), 'class Game {}');
+    write(join(root, 'Assets', '_Project', 'Scripts', 'Game.cs'), 'class Game { void Start() { FindObjectOfType<Camera>(); } }');
+    write(join(root, 'Assets', '_Project', 'Scripts', 'Game.asmdef'), JSON.stringify({ name: 'Game', references: [] }));
     write(join(root, 'Assets', '_Project', 'Scenes', 'Main.unity'), 'scene');
     write(join(root, 'ProjectSettings', 'ProjectVersion.txt'), 'm_EditorVersion: 6000.5.7f1\n');
+    write(
+      join(root, 'ProjectSettings', 'ProjectSettings.asset'),
+      ['productName: E2E', 'companyName: OAC', '  m_ActiveColorSpace: 1', '  activeInputHandler: 1', ''].join('\n')
+    );
+    write(join(root, 'Library', 'ScriptAssemblies', 'Assembly-CSharp.dll'), 'dll');
+    write(join(root, '.opencode', '.scratch', 'unity', 'EditMode-results.xml'), '<test-run total="3" passed="3" failed="0" result="Passed">');
     write(join(root, 'Packages', 'manifest.json'), '{"dependencies":{}}');
     write(
       join(root, '.opencode', 'project-data', 'scan-result.json'),
@@ -130,6 +137,12 @@ describe('end-to-end gather (non-interactive)', () => {
       'unity-mcp-status.json',
       'unity-verification-report.json',
       'gate-state.json',
+      'compile-state.json',
+      'log-digest.json',
+      'project-settings.json',
+      'asmdef-map.json',
+      'test-inventory.json',
+      'deprecation-scan.json',
     ]) {
       expect(readFileSync(join(dataDir, file), 'utf8').length).toBeGreaterThan(0);
     }
@@ -140,5 +153,28 @@ describe('end-to-end gather (non-interactive)', () => {
 
     const structure = JSON.parse(readFileSync(join(dataDir, 'project-structure.json'), 'utf8'));
     expect(structure.baseFolder).toBe('Assets/_Project');
+
+    const asmdefMap = JSON.parse(readFileSync(join(dataDir, 'asmdef-map.json'), 'utf8'));
+    expect(asmdefMap.assemblyCount).toBe(1);
+    expect(asmdefMap.route).toBe('offline');
+
+    const deprecationScan = JSON.parse(readFileSync(join(dataDir, 'deprecation-scan.json'), 'utf8'));
+    expect(deprecationScan.findingCount).toBeGreaterThanOrEqual(1);
+    expect(deprecationScan.patternsSource).toBe('bundle');
+
+    const projections = JSON.parse(
+      readFileSync(join(repoRoot, 'xdomains', 'game-dev', 'unity-3d', 'context-projections.json'), 'utf8')
+    );
+    const projectedFiles = projections.outputs.map((output: { file: string }) => output.file);
+    for (const file of [
+      'compile-state.md',
+      'log-digest.md',
+      'project-settings.md',
+      'asmdef-map.md',
+      'test-inventory.md',
+      'deprecation-scan.md',
+    ]) {
+      expect(projectedFiles).toContain(file);
+    }
   });
 });

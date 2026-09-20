@@ -1,5 +1,5 @@
 // tools/unity/gather-unity-context/src/index.ts
-import { basename, join as join8 } from "node:path";
+import { basename as basename2, join as join9 } from "node:path";
 
 // tools/shared/io.ts
 import { createHash } from "node:crypto";
@@ -40,6 +40,9 @@ function sha256(path) {
 }
 function nowIso() {
   return new Date().toISOString();
+}
+function unique(values) {
+  return Array.from(new Set(values));
 }
 
 // tools/shared/prompt-client.ts
@@ -158,6 +161,13 @@ function unityVersionFromFile(projectRoot) {
     return null;
   const match = text.match(/m_EditorVersion:\s*(\S+)/);
   return match ? match[1] : null;
+}
+function activeInputHandler(projectRoot) {
+  const text = readText(join2(projectRoot, "ProjectSettings", "ProjectSettings.asset"));
+  if (!text)
+    return null;
+  const match = text.match(/^\s*activeInputHandler:\s*(\d+)\s*$/m);
+  return match ? Number(match[1]) : null;
 }
 function parseData(text) {
   try {
@@ -490,9 +500,685 @@ function runGate(options, instance) {
   };
 }
 
+// tools/unity/gather-unity-context/src/offline.ts
+import { readdirSync, statSync as statSync2 } from "node:fs";
+import { homedir } from "node:os";
+import { basename, dirname as dirname3, join as join7, relative, sep } from "node:path";
+import { fileURLToPath as fileURLToPath2 } from "node:url";
+
+// tools/shared/tool-routing.ts
+function bridgeAvailable(bridge) {
+  if (!bridge)
+    return false;
+  try {
+    return bridge.available() === true;
+  } catch {
+    return false;
+  }
+}
+function selectRoute(caps) {
+  if (caps.localOnly) {
+    return { route: "local", reason: "local-only capability; plain filesystem/process work" };
+  }
+  if (bridgeAvailable(caps.bridge)) {
+    return { route: "live", reason: "localhost bridge available; live Editor" };
+  }
+  if (caps.cliAvailable) {
+    return { route: "batch", reason: "Unity CLI available; batch execution" };
+  }
+  return { route: "offline", reason: "no bridge or CLI; on-disk readers" };
+}
+
+// tools/unity/gather-unity-context/src/offline.ts
+var OFFLINE_ROUTE = selectRoute({ bridge: null, cliAvailable: false }).route;
+function base(status, errors = []) {
+  return { schemaVersion: 1, generatedAt: nowIso(), status, route: OFFLINE_ROUTE, errors };
+}
+function errMessage(error) {
+  return error instanceof Error ? error.message : String(error);
+}
+function toPosix(path) {
+  return path.split(sep).join("/");
+}
+function statInfo(path) {
+  try {
+    const st = statSync2(path);
+    return { mtimeUtc: new Date(st.mtimeMs).toISOString(), sizeBytes: st.size };
+  } catch {
+    return null;
+  }
+}
+var WALK_EXCLUDES = new Set([
+  "library",
+  "temp",
+  "obj",
+  "logs",
+  "build",
+  "builds",
+  "usersettings",
+  "node_modules",
+  ".git",
+  ".vs",
+  ".idea",
+  "bin"
+]);
+function walkFiles(root, match, maxDepth = 16) {
+  const out = [];
+  const walk = (dir, depth) => {
+    if (depth > maxDepth)
+      return;
+    let entries;
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const full = join7(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (WALK_EXCLUDES.has(entry.name.toLowerCase()))
+          continue;
+        walk(full, depth + 1);
+        continue;
+      }
+      if (entry.isFile() && match(entry.name, full))
+        out.push(full);
+    }
+  };
+  walk(root, 0);
+  return out;
+}
+function editorLogPaths() {
+  const home = homedir();
+  if (process.platform === "win32") {
+    const local = process.env.LOCALAPPDATA || join7(home, "AppData", "Local");
+    return [
+      join7(local, "Unity", "Editor", "Editor.log"),
+      join7(local, "Unity", "Editor", "Editor-prev.log")
+    ];
+  }
+  if (process.platform === "darwin") {
+    return [
+      join7(home, "Library", "Logs", "Unity", "Editor.log"),
+      join7(home, "Library", "Logs", "Unity", "Editor-prev.log")
+    ];
+  }
+  return [
+    join7(home, ".config", "unity3d", "Editor.log"),
+    join7(home, ".config", "unity3d", "Editor-prev.log")
+  ];
+}
+function readEditorLogAuthorship(logPaths) {
+  for (const logPath of logPaths) {
+    const info = statInfo(logPath);
+    const text = readText(logPath);
+    if (!info && !text)
+      continue;
+    const versionMatch = text?.match(/Initialize engine version:\s*([^\s(]+)/) ?? text?.match(/(\d{4}\.\d+\.\d+[abfp]\d+)/);
+    const compileLines = (text ?? "").split(/\r?\n/).filter((line) => /script compilation|finished compiling|compilation took|begin monomanager reloadassembly/i.test(line));
+    return {
+      logPath: toPosix(logPath),
+      mtimeUtc: info?.mtimeUtc ?? null,
+      editorVersion: versionMatch ? versionMatch[1] : null,
+      lastCompileLine: compileLines.length > 0 ? compileLines[compileLines.length - 1].trim() : null
+    };
+  }
+  return null;
+}
+function produceCompileState(input, logPaths = editorLogPaths()) {
+  const errors = [];
+  const assembliesDir = join7(input.projectRoot, "Library", "ScriptAssemblies");
+  const libraryPresent = dirExists(assembliesDir);
+  const assemblies = [];
+  if (libraryPresent) {
+    let names = [];
+    try {
+      names = readdirSync(assembliesDir);
+    } catch (error) {
+      errors.push(errMessage(error));
+    }
+    for (const name of names) {
+      if (!name.toLowerCase().endsWith(".dll"))
+        continue;
+      const full = join7(assembliesDir, name);
+      const info = statInfo(full);
+      if (!info)
+        continue;
+      assemblies.push({ name, path: toPosix(relative(input.projectRoot, full)), ...info });
+    }
+  }
+  assemblies.sort((a, b) => b.mtimeUtc.localeCompare(a.mtimeUtc));
+  const newestAssembly = assemblies[0] ? { name: assemblies[0].name, mtimeUtc: assemblies[0].mtimeUtc } : null;
+  let newestScript = null;
+  for (const full of walkFiles(input.assetFolder, (name) => name.toLowerCase().endsWith(".cs"))) {
+    const info = statInfo(full);
+    if (!info)
+      continue;
+    if (!newestScript || info.mtimeUtc > newestScript.mtimeUtc) {
+      newestScript = { path: toPosix(relative(input.projectRoot, full)), mtimeUtc: info.mtimeUtc };
+    }
+  }
+  let stale = null;
+  let noOpRecompile = null;
+  if (newestAssembly && newestScript) {
+    stale = newestScript.mtimeUtc > newestAssembly.mtimeUtc;
+    noOpRecompile = !stale;
+  } else if (newestAssembly && !newestScript) {
+    stale = false;
+    noOpRecompile = true;
+  } else if (!newestAssembly && newestScript) {
+    stale = true;
+    noOpRecompile = false;
+  }
+  const status = libraryPresent ? "observed_locally" : "unavailable";
+  return {
+    ...base(status, errors),
+    libraryPresent,
+    scriptAssembliesDir: "Library/ScriptAssemblies",
+    assemblyCount: assemblies.length,
+    assemblies,
+    newestAssembly,
+    newestScript,
+    stale,
+    noOpRecompile,
+    editorLogAuthorship: readEditorLogAuthorship(logPaths)
+  };
+}
+function classifyLogLine(line) {
+  if (/\berror\s+(CS|BC|IDE)\d+/i.test(line))
+    return "error";
+  if (/\[error\]/i.test(line))
+    return "error";
+  if (/\berror\b\s*[:=]/i.test(line))
+    return "error";
+  if (/\bexception\b/i.test(line) && !/\bcaught\b/i.test(line))
+    return "error";
+  if (/\bwarning\s+(CS|BC|IDE)\d+/i.test(line))
+    return "warning";
+  if (/\[warning\]/i.test(line))
+    return "warning";
+  if (/\bwarning\b\s*[:=]/i.test(line))
+    return "warning";
+  return null;
+}
+function pushCapped(list, item, cap) {
+  list.push(item);
+  if (list.length > cap)
+    list.shift();
+}
+function digestLogFile(logPath) {
+  const info = statInfo(logPath);
+  const text = readText(logPath);
+  if (!info && !text)
+    return null;
+  const lines = text ? text.split(/\r?\n/) : [];
+  let errorCount = 0;
+  let warningCount = 0;
+  const recentErrors = [];
+  const recentWarnings = [];
+  lines.forEach((line, index) => {
+    const kind = classifyLogLine(line);
+    if (!kind)
+      return;
+    const message = { level: kind, line: index + 1, text: line.trim() };
+    if (kind === "error") {
+      errorCount++;
+      pushCapped(recentErrors, message, 10);
+    } else {
+      warningCount++;
+      pushCapped(recentWarnings, message, 10);
+    }
+  });
+  return {
+    path: toPosix(logPath),
+    exists: info != null,
+    mtimeUtc: info?.mtimeUtc ?? null,
+    sizeBytes: info?.sizeBytes ?? null,
+    lineCount: lines.length,
+    errorCount,
+    warningCount,
+    recentErrors,
+    recentWarnings
+  };
+}
+function produceLogDigest(_input, logPaths = editorLogPaths()) {
+  const errors = [];
+  const logs = [];
+  for (const logPath of logPaths) {
+    const entry = digestLogFile(logPath);
+    if (entry)
+      logs.push(entry);
+  }
+  const errorCount = logs.reduce((sum, log) => sum + log.errorCount, 0);
+  const warningCount = logs.reduce((sum, log) => sum + log.warningCount, 0);
+  const recentMessages = logs.flatMap((log) => [...log.recentErrors, ...log.recentWarnings]).slice(-20);
+  const status = logs.length > 0 ? "observed_locally" : "unavailable";
+  return { ...base(status, errors), logCount: logs.length, errorCount, warningCount, logs, recentMessages };
+}
+var SCRIPTING_BACKEND = { 0: "Mono", 1: "IL2CPP" };
+var INPUT_HANDLERS = {
+  0: "Input Manager (Old)",
+  1: "Input System Package (New)",
+  2: "Both"
+};
+var GRAPHICS_DEVICE_TYPES = {
+  0: "OpenGL2",
+  1: "Direct3D9",
+  2: "Direct3D11",
+  4: "Null",
+  8: "OpenGLES2",
+  11: "OpenGLES3",
+  16: "Metal",
+  17: "OpenGLCore",
+  18: "Direct3D12",
+  21: "Vulkan"
+};
+function yamlScalar(text, keys) {
+  for (const key of keys) {
+    const match = new RegExp(`^\\s*${key}:\\s*(.+?)\\s*$`, "m").exec(text);
+    if (match) {
+      const value = match[1].replace(/^['"]|['"]$/g, "");
+      if (value !== "")
+        return value;
+    }
+  }
+  return null;
+}
+function yamlBlockMap(text, keys) {
+  for (const key of keys) {
+    const lines = text.split(/\r?\n/);
+    const out = {};
+    let inBlock = false;
+    let indent = 0;
+    let found = false;
+    for (const line of lines) {
+      const header = new RegExp(`^(\\s*)${key}:\\s*$`).exec(line);
+      if (header) {
+        inBlock = true;
+        indent = header[1].length;
+        found = true;
+        continue;
+      }
+      if (!inBlock)
+        continue;
+      if (line.trim() === "")
+        continue;
+      const currentIndent = line.length - line.trimStart().length;
+      if (currentIndent <= indent) {
+        inBlock = false;
+        continue;
+      }
+      const entry = /^\s*([A-Za-z0-9_]+):\s*(.+?)\s*$/.exec(line);
+      if (entry)
+        out[entry[1]] = entry[2].replace(/^['"]|['"]$/g, "");
+    }
+    if (found)
+      return out;
+  }
+  return {};
+}
+function decodeGraphicsApis(hex) {
+  const out = [];
+  for (let i = 0;i + 8 <= hex.length; i += 8) {
+    const bytes = hex.slice(i, i + 8).match(/../g) ?? [];
+    const value = Number.parseInt(bytes.reverse().join(""), 16);
+    out.push(GRAPHICS_DEVICE_TYPES[value] ?? `Unknown(${value})`);
+  }
+  return out;
+}
+function computePersistentDataPath(companyName, productName) {
+  if (!companyName || !productName)
+    return { path: null, basis: null };
+  const home = homedir();
+  if (process.platform === "win32") {
+    const local = process.env.LOCALAPPDATA || join7(home, "AppData", "Local");
+    return {
+      path: toPosix(join7(dirname3(local), "LocalLow", companyName, productName)),
+      basis: "%LOCALAPPDATA%/../LocalLow/<company>/<product>"
+    };
+  }
+  if (process.platform === "darwin") {
+    return {
+      path: toPosix(join7(home, "Library", "Application Support", companyName, productName)),
+      basis: "~/Library/Application Support/<company>/<product>"
+    };
+  }
+  return {
+    path: toPosix(join7(home, ".config", "unity3d", companyName, productName)),
+    basis: "~/.config/unity3d/<company>/<product>"
+  };
+}
+function produceProjectSettings(input) {
+  const errors = [];
+  const settingsPath = join7(input.projectRoot, "ProjectSettings", "ProjectSettings.asset");
+  const text = readText(settingsPath);
+  if (!text) {
+    return {
+      ...base("unavailable", errors),
+      settingsPath: toPosix(relative(input.projectRoot, settingsPath)),
+      productName: null,
+      companyName: null,
+      scriptingBackend: {},
+      scriptingBackendRaw: {},
+      il2cpp: null,
+      targetPlatform: null,
+      targetPlatformSource: null,
+      colorSpace: null,
+      graphicsApis: [],
+      persistentDataPath: null,
+      persistentDataPathBasis: null,
+      activeInputHandler: null,
+      activeInputHandlerName: null
+    };
+  }
+  const productName = yamlScalar(text, ["productName"]);
+  const companyName = yamlScalar(text, ["companyName"]);
+  const scriptingBackendRaw = {};
+  const scriptingBackend = {};
+  for (const [platform, value] of Object.entries(yamlBlockMap(text, ["scriptingBackend", "m_ScriptingBackend"]))) {
+    const num = Number(value);
+    if (!Number.isFinite(num))
+      continue;
+    scriptingBackendRaw[platform] = num;
+    scriptingBackend[platform] = SCRIPTING_BACKEND[num] ?? `Unknown(${num})`;
+  }
+  const il2cpp = Object.keys(scriptingBackendRaw).length === 0 ? null : Object.values(scriptingBackendRaw).some((value) => value === 1);
+  const colorRaw = yamlScalar(text, ["m_ActiveColorSpace", "m_ColorSpace"]);
+  const colorSpace = colorRaw === "0" ? "Gamma" : colorRaw === "1" ? "Linear" : null;
+  let targetPlatform = yamlScalar(text, ["m_ActiveBuildTarget", "activeBuildTarget"]);
+  let targetPlatformSource = targetPlatform ? "ProjectSettings.asset" : null;
+  if (!targetPlatform) {
+    const editorBuildSettings = readText(join7(input.projectRoot, "ProjectSettings", "EditorUserBuildSettings.asset"));
+    const match = editorBuildSettings?.match(/^\s*m_ActiveBuildTarget:\s*(\S+)\s*$/m);
+    if (match) {
+      targetPlatform = match[1];
+      targetPlatformSource = "EditorUserBuildSettings.asset";
+    }
+  }
+  const graphicsApis = [];
+  const apiRe = /m_BuildTarget:\s*([^\s]+)\s*\r?\n\s*m_APIs:\s*([0-9a-fA-F]+)/g;
+  let apiMatch;
+  while (apiMatch = apiRe.exec(text)) {
+    graphicsApis.push(...decodeGraphicsApis(apiMatch[2]));
+  }
+  const persistent = computePersistentDataPath(companyName, productName);
+  const handler = activeInputHandler(input.projectRoot);
+  return {
+    ...base("observed_locally", errors),
+    settingsPath: toPosix(relative(input.projectRoot, settingsPath)),
+    productName,
+    companyName,
+    scriptingBackend,
+    scriptingBackendRaw,
+    il2cpp,
+    targetPlatform,
+    targetPlatformSource,
+    colorSpace,
+    graphicsApis: unique(graphicsApis),
+    persistentDataPath: persistent.path,
+    persistentDataPathBasis: persistent.basis,
+    activeInputHandler: handler,
+    activeInputHandlerName: handler == null ? null : INPUT_HANDLERS[handler] ?? `Unknown(${handler})`
+  };
+}
+function stringArray(value) {
+  return Array.isArray(value) ? value.filter((item) => typeof item === "string") : [];
+}
+function ownerAsmdef(dir, dirs) {
+  let current = dir;
+  for (;; ) {
+    const owner = dirs.find((entry) => entry.dir === current);
+    if (owner)
+      return owner;
+    const parent = dirname3(current);
+    if (parent === current)
+      return null;
+    current = parent;
+  }
+}
+function scanAsmdefs(assetFolder) {
+  const errors = [];
+  const files = walkFiles(assetFolder, (name) => name.toLowerCase().endsWith(".asmdef"));
+  const guidToName = new Map;
+  const byPath = new Map;
+  for (const file of files) {
+    const json = readJson(file);
+    if (!json) {
+      errors.push(`unreadable asmdef: ${toPosix(file)}`);
+      continue;
+    }
+    const name = json.name || basename(file, ".asmdef");
+    byPath.set(file, { json, dir: dirname3(file), name });
+    const guid = readText(`${file}.meta`)?.match(/guid:\s*([0-9a-fA-F]{32})/);
+    if (guid)
+      guidToName.set(guid[1].toLowerCase(), name);
+  }
+  const names = new Set([...byPath.values()].map((entry) => entry.name));
+  const dirs = [...byPath.entries()].map(([path, entry]) => ({ path, ...entry }));
+  const ivtByAsmdef = new Map;
+  for (const cs of walkFiles(assetFolder, (name) => name.toLowerCase().endsWith(".cs"))) {
+    const owner = ownerAsmdef(dirname3(cs), dirs);
+    if (!owner)
+      continue;
+    const text = readText(cs);
+    if (!text || !text.includes("InternalsVisibleTo"))
+      continue;
+    const re = /InternalsVisibleTo\(\s*"([^"]+)"\s*\)/g;
+    const set = ivtByAsmdef.get(owner.path) ?? new Set;
+    let match;
+    while (match = re.exec(text))
+      set.add(match[1]);
+    ivtByAsmdef.set(owner.path, set);
+  }
+  const nodes = [];
+  const edges = [];
+  for (const [path, entry] of byPath) {
+    const references = stringArray(entry.json.references);
+    const includePlatforms = stringArray(entry.json.includePlatforms);
+    const excludePlatforms = stringArray(entry.json.excludePlatforms);
+    const optional = stringArray(entry.json.optionalUnityReferences);
+    const testAssemblies = entry.json.testAssemblies === true || optional.includes("TestAssemblies");
+    const isTest = testAssemblies || /\.Tests(\.|$)/.test(entry.name) || /\.Tests\.asmdef$/i.test(path);
+    const editorOnly = includePlatforms.length === 1 && includePlatforms[0].toLowerCase() === "editor";
+    const ivt = new Set(stringArray(entry.json.internalsVisibleTo));
+    for (const value of ivtByAsmdef.get(path) ?? [])
+      ivt.add(value);
+    nodes.push({
+      name: entry.name,
+      path: toPosix(path),
+      references,
+      includePlatforms,
+      excludePlatforms,
+      testAssemblies,
+      isTest,
+      editorOnly,
+      targets: { edit: editorOnly || isTest, play: !editorOnly || isTest },
+      internalsVisibleTo: [...ivt].sort()
+    });
+    for (const reference of references) {
+      const guid = reference.startsWith("GUID:") ? reference.slice(5).toLowerCase() : null;
+      const resolvedName = guid ? guidToName.get(guid) ?? null : names.has(reference) ? reference : null;
+      edges.push({ from: entry.name, to: resolvedName, reference, resolved: resolvedName != null });
+    }
+  }
+  nodes.sort((a, b) => a.name.localeCompare(b.name));
+  return { nodes, edges, errors };
+}
+function produceAsmdefMap(input) {
+  const { nodes, edges, errors } = scanAsmdefs(input.assetFolder);
+  const status = !dirExists(input.assetFolder) ? "unknown" : nodes.length > 0 ? "observed_locally" : "unavailable";
+  return {
+    ...base(status, errors),
+    assetFolder: toPosix(relative(input.projectRoot, input.assetFolder)),
+    assemblyCount: nodes.length,
+    testAssemblyCount: nodes.filter((node) => node.isTest).length,
+    assemblies: nodes,
+    edges
+  };
+}
+function produceTestInventory(input) {
+  const errors = [];
+  const { nodes } = scanAsmdefs(input.assetFolder);
+  const testAssemblies = nodes.filter((node) => node.isTest).map((node) => ({ name: node.name, path: node.path }));
+  const roots = unique([input.projectRoot, ...input.opencodeDir ? [input.opencodeDir] : []]);
+  const resultFiles = new Set;
+  const visualFiles = new Set;
+  const screenshots = new Set;
+  for (const root of roots) {
+    for (const file of walkFiles(root, (name) => /results\.xml$/i.test(name) || name === "TestResults.xml")) {
+      resultFiles.add(file);
+    }
+    for (const file of walkFiles(root, (name) => /^visual-verification.*\.json$/i.test(name))) {
+      visualFiles.add(file);
+    }
+    for (const file of walkFiles(root, (name, full) => /\.(png|jpe?g)$/i.test(name) && /screenshot/i.test(full))) {
+      screenshots.add(file);
+    }
+  }
+  const results = [];
+  for (const file of resultFiles) {
+    const info = statInfo(file);
+    const counts = parseNUnit(readText(file) ?? "");
+    results.push({
+      path: toPosix(relative(input.projectRoot, file)),
+      mtimeUtc: info?.mtimeUtc ?? null,
+      counts,
+      result: counts.result
+    });
+  }
+  results.sort((a, b) => (b.mtimeUtc ?? "").localeCompare(a.mtimeUtc ?? ""));
+  const status = testAssemblies.length > 0 || results.length > 0 ? "observed_locally" : "unavailable";
+  return {
+    ...base(status, errors),
+    testAssemblies,
+    testAssemblyCount: testAssemblies.length,
+    results,
+    latestResult: results[0] ?? null,
+    visualVerification: {
+      found: visualFiles.size > 0,
+      files: [...visualFiles].map((file) => toPosix(relative(input.projectRoot, file))),
+      screenshots: [...screenshots].map((file) => toPosix(relative(input.projectRoot, file)))
+    }
+  };
+}
+var FALLBACK_DEPRECATED_PATTERNS = [
+  {
+    id: "object-find-object-of-type",
+    match: "Object.FindObjectOfType",
+    replacement: "Object.FindFirstObjectByType",
+    kind: "method",
+    since: "2023.1",
+    message: "Object.FindObjectOfType is obsolete; use Object.FindFirstObjectByType."
+  },
+  {
+    id: "find-objects-of-type-all",
+    match: "FindObjectsOfTypeAll",
+    replacement: "FindObjectsByType(FindObjectsSortMode.None)",
+    kind: "method",
+    since: "2023.1",
+    message: "FindObjectsOfTypeAll is obsolete; use FindObjectsByType."
+  },
+  {
+    id: "find-objects-of-type",
+    match: "FindObjectsOfType",
+    replacement: "FindObjectsByType",
+    kind: "method",
+    since: "2023.1",
+    message: "FindObjectsOfType is obsolete; use FindObjectsByType with a sort mode."
+  },
+  {
+    id: "find-any-object-of-type",
+    match: "FindAnyObjectOfType",
+    replacement: "FindAnyObjectByType",
+    kind: "method",
+    since: "2023.1",
+    message: "FindAnyObjectOfType is obsolete; use FindAnyObjectByType."
+  },
+  {
+    id: "find-object-of-type",
+    match: "FindObjectOfType",
+    replacement: "FindFirstObjectByType",
+    kind: "method",
+    since: "2023.1",
+    message: "FindObjectOfType is obsolete; use FindFirstObjectByType."
+  }
+];
+var MAX_FINDINGS = 1000;
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+function defaultPatternsPath() {
+  const here = dirname3(fileURLToPath2(import.meta.url));
+  return join7(here, "..", "..", "context", "unity", "deprecated-patterns.json");
+}
+function loadDeprecatedPatterns(overridePath) {
+  const path = overridePath ?? defaultPatternsPath();
+  const data = readJson(path);
+  if (data && Array.isArray(data.patterns) && data.patterns.length > 0) {
+    return { patterns: data.patterns, source: "bundle", path };
+  }
+  return { patterns: FALLBACK_DEPRECATED_PATTERNS, source: "embedded-fallback", path: null };
+}
+function produceDeprecationScan(input, patternsPath) {
+  const { patterns, source, path } = loadDeprecatedPatterns(patternsPath);
+  const errors = [];
+  const sorted = [...patterns].sort((a, b) => b.match.length - a.match.length);
+  const findings = [];
+  const byPattern = {};
+  let truncated = false;
+  const files = walkFiles(input.assetFolder, (name) => name.toLowerCase().endsWith(".cs"));
+  outer:
+    for (const file of files) {
+      const text = readText(file);
+      if (!text)
+        continue;
+      const lines = text.split(/\r?\n/);
+      for (let index = 0;index < lines.length; index++) {
+        const line = lines[index];
+        const taken = [];
+        for (const pattern of sorted) {
+          const re = new RegExp(`\\b${escapeRegExp(pattern.match)}\\b`, "g");
+          let match;
+          while (match = re.exec(line)) {
+            const start = match.index;
+            const end = start + match[0].length;
+            if (taken.some(([s, e]) => start < e && end > s))
+              continue;
+            taken.push([start, end]);
+            if (findings.length >= MAX_FINDINGS) {
+              truncated = true;
+              break outer;
+            }
+            findings.push({
+              patternId: pattern.id,
+              match: pattern.match,
+              replacement: pattern.replacement,
+              file: toPosix(relative(input.projectRoot, file)),
+              line: index + 1,
+              text: line.trim()
+            });
+            byPattern[pattern.match] = (byPattern[pattern.match] ?? 0) + 1;
+          }
+        }
+      }
+    }
+  const status = dirExists(input.assetFolder) ? "observed_locally" : "unknown";
+  return {
+    ...base(status, errors),
+    patternsLoaded: patterns.length,
+    patternsSource: source,
+    patternsPath: path ? toPosix(path) : null,
+    scannedFiles: files.length,
+    findingCount: findings.length,
+    truncated,
+    byPattern,
+    findings
+  };
+}
+
 // tools/unity/gather-unity-context/src/structure.ts
-import { readdirSync, readFileSync as readFileSync2 } from "node:fs";
-import { extname, join as join7, relative, sep } from "node:path";
+import { readdirSync as readdirSync2, readFileSync as readFileSync2 } from "node:fs";
+import { extname, join as join8, relative as relative2, sep as sep2 } from "node:path";
 
 // tools/unity/project-scan/src/asset-folder.ts
 var EXCLUDE_FOLDERS = ["Packages", "Plugins", "Library", "Text Mesh Pro", "ThirdParty"];
@@ -549,11 +1235,11 @@ var CATEGORY_BY_EXT = {
   bundle: "nativeLibraries",
   framework: "nativeLibraries"
 };
-function toPosix(path) {
-  return path.split(sep).join("/");
+function toPosix2(path) {
+  return path.split(sep2).join("/");
 }
 function hasEditorSegment(relPath) {
-  return toPosix(relPath).split("/").some((segment) => segment.toLowerCase() === "editor");
+  return toPosix2(relPath).split("/").some((segment) => segment.toLowerCase() === "editor");
 }
 function isSpriteMeta(metaPath) {
   try {
@@ -573,14 +1259,14 @@ async function discoverProjectStructure(input) {
   const walk = (dir) => {
     let entries;
     try {
-      entries = readdirSync(dir, { withFileTypes: true });
+      entries = readdirSync2(dir, { withFileTypes: true });
     } catch {
       return;
     }
     for (const entry of entries) {
       if (entry.name.startsWith("."))
         continue;
-      const full = join7(dir, entry.name);
+      const full = join8(dir, entry.name);
       if (entry.isDirectory()) {
         if (isExcludedFolder(entry.name))
           continue;
@@ -590,8 +1276,8 @@ async function discoverProjectStructure(input) {
       if (!entry.isFile())
         continue;
       const ext = extname(entry.name).slice(1).toLowerCase();
-      const rel = toPosix(relative(projectRoot, full));
-      const relFromAsset = toPosix(relative(assetFolder, full));
+      const rel = toPosix2(relative2(projectRoot, full));
+      const relFromAsset = toPosix2(relative2(assetFolder, full));
       if (ext === "cs") {
         add(hasEditorSegment(relFromAsset) ? "editorScripts" : "runtimeScripts", rel);
       } else {
@@ -610,7 +1296,7 @@ async function discoverProjectStructure(input) {
   walk(assetFolder);
   const thirdPartyFolders = (() => {
     try {
-      return readdirSync(assetFolder, { withFileTypes: true }).filter((e) => e.isDirectory() && EXCLUDE_FOLDERS.some((f) => f.toLowerCase() === e.name.toLowerCase())).map((e) => toPosix(join7(relative(projectRoot, assetFolder), e.name)));
+      return readdirSync2(assetFolder, { withFileTypes: true }).filter((e) => e.isDirectory() && EXCLUDE_FOLDERS.some((f) => f.toLowerCase() === e.name.toLowerCase())).map((e) => toPosix2(join8(relative2(projectRoot, assetFolder), e.name)));
     } catch {
       return [];
     }
@@ -623,7 +1309,7 @@ async function discoverProjectStructure(input) {
     schemaVersion: 1,
     generatedAt: nowIso(),
     projectName,
-    assetFolder: toPosix(relative(projectRoot, assetFolder)),
+    assetFolder: toPosix2(relative2(projectRoot, assetFolder)),
     baseFolder,
     baseFolderConfident,
     counts,
@@ -632,7 +1318,7 @@ async function discoverProjectStructure(input) {
   };
 }
 async function resolveBaseFolder(projectRoot, assetFolder, topLevelCounts, total, prompts) {
-  const assetRel = toPosix(relative(projectRoot, assetFolder)) || "Assets";
+  const assetRel = toPosix2(relative2(projectRoot, assetFolder)) || "Assets";
   const ranked = Object.entries(topLevelCounts).sort((a, b) => b[1] - a[1]);
   const rootCount = topLevelCounts["."] ?? 0;
   if (total === 0)
@@ -677,9 +1363,9 @@ async function main() {
     clearScratch(options.scratchDir);
   else
     ensureScratch(options.scratchDir);
-  const scan = readJson(join8(options.projectDataDir, "scan-result.json"));
-  const projectName = scan?.projectName || basename(options.projectRoot);
-  const assetFolder = scan?.assetFolder || join8(options.projectRoot, "Assets");
+  const scan = readJson(join9(options.projectDataDir, "scan-result.json"));
+  const projectName = scan?.projectName || basename2(options.projectRoot);
+  const assetFolder = scan?.assetFolder || join9(options.projectRoot, "Assets");
   const foundProject = scan?.foundProject ?? dirExists(assetFolder);
   const toolchain = probeToolchain(options.projectRoot, options.cliCommand);
   let editorInstance = null;
@@ -704,6 +1390,17 @@ async function main() {
     const fpInputs = fingerprintInputs(options.projectRoot, projectName);
     const fingerprint = fingerprintOf(fpInputs);
     const gate = runGate(options, editorInstance);
+    const offlineInput = {
+      projectRoot: options.projectRoot,
+      assetFolder,
+      opencodeDir: options.opencodeDir
+    };
+    const compileState = produceCompileState(offlineInput);
+    const logDigest = produceLogDigest(offlineInput);
+    const projectSettings = produceProjectSettings(offlineInput);
+    const asmdefMap = produceAsmdefMap(offlineInput);
+    const testInventory = produceTestInventory(offlineInput);
+    const deprecationScan = produceDeprecationScan(offlineInput);
     const hardFailures = (gate.editMode?.status === "failed" ? 1 : 0) + (gate.playMode?.status === "failed" ? 1 : 0);
     const verificationReport = {
       schemaVersion: 1,
@@ -740,13 +1437,19 @@ async function main() {
       reviewRequired: 0,
       hardFailures
     };
-    writeJson(join8(options.projectDataDir, "project-structure.json"), structure);
-    writeJson(join8(options.projectDataDir, "unity-command-list.json"), commandList);
-    writeJson(join8(options.projectDataDir, "unity-command-schema.json"), commandSchema);
-    writeJson(join8(options.projectDataDir, "unity-pipeline-status.json"), pipeline);
-    writeJson(join8(options.projectDataDir, "unity-mcp-status.json"), mcp);
-    writeJson(join8(options.projectDataDir, "unity-verification-report.json"), verificationReport);
-    writeJson(join8(options.projectDataDir, "gate-state.json"), gateState);
+    writeJson(join9(options.projectDataDir, "project-structure.json"), structure);
+    writeJson(join9(options.projectDataDir, "unity-command-list.json"), commandList);
+    writeJson(join9(options.projectDataDir, "unity-command-schema.json"), commandSchema);
+    writeJson(join9(options.projectDataDir, "unity-pipeline-status.json"), pipeline);
+    writeJson(join9(options.projectDataDir, "unity-mcp-status.json"), mcp);
+    writeJson(join9(options.projectDataDir, "unity-verification-report.json"), verificationReport);
+    writeJson(join9(options.projectDataDir, "gate-state.json"), gateState);
+    writeJson(join9(options.projectDataDir, "compile-state.json"), compileState);
+    writeJson(join9(options.projectDataDir, "log-digest.json"), logDigest);
+    writeJson(join9(options.projectDataDir, "project-settings.json"), projectSettings);
+    writeJson(join9(options.projectDataDir, "asmdef-map.json"), asmdefMap);
+    writeJson(join9(options.projectDataDir, "test-inventory.json"), testInventory);
+    writeJson(join9(options.projectDataDir, "deprecation-scan.json"), deprecationScan);
     const summary = {
       generatedAt: nowIso(),
       projectName,
@@ -762,13 +1465,19 @@ async function main() {
       cancelled: prompts.isCancelled(),
       paths: {
         projectDataDir: options.projectDataDir,
-        projectStructure: join8(options.projectDataDir, "project-structure.json"),
-        commandList: join8(options.projectDataDir, "unity-command-list.json"),
-        commandSchema: join8(options.projectDataDir, "unity-command-schema.json"),
-        pipelineStatus: join8(options.projectDataDir, "unity-pipeline-status.json"),
-        mcpStatus: join8(options.projectDataDir, "unity-mcp-status.json"),
-        verificationReport: join8(options.projectDataDir, "unity-verification-report.json"),
-        gateState: join8(options.projectDataDir, "gate-state.json")
+        projectStructure: join9(options.projectDataDir, "project-structure.json"),
+        commandList: join9(options.projectDataDir, "unity-command-list.json"),
+        commandSchema: join9(options.projectDataDir, "unity-command-schema.json"),
+        pipelineStatus: join9(options.projectDataDir, "unity-pipeline-status.json"),
+        mcpStatus: join9(options.projectDataDir, "unity-mcp-status.json"),
+        verificationReport: join9(options.projectDataDir, "unity-verification-report.json"),
+        gateState: join9(options.projectDataDir, "gate-state.json"),
+        compileState: join9(options.projectDataDir, "compile-state.json"),
+        logDigest: join9(options.projectDataDir, "log-digest.json"),
+        projectSettings: join9(options.projectDataDir, "project-settings.json"),
+        asmdefMap: join9(options.projectDataDir, "asmdef-map.json"),
+        testInventory: join9(options.projectDataDir, "test-inventory.json"),
+        deprecationScan: join9(options.projectDataDir, "deprecation-scan.json")
       }
     };
     process.stdout.write(JSON.stringify(summary, null, 2) + `
