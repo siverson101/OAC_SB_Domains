@@ -37,7 +37,7 @@ this. All ability, command, and tool references below are kebab-case.
 | 6 | Knowledge & building blocks — knowledge, snippets, primitives, pattern toggles | Planned |
 | 7 | Agents & coordination — Lean + Full Studio, selection, coordination board | Planned |
 | 8 | Testing & gates — gate/verify, TDD toggle, test plans, dedup, visual | Planned |
-| 9 | Workflows & change loop — recipes, change loop, prefab/scene, runtime bridge | Planned |
+| 9 | Workflows & change loop — recipes, change loop, prefab/scene, Unity CLI runtime | Planned |
 
 ---
 
