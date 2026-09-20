@@ -33,6 +33,13 @@ function isType(value: unknown, type: string, property: ContractPropertySchema):
   return true;
 }
 
+// Deliberately small JSON-Schema subset: top-level `required` presence,
+// top-level `enum` membership, top-level scalar `type` (string/number/
+// boolean/object) and `array`, plus `items.type === 'string'` element checks.
+// It does NOT recurse into nested `properties`, does not support `oneOf`
+// (the capability contract schema uses none), and does not enforce
+// `additionalProperties`, `pattern`, or numeric bounds. Nested objects are
+// type-checked as a whole but their members are not validated.
 export function validateContract(data: Record<string, unknown>, schema: ContractSchema): ContractValidation {
   const errors: string[] = [];
 

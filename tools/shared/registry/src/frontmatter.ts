@@ -130,6 +130,10 @@ function parseInlineValue(rest: string): FrontmatterValue {
   const trimmed = rest.trim();
   if (trimmed.startsWith('[')) return parseFlowArray(trimmed);
   if (trimmed.startsWith('{')) return parseFlowObject(trimmed);
+  const scalar = tryParseJson(trimmed);
+  if (scalar !== undefined && (typeof scalar !== 'object' || scalar === null)) {
+    return scalar as FrontmatterValue;
+  }
   return stripQuotes(trimmed);
 }
 
@@ -152,7 +156,13 @@ function readBlock(lines: string[], start: number): { value: FrontmatterValue; n
     i++;
   }
 
-  const trimmed = collected.map((line) => line.trim()).filter((line) => line !== '');
+  // Comment lines are ignored when deciding the block kind and when building
+  // the object/array. Limitation: blocks are shallow — no nested blocks, and
+  // a block that is neither a sequence nor a flat mapping falls back to its
+  // raw string lines (flow syntax inside a single line still parses).
+  const trimmed = collected
+    .map((line) => line.trim())
+    .filter((line) => line !== '' && !line.startsWith('#'));
   if (trimmed.length > 0 && trimmed.every((line) => line.startsWith('-'))) {
     return { value: trimmed.map((line) => parseInlineValue(line.replace(/^-\s*/, ''))), nextIndex: i };
   }
@@ -212,9 +222,11 @@ export function frontmatterString(fm: Frontmatter, key: string): string | undefi
   return typeof value === 'string' ? value : undefined;
 }
 
+// An absent key or a non-array value yields `undefined`. A mixed array keeps
+// its string entries and drops the rest, so `[unity-read-project, 3]` returns
+// `['unity-read-project']` rather than silently discarding the valid ids.
 export function frontmatterStringArray(fm: Frontmatter, key: string): string[] | undefined {
   const value = fm[key];
-  return Array.isArray(value) && value.every((item) => typeof item === 'string')
-    ? (value as string[])
-    : undefined;
+  if (!Array.isArray(value)) return undefined;
+  return value.filter((item): item is string => typeof item === 'string');
 }

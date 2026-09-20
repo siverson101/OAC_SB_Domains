@@ -67,6 +67,7 @@ export interface Registry {
   tools: RegistryEntry[];
   scripts: RegistryEntry[];
   edges: RegistryEdge[];
+  warnings: string[];
   studioConfig: RegistryStudioConfig;
   projections: { outputDir: string | null; outputs: { file: string; title: string; consumedBy: string[] }[] };
 }
@@ -305,9 +306,29 @@ export function buildRegistry(domainDir: string, generatedAt: string, opencodeDi
     return { file: output.file, title: output.title ?? output.file, consumedBy };
   });
 
+  const knownAbilities = new Set(manifest.abilities ?? []);
+  const knownAgents = new Set(
+    [...(manifest.agents ?? []), ...(manifest.subagents ?? [])].map((rel) => basename(rel, '.md'))
+  );
+
+  const warnings: string[] = [];
   const edges: RegistryEdge[] = [];
+  const seenEdges = new Set<string>();
   const addEdges = (type: RegistryEdgeType, from: string, tos: string[]): void => {
-    for (const to of tos) edges.push({ type, from, to });
+    for (const to of tos) {
+      const key = `${type}\u0000${from}\u0000${to}`;
+      if (seenEdges.has(key)) continue;
+      seenEdges.add(key);
+      if ((type === 'agent-ability' || type === 'workflow-ability') && !knownAbilities.has(to)) {
+        warnings.push(`edge ${type} ${from} -> ${to}: unknown ability`);
+        continue;
+      }
+      if (type === 'workflow-agent' && !knownAgents.has(to)) {
+        warnings.push(`edge ${type} ${from} -> ${to}: unknown agent`);
+        continue;
+      }
+      edges.push({ type, from, to });
+    }
   };
 
   for (const rel of [...(manifest.agents ?? []), ...(manifest.subagents ?? [])]) {
@@ -321,6 +342,15 @@ export function buildRegistry(domainDir: string, generatedAt: string, opencodeDi
     addEdges('workflow-agent', workflow.id, frontmatterStringArray(fm, 'agents') ?? []);
   }
 
+  // Deterministic order (type, from, to) so reordering `sb-domain.json` or a
+  // frontmatter list does not churn the rendered registry.md.
+  edges.sort((a, b) => {
+    if (a.type !== b.type) return a.type < b.type ? -1 : 1;
+    if (a.from !== b.from) return a.from < b.from ? -1 : 1;
+    if (a.to !== b.to) return a.to < b.to ? -1 : 1;
+    return 0;
+  });
+
   const counts = {
     agents: agents.length,
     subagents: subagents.length,
@@ -333,6 +363,7 @@ export function buildRegistry(domainDir: string, generatedAt: string, opencodeDi
     tools: tools.length,
     scripts: scripts.length,
     edges: edges.length,
+    warnings: warnings.length,
     studioPatterns: studioConfig.patterns.length,
   };
 
@@ -355,6 +386,7 @@ export function buildRegistry(domainDir: string, generatedAt: string, opencodeDi
     tools,
     scripts,
     edges,
+    warnings,
     studioConfig,
     projections: { outputDir: projections.outputDir ?? null, outputs },
   };

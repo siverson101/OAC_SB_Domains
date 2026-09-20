@@ -361,6 +361,10 @@ function parseInlineValue(rest) {
     return parseFlowArray(trimmed);
   if (trimmed.startsWith("{"))
     return parseFlowObject(trimmed);
+  const scalar = tryParseJson(trimmed);
+  if (scalar !== undefined && (typeof scalar !== "object" || scalar === null)) {
+    return scalar;
+  }
   return stripQuotes(trimmed);
 }
 function readBlock(lines, start) {
@@ -383,7 +387,7 @@ function readBlock(lines, start) {
     collected.push(line);
     i++;
   }
-  const trimmed = collected.map((line) => line.trim()).filter((line) => line !== "");
+  const trimmed = collected.map((line) => line.trim()).filter((line) => line !== "" && !line.startsWith("#"));
   if (trimmed.length > 0 && trimmed.every((line) => line.startsWith("-"))) {
     return { value: trimmed.map((line) => parseInlineValue(line.replace(/^-\s*/, ""))), nextIndex: i };
   }

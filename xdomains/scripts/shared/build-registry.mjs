@@ -447,6 +447,10 @@ function parseInlineValue(rest) {
     return parseFlowArray(trimmed);
   if (trimmed.startsWith("{"))
     return parseFlowObject(trimmed);
+  const scalar = tryParseJson(trimmed);
+  if (scalar !== undefined && (typeof scalar !== "object" || scalar === null)) {
+    return scalar;
+  }
   return stripQuotes(trimmed);
 }
 function readBlock(lines, start) {
@@ -469,7 +473,7 @@ function readBlock(lines, start) {
     collected.push(line);
     i++;
   }
-  const trimmed = collected.map((line) => line.trim()).filter((line) => line !== "");
+  const trimmed = collected.map((line) => line.trim()).filter((line) => line !== "" && !line.startsWith("#"));
   if (trimmed.length > 0 && trimmed.every((line) => line.startsWith("-"))) {
     return { value: trimmed.map((line) => parseInlineValue(line.replace(/^-\s*/, ""))), nextIndex: i };
   }
@@ -529,7 +533,9 @@ function frontmatterString(fm, key) {
 }
 function frontmatterStringArray(fm, key) {
   const value = fm[key];
-  return Array.isArray(value) && value.every((item) => typeof item === "string") ? value : undefined;
+  if (!Array.isArray(value))
+    return;
+  return value.filter((item) => typeof item === "string");
 }
 
 // tools/shared/registry/src/build.ts
@@ -684,10 +690,27 @@ function buildRegistry(domainDir, generatedAt, opencodeDir) {
     const consumedBy = Object.entries(consumers).filter(([, files]) => files.includes(output.file)).map(([consumer]) => consumer);
     return { file: output.file, title: output.title ?? output.file, consumedBy };
   });
+  const knownAbilities = new Set(manifest.abilities ?? []);
+  const knownAgents = new Set([...manifest.agents ?? [], ...manifest.subagents ?? []].map((rel) => basename(rel, ".md")));
+  const warnings = [];
   const edges = [];
+  const seenEdges = new Set;
   const addEdges = (type, from, tos) => {
-    for (const to of tos)
+    for (const to of tos) {
+      const key = `${type}\x00${from}\x00${to}`;
+      if (seenEdges.has(key))
+        continue;
+      seenEdges.add(key);
+      if ((type === "agent-ability" || type === "workflow-ability") && !knownAbilities.has(to)) {
+        warnings.push(`edge ${type} ${from} -> ${to}: unknown ability`);
+        continue;
+      }
+      if (type === "workflow-agent" && !knownAgents.has(to)) {
+        warnings.push(`edge ${type} ${from} -> ${to}: unknown agent`);
+        continue;
+      }
       edges.push({ type, from, to });
+    }
   };
   for (const rel of [...manifest.agents ?? [], ...manifest.subagents ?? []]) {
     const fm = readFrontmatter(join2(domainDir, rel));
@@ -698,6 +721,15 @@ function buildRegistry(domainDir, generatedAt, opencodeDir) {
     addEdges("workflow-ability", workflow.id, frontmatterStringArray(fm, "abilities") ?? []);
     addEdges("workflow-agent", workflow.id, frontmatterStringArray(fm, "agents") ?? []);
   }
+  edges.sort((a, b) => {
+    if (a.type !== b.type)
+      return a.type < b.type ? -1 : 1;
+    if (a.from !== b.from)
+      return a.from < b.from ? -1 : 1;
+    if (a.to !== b.to)
+      return a.to < b.to ? -1 : 1;
+    return 0;
+  });
   const counts = {
     agents: agents.length,
     subagents: subagents.length,
@@ -710,6 +742,7 @@ function buildRegistry(domainDir, generatedAt, opencodeDir) {
     tools: tools.length,
     scripts: scripts.length,
     edges: edges.length,
+    warnings: warnings.length,
     studioPatterns: studioConfig.patterns.length
   };
   return {
@@ -731,6 +764,7 @@ function buildRegistry(domainDir, generatedAt, opencodeDir) {
     tools,
     scripts,
     edges,
+    warnings,
     studioConfig,
     projections: { outputDir: projections.outputDir ?? null, outputs }
   };
@@ -805,6 +839,15 @@ function edgesSection(lines, edges) {
     lines.push("");
   }
 }
+function warningsSection(lines, warnings) {
+  if (warnings.length === 0)
+    return;
+  lines.push("## Warnings");
+  lines.push("");
+  for (const warning of warnings)
+    lines.push(`- ${warning}`);
+  lines.push("");
+}
 function renderRegistry(registry) {
   const lines = [];
   const date = registry.generatedAt.slice(0, 10);
@@ -839,6 +882,7 @@ function renderRegistry(registry) {
   section(lines, "Tools", registry.tools, { layer: true });
   section(lines, "Scripts", registry.scripts);
   edgesSection(lines, registry.edges);
+  warningsSection(lines, registry.warnings);
   if (registry.projections.outputs.length > 0) {
     lines.push("## Projected Context");
     lines.push("");

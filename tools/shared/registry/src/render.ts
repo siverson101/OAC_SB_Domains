@@ -71,6 +71,14 @@ function edgesSection(lines: string[], edges: RegistryEdge[]): void {
   }
 }
 
+function warningsSection(lines: string[], warnings: string[]): void {
+  if (warnings.length === 0) return;
+  lines.push('## Warnings');
+  lines.push('');
+  for (const warning of warnings) lines.push(`- ${warning}`);
+  lines.push('');
+}
+
 export function renderRegistry(registry: Registry): string {
   const lines: string[] = [];
   const date = registry.generatedAt.slice(0, 10);
@@ -107,6 +115,8 @@ export function renderRegistry(registry: Registry): string {
   section(lines, 'Scripts', registry.scripts);
 
   edgesSection(lines, registry.edges);
+
+  warningsSection(lines, registry.warnings);
 
   if (registry.projections.outputs.length > 0) {
     lines.push('## Projected Context');
