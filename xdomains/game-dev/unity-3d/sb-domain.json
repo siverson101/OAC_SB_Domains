@@ -54,7 +54,13 @@
     "offline-project-inspection",
     "unity-api-lookup",
     "platform-info",
-    "code-navigation"
+    "code-navigation",
+    "scene-editing",
+    "prefab-automation",
+    "script-scaffolding",
+    "shader-helper",
+    "pattern-library",
+    "input-automation"
   ],
     "skills": [],
     "tools": [
