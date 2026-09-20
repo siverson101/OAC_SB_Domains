@@ -260,6 +260,7 @@ function runCli(cliCommand, args, timeout = 30000) {
   return {
     success: parsed?.success === true && res.ok,
     command: parsed?.command,
+    route: parsed ? "batch" : "offline",
     data: parsed?.data ?? null,
     errors: parsed?.errors ?? (res.ok ? [] : [{ message: res.stderr || res.stdout || `exit ${res.status}` }]),
     warnings: parsed?.warnings ?? [],

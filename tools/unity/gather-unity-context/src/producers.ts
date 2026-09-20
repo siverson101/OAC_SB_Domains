@@ -15,6 +15,7 @@ export function runCli(cliCommand: string, args: string[], timeout = 30000): Cli
   return {
     success: parsed?.success === true && res.ok,
     command: parsed?.command,
+    route: parsed ? 'batch' : 'offline',
     data: (parsed?.data as never) ?? null,
     errors: (parsed?.errors as { code?: string; message?: string }[]) ?? (res.ok ? [] : [{ message: res.stderr || res.stdout || `exit ${res.status}` }]),
     warnings: (parsed?.warnings as string[]) ?? [],
