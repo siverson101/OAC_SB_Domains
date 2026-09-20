@@ -64,7 +64,12 @@
     "compile-and-verify-project",
     "run-edit-mode-tests",
     "run-play-mode-tests",
-    "gate-review"
+    "gate-review",
+    "unity-change-loop",
+    "runtime-debugging",
+    "runtime-ui-validation",
+    "performance-diagnostics",
+    "uitk-interaction"
   ],
     "skills": [],
     "tools": [
