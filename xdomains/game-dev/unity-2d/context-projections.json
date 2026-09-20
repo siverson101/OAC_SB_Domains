@@ -123,7 +123,7 @@
       "title": "Project Settings",
       "priority": "high",
       "sources": [
-        { "file": "project-settings.json", "fields": ["status", "productName", "companyName", "scriptingBackend", "il2cpp", "targetPlatform", "colorSpace", "graphicsApis", "persistentDataPath", "activeInputHandler", "activeInputHandlerName"] }
+        { "file": "project-settings.json", "fields": ["status", "editorVersion", "editorVersionWithRevision", "productName", "companyName", "scriptingBackend", "il2cpp", "targetPlatform", "colorSpace", "graphicsApis", "persistentDataPath", "activeInputHandler", "activeInputHandlerName"] }
       ]
     },
     {

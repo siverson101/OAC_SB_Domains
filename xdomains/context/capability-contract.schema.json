@@ -91,11 +91,18 @@
       "description": "Side effects (e.g. writes, mutations) the capability performs."
     },
     "safetyGate": {
-      "oneOf": [
-        { "type": "string" },
-        { "type": "object", "additionalProperties": true }
-      ],
-      "description": "Approval or safety gate that must be satisfied before the capability runs."
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mutates": { "type": "boolean" },
+        "requiresEditor": { "type": "boolean" },
+        "requiresApproval": { "type": "boolean" },
+        "dryRunFirst": { "type": "boolean" },
+        "advisory": { "type": "boolean" },
+        "writesState": { "type": "boolean" },
+        "approved": { "type": "boolean" }
+      },
+      "description": "Approval or safety gate. The six declared flags (mutates, requiresEditor, requiresApproval, dryRunFirst, advisory, writesState) are optional; an absent flag means 'not declared' and must be treated as false (never 'unknown'). writesState records that the capability persists state under .opencode/ even when it does not mutate project assets (mutates stays false). Runtime envelopes additionally carry `approved`: the gate has been satisfied (approval granted / Editor available), so the same key set covers both declarations and emitted results."
     },
     "versionCompatibility": {
       "type": "object",

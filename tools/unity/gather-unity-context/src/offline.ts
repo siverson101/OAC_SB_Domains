@@ -9,7 +9,7 @@ import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { dirExists, nowIso, readJson, readText, toPosix, unique } from '../../../shared/io';
-import { activeInputHandler } from '../../../shared/toolchain';
+import { activeInputHandler, editorVersionInfo } from '../../../shared/toolchain';
 import { selectRoute, type Route } from '../../../shared/tool-routing';
 import { parseNUnit, type TestCounts } from './gate';
 
@@ -122,6 +122,9 @@ export interface CompileState extends OfflineBase {
   newestAssembly: { name: string; mtimeUtc: string } | null;
   newestScript: { path: string; mtimeUtc: string } | null;
   stale: boolean | null;
+  // Why `stale` is not determinable (null). Null when there is enough evidence
+  // to answer, so a `null` stale is never mistaken for "fresh".
+  staleReason: string | null;
   noOpRecompile: boolean | null;
   editorLogAuthorship: EditorLogAuthorship | null;
 }
@@ -210,14 +213,25 @@ export function produceCompileState(input: OfflineInput, logPaths: string[] = ed
   // produced no new assembly (assemblies exist, a script is newer, and the
   // Editor log records a compile); otherwise it is not determinable.
   let stale: boolean | null = null;
+  let staleReason: string | null = null;
   let noOpRecompile: boolean | null = null;
   if (newestAssembly && newestScript) {
     stale = newestScript.mtimeUtc > newestAssembly.mtimeUtc;
-    noOpRecompile = stale && recentCompile ? true : null;
-  } else if (newestAssembly && !newestScript) {
-    stale = false;
+    if (stale) {
+      noOpRecompile = recentCompile ? true : null;
+      // Stale, but the Editor log carries no compile line: the no-op cannot be
+      // confirmed, so the state explains itself rather than leaving both fields
+      // null and looking "fresh".
+      if (!recentCompile) staleReason = 'stale; no compile evidence in Editor.log';
+    }
   } else if (!newestAssembly && newestScript) {
     stale = true;
+  } else if (newestAssembly && !newestScript) {
+    // Assemblies exist but there is no script evidence, so freshness cannot be
+    // determined: report null with a reason instead of a false "fresh".
+    staleReason = 'no .cs script evidence under Assets; staleness not determinable';
+  } else {
+    staleReason = 'no assemblies and no script evidence; staleness not determinable';
   }
 
   const status: OfflineStatus = libraryPresent ? 'observed_locally' : 'unavailable';
@@ -230,6 +244,7 @@ export function produceCompileState(input: OfflineInput, logPaths: string[] = ed
     newestAssembly,
     newestScript,
     stale,
+    staleReason,
     noOpRecompile,
     editorLogAuthorship,
   };
@@ -338,6 +353,8 @@ export function produceLogDigest(input: OfflineInput, logPaths: string[] = edito
 
 export interface ProjectSettings extends OfflineBase {
   settingsPath: string;
+  editorVersion: string | null;
+  editorVersionWithRevision: string | null;
   productName: string | null;
   companyName: string | null;
   scriptingBackend: Record<string, string>;
@@ -454,11 +471,14 @@ export function produceProjectSettings(input: OfflineInput): ProjectSettings {
   const errors: string[] = [];
   const settingsPath = join(input.projectRoot, 'ProjectSettings', 'ProjectSettings.asset');
   const text = readText(settingsPath);
+  const editor = editorVersionInfo(input.projectRoot);
 
   if (!text) {
     return {
       ...makeBase('unavailable', errors),
       settingsPath: toPosix(relative(input.projectRoot, settingsPath)),
+      editorVersion: editor.version,
+      editorVersionWithRevision: editor.revision,
       productName: null,
       companyName: null,
       scriptingBackend: {},
@@ -518,6 +538,8 @@ export function produceProjectSettings(input: OfflineInput): ProjectSettings {
   return {
     ...makeBase('observed_locally', errors),
     settingsPath: toPosix(relative(input.projectRoot, settingsPath)),
+    editorVersion: editor.version,
+    editorVersionWithRevision: editor.revision,
     productName,
     companyName,
     scriptingBackend,

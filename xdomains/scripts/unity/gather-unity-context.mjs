@@ -158,12 +158,16 @@ function findExecutable(name) {
 function stripAnsi(text) {
   return text.replace(/\u001b\[[0-9;]*m/g, "");
 }
-function unityVersionFromFile(projectRoot) {
+function editorVersionInfo(projectRoot) {
   const text = readText(join2(projectRoot, "ProjectSettings", "ProjectVersion.txt"));
   if (!text)
-    return null;
-  const match = text.match(/m_EditorVersion:\s*(\S+)/);
-  return match ? match[1] : null;
+    return { version: null, revision: null };
+  const version = text.match(/^\s*m_EditorVersion:\s*(\S+)\s*$/m)?.[1] ?? null;
+  const revision = text.match(/^\s*m_EditorVersionWithRevision:\s*\S+\s*\(([0-9a-fA-F]+)\)/m)?.[1] ?? null;
+  return { version, revision };
+}
+function unityVersionFromFile(projectRoot) {
+  return editorVersionInfo(projectRoot).version;
 }
 function activeInputHandler(projectRoot) {
   const text = readText(join2(projectRoot, "ProjectSettings", "ProjectSettings.asset"));
@@ -360,6 +364,9 @@ function inspectMcp(projectRoot, cliCommand) {
 function sleep(ms) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
+function normalizeProject(path) {
+  return toPosix(path).toLowerCase();
+}
 function findLiveInstance(projectRoot, cliCommand) {
   const env = runCli(cliCommand, [
     "status",
@@ -371,7 +378,8 @@ function findLiveInstance(projectRoot, cliCommand) {
     projectRoot
   ]);
   const instances = env.data?.instances ?? [];
-  return instances.find((i) => (i.project ?? "").toLowerCase() === projectRoot.toLowerCase()) ?? null;
+  const target = normalizeProject(projectRoot);
+  return instances.find((i) => normalizeProject(i.project ?? "") === target) ?? null;
 }
 function startEditor(projectRoot, cliCommand, timeoutMs = 300000) {
   run(cliCommand, ["open", projectRoot, "--args", "-automated", "--no-banner", "--quiet", "--non-interactive"], { timeout: 120000 });
@@ -509,24 +517,23 @@ function runBatchTest(options, mode) {
     artifact: output
   };
 }
+function runTestMode(options, mode, instance) {
+  if (instance)
+    return runLiveTest(options, mode);
+  return runBatchTest(options, mode === "editor" ? "EditMode" : "PlayMode");
+}
 function runGate(options, instance) {
   if (!options.runGate) {
     return { status: "not_run", editMode: null, playMode: null, instance: null };
   }
-  if (!instance) {
-    const editMode = runBatchTest(options, "EditMode");
-    const playMode = runBatchTest(options, "PlayMode");
-    const failed = [editMode, playMode].some((r) => r.status === "failed");
-    return { status: failed ? "failed" : "passed", editMode, playMode, instance: null };
-  }
-  const editMode = runLiveTest(options, "editor");
-  const playMode = runLiveTest(options, "playmode");
+  const editMode = runTestMode(options, "editor", instance);
+  const playMode = runTestMode(options, "playmode", instance);
   const failed = [editMode, playMode].some((r) => r.status === "failed");
   return {
     status: failed ? "failed" : "passed",
     editMode,
     playMode,
-    instance: instance.project ?? options.projectRoot
+    instance: instance ? instance.project ?? options.projectRoot : null
   };
 }
 
@@ -663,14 +670,21 @@ function produceCompileState(input, logPaths = editorLogPaths()) {
   const editorLogAuthorship = readEditorLogAuthorship(logPaths);
   const recentCompile = editorLogAuthorship?.lastCompileLine != null;
   let stale = null;
+  let staleReason = null;
   let noOpRecompile = null;
   if (newestAssembly && newestScript) {
     stale = newestScript.mtimeUtc > newestAssembly.mtimeUtc;
-    noOpRecompile = stale && recentCompile ? true : null;
-  } else if (newestAssembly && !newestScript) {
-    stale = false;
+    if (stale) {
+      noOpRecompile = recentCompile ? true : null;
+      if (!recentCompile)
+        staleReason = "stale; no compile evidence in Editor.log";
+    }
   } else if (!newestAssembly && newestScript) {
     stale = true;
+  } else if (newestAssembly && !newestScript) {
+    staleReason = "no .cs script evidence under Assets; staleness not determinable";
+  } else {
+    staleReason = "no assemblies and no script evidence; staleness not determinable";
   }
   const status = libraryPresent ? "observed_locally" : "unavailable";
   return {
@@ -682,6 +696,7 @@ function produceCompileState(input, logPaths = editorLogPaths()) {
     newestAssembly,
     newestScript,
     stale,
+    staleReason,
     noOpRecompile,
     editorLogAuthorship
   };
@@ -854,10 +869,13 @@ function produceProjectSettings(input) {
   const errors = [];
   const settingsPath = join7(input.projectRoot, "ProjectSettings", "ProjectSettings.asset");
   const text = readText(settingsPath);
+  const editor = editorVersionInfo(input.projectRoot);
   if (!text) {
     return {
       ...makeBase("unavailable", errors),
       settingsPath: toPosix(relative(input.projectRoot, settingsPath)),
+      editorVersion: editor.version,
+      editorVersionWithRevision: editor.revision,
       productName: null,
       companyName: null,
       scriptingBackend: {},
@@ -908,6 +926,8 @@ function produceProjectSettings(input) {
   return {
     ...makeBase("observed_locally", errors),
     settingsPath: toPosix(relative(input.projectRoot, settingsPath)),
+    editorVersion: editor.version,
+    editorVersionWithRevision: editor.revision,
     productName,
     companyName,
     scriptingBackend,

@@ -82,6 +82,10 @@ beforeAll(() => {
     ].join('\n')
   );
   write(join(root, 'ProjectSettings', 'EditorUserBuildSettings.asset'), '  m_ActiveBuildTarget: StandaloneWindows64\n');
+  write(
+    join(root, 'ProjectSettings', 'ProjectVersion.txt'),
+    'm_EditorVersion: 6000.1.3f1\nm_EditorVersionWithRevision: 6000.1.3f1 (f34db9734971)\n'
+  );
 
   const dll = join(root, 'Library', 'ScriptAssemblies', 'Assembly-CSharp.dll');
   write(dll, 'dll');
@@ -152,6 +156,30 @@ describe('compile-state producer', () => {
     touch(script, '2026-01-01T00:00:00.000Z');
   });
 
+  test('explains a stale state that has no compile evidence', () => {
+    const script = join(input.projectRoot, 'Assets', '_Project', 'Legacy.cs');
+    touch(script, '2026-02-01T00:00:00.000Z');
+    const result = produceCompileState(input, [join(fixture, 'missing-Editor.log')]);
+    expect(result.stale).toBe(true);
+    expect(result.noOpRecompile).toBeNull();
+    expect(result.staleReason).toContain('no compile evidence');
+    touch(script, '2026-01-01T00:00:00.000Z');
+  });
+
+  test('reports stale as not determinable without script evidence', () => {
+    const root = join(fixture, 'compile-no-scripts');
+    write(join(root, 'Library', 'ScriptAssemblies', 'Game.dll'), 'dll');
+    const result = produceCompileState(
+      { projectRoot: root, assetFolder: join(root, 'Assets') },
+      [join(fixture, 'missing-Editor.log')]
+    );
+    expect(result.status).toBe('observed_locally');
+    expect(result.newestAssembly?.name).toBe('Game.dll');
+    expect(result.newestScript).toBeNull();
+    expect(result.stale).toBeNull();
+    expect(result.staleReason).toContain('script');
+  });
+
   test('reports unavailable without a Library folder', () => {
     const result = produceCompileState({ projectRoot: fixture, assetFolder: join(fixture, 'missing') });
     expect(result.status).toBe('unavailable');
@@ -193,6 +221,8 @@ describe('project-settings producer', () => {
   test('parses backend, color space, graphics API and input handler', () => {
     const result = produceProjectSettings(input);
     expect(result.status).toBe('observed_locally');
+    expect(result.editorVersion).toBe('6000.1.3f1');
+    expect(result.editorVersionWithRevision).toBe('f34db9734971');
     expect(result.productName).toBe('FixtureGame');
     expect(result.companyName).toBe('FixtureCo');
     expect(result.il2cpp).toBe(true);
