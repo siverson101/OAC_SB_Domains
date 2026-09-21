@@ -215,6 +215,7 @@ function asRecord(value) {
 // tools/unity/studio-config/src/types.ts
 var STUDIO_MODES = ["lean", "full"];
 var REVIEW_INTENSITIES = ["full", "lean", "solo"];
+var MODEL_TIERS = ["router", "lead", "specialist"];
 var STUDIO_CONFIG_SCHEMA_VERSION = 1;
 var DEFAULT_STUDIO_CONFIG = {
   schemaVersion: STUDIO_CONFIG_SCHEMA_VERSION,
@@ -222,7 +223,8 @@ var DEFAULT_STUDIO_CONFIG = {
   reviewIntensity: "full",
   toggles: { tdd: false, ftf: false },
   patterns: [],
-  packages: []
+  packages: [],
+  modelTiers: {}
 };
 
 // tools/unity/studio-config/src/config.ts
@@ -233,7 +235,8 @@ var KNOWN_KEYS = new Set([
   "reviewIntensity",
   "toggles",
   "patterns",
-  "packages"
+  "packages",
+  "modelTiers"
 ]);
 var KNOWN_TOGGLE_KEYS = new Set(["tdd", "ftf"]);
 function defaultStudioConfig() {
@@ -241,7 +244,8 @@ function defaultStudioConfig() {
     ...DEFAULT_STUDIO_CONFIG,
     toggles: { ...DEFAULT_STUDIO_CONFIG.toggles },
     patterns: [],
-    packages: []
+    packages: [],
+    modelTiers: { ...DEFAULT_STUDIO_CONFIG.modelTiers }
   };
 }
 function parseStringArray(value, field, problems) {
@@ -308,6 +312,35 @@ function parseToggles(value, problems) {
   }
   return toggles;
 }
+function parseModelTiers(value, problems) {
+  const tiers = {};
+  if (value === undefined)
+    return tiers;
+  const record = asRecord(value);
+  if (!record) {
+    problems.push({
+      field: "modelTiers",
+      message: `expected an object mapping ${MODEL_TIERS.join("|")} to a model id`
+    });
+    return tiers;
+  }
+  for (const key of Object.keys(record)) {
+    if (!MODEL_TIERS.includes(key)) {
+      problems.push({ field: `modelTiers.${key}`, message: `unknown tier; expected one of ${MODEL_TIERS.join("|")}` });
+      continue;
+    }
+    const model = record[key];
+    if (typeof model !== "string" || model.trim() === "") {
+      problems.push({
+        field: `modelTiers.${key}`,
+        message: `expected a non-empty model id string, got ${JSON.stringify(model)}`
+      });
+      continue;
+    }
+    tiers[key] = model.trim();
+  }
+  return tiers;
+}
 function parseStudioConfig(value) {
   const problems = [];
   const record = asRecord(value);
@@ -338,7 +371,8 @@ function parseStudioConfig(value) {
     reviewIntensity: parseIntensity(record.reviewIntensity, problems),
     toggles: parseToggles(record.toggles, problems),
     patterns: parseStringArray(record.patterns, "patterns", problems),
-    packages: parseStringArray(record.packages, "packages", problems)
+    packages: parseStringArray(record.packages, "packages", problems),
+    modelTiers: parseModelTiers(record.modelTiers, problems)
   };
   return { config, problems };
 }

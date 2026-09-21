@@ -7,10 +7,19 @@ function escapeCell(value: string | undefined): string {
 
 function entriesTable(
   entries: RegistryEntry[],
-  options: { realised?: boolean; consumes?: boolean; layer?: boolean; standards?: boolean } = {}
+  options: {
+    realised?: boolean;
+    consumes?: boolean;
+    layer?: boolean;
+    standards?: boolean;
+    tier?: boolean;
+    model?: boolean;
+  } = {}
 ): string[] {
   const lines: string[] = [];
   const header = ['Id', 'Name', 'Path', 'Description'];
+  if (options.tier) header.push('Tier');
+  if (options.model) header.push('Model');
   if (options.layer) header.push('Layer');
   if (options.realised) header.push('Realised as');
   if (options.consumes) header.push('Consumes');
@@ -19,6 +28,8 @@ function entriesTable(
   lines.push(`|${header.map(() => '---').join('|')}|`);
   for (const entry of entries) {
     const row = [entry.id, entry.name, `\`${entry.path}\``, escapeCell(entry.description)];
+    if (options.tier) row.push(entry.tier ?? '');
+    if (options.model) row.push(entry.model ?? '');
     if (options.layer) row.push(entry.layer ?? '');
     if (options.realised) row.push(entry.realisedAs ? `\`${entry.realisedAs}\`` : '');
     if (options.consumes) row.push(escapeCell((entry.consumes ?? []).join(', ')));
@@ -32,7 +43,14 @@ function section(
   lines: string[],
   title: string,
   entries: RegistryEntry[],
-  options?: { realised?: boolean; consumes?: boolean; layer?: boolean; standards?: boolean }
+  options?: {
+    realised?: boolean;
+    consumes?: boolean;
+    layer?: boolean;
+    standards?: boolean;
+    tier?: boolean;
+    model?: boolean;
+  }
 ): void {
   if (entries.length === 0) return;
   lines.push(`## ${title}`);
@@ -103,8 +121,8 @@ export function renderRegistry(registry: Registry): string {
 
   studioConfigSection(lines, registry.studioConfig);
 
-  section(lines, 'Agents', registry.agents, { consumes: true });
-  section(lines, 'SubAgents', registry.subagents, { consumes: true });
+  section(lines, 'Agents', registry.agents, { consumes: true, tier: true, model: true });
+  section(lines, 'SubAgents', registry.subagents, { consumes: true, tier: true, model: true });
   section(lines, 'Commands', registry.commands, { consumes: true, layer: true });
   section(lines, 'Abilities', registry.abilities, { realised: true, layer: true });
   section(lines, 'Context', registry.context, { consumes: true });

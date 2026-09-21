@@ -35,8 +35,11 @@ export function resolveStudioConfigProject(options: {
 export { defaultStudioConfig, loadStudioConfig } from './config';
 export { renderStudioConfigLines, type StudioConfigView } from './render';
 export { resolveStudioConfig } from './resolver';
+export { MODEL_TIERS } from './types';
 export type {
   ConfigProblem,
+  ModelTier,
+  ModelTiers,
   PatternCatalog,
   PatternConflict,
   ResolvedStudioConfig,

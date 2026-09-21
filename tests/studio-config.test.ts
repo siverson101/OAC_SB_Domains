@@ -44,6 +44,7 @@ describe('studio config schema', () => {
       toggles: { tdd: true, ftf: false },
       patterns: ['tdd', 'factory'],
       packages: ['com.unity.inputsystem'],
+      modelTiers: { router: 'model-a', specialist: 'model-b' },
     });
     expect(problems).toEqual([]);
     expect(parsed).toEqual({
@@ -53,6 +54,7 @@ describe('studio config schema', () => {
       toggles: { tdd: true, ftf: false },
       patterns: ['tdd', 'factory'],
       packages: ['com.unity.inputsystem'],
+      modelTiers: { router: 'model-a', specialist: 'model-b' },
     });
   });
 
@@ -63,6 +65,24 @@ describe('studio config schema', () => {
     expect(parsed.reviewIntensity).toBe('full');
     expect(parsed.toggles).toEqual({ tdd: false, ftf: false });
     expect(parsed.patterns).toEqual([]);
+    expect(parsed.modelTiers).toEqual({});
+  });
+
+  test('parses a modelTiers map and reports invalid entries without throwing', () => {
+    const { config: parsed, problems } = parseStudioConfig({
+      modelTiers: { router: 'model-router', lead: 'model-lead', specialist: 'model-specialist' },
+    });
+    expect(problems).toEqual([]);
+    expect(parsed.modelTiers).toEqual({ router: 'model-router', lead: 'model-lead', specialist: 'model-specialist' });
+
+    const invalid = parseStudioConfig({ modelTiers: { router: 3, wizard: 'model-w', lead: '' } });
+    expect(invalid.config.modelTiers).toEqual({});
+    expect(invalid.problems.map((problem) => problem.field).sort()).toEqual([
+      'modelTiers.lead',
+      'modelTiers.router',
+      'modelTiers.wizard',
+    ]);
+    expect(invalid.config.studioMode).toBe('lean');
   });
 
   test('reports invalid enums, wrong types and unknown keys without throwing', () => {

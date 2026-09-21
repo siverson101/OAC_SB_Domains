@@ -2,8 +2,9 @@ import { describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { buildRegistry } from '../tools/shared/registry/src/build';
+import { frontmatterStringArray, parseFrontmatter } from '../tools/shared/registry/src/frontmatter';
 import { renderRegistry } from '../tools/shared/registry/src/render';
 
 const repoRoot = resolve(import.meta.dir, '..');
@@ -132,6 +133,35 @@ describe('registry edge hygiene', () => {
       expect(registry.warnings.some((warning) => warning.includes('unknown ability'))).toBe(true);
     } finally {
       rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('command usedBy hygiene', () => {
+  interface StudioModeRoster {
+    agents?: string[];
+    subagents?: string[];
+    optional?: { path: string }[];
+  }
+
+  test('no command usedBy value names an agent', () => {
+    const manifest = JSON.parse(readFileSync(join(unity3dDir, 'sb-domain.json'), 'utf8')) as {
+      studioModes?: Record<string, StudioModeRoster>;
+      commands?: string[];
+    };
+    const agentIds = new Set<string>();
+    for (const mode of Object.values(manifest.studioModes ?? {})) {
+      const rels = [...(mode.agents ?? []), ...(mode.subagents ?? []), ...(mode.optional ?? []).map((entry) => entry.path)];
+      for (const rel of rels) agentIds.add(basename(rel, '.md'));
+    }
+    expect(agentIds.size).toBeGreaterThan(0);
+
+    for (const rel of manifest.commands ?? []) {
+      const fm = parseFrontmatter(readFileSync(join(unity3dDir, rel), 'utf8'));
+      for (const usedBy of frontmatterStringArray(fm, 'usedBy') ?? []) {
+        expect(usedBy.startsWith('subagents/'), `${rel} usedBy '${usedBy}' is an agent path`).toBe(false);
+        expect(agentIds.has(usedBy), `${rel} usedBy '${usedBy}' is an agent id`).toBe(false);
+      }
     }
   });
 });

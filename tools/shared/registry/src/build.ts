@@ -4,8 +4,11 @@ import { findPatternCatalog } from '../../../shared/context-files';
 import { readJson } from '../../../shared/io';
 import {
   defaultStudioConfig,
+  MODEL_TIERS,
   resolveStudioConfigProject,
   type ConfigProblem,
+  type ModelTier,
+  type ModelTiers,
   type PatternConflict,
   type ReviewIntensity,
   type StudioMode,
@@ -22,6 +25,10 @@ export interface RegistryEntry {
   consumes?: string[];
   layer?: 'tool' | 'ability' | 'command';
   standardsVersion?: string;
+  // Agents and subagents only: the abstract tier from frontmatter and, when the
+  // studio config maps that tier, the resolved concrete model id.
+  tier?: ModelTier;
+  model?: string;
 }
 
 export type RegistryEdgeType = 'agent-ability' | 'workflow-ability' | 'workflow-agent';
@@ -43,6 +50,7 @@ export interface RegistryStudioConfig {
   toggles: StudioToggles;
   patterns: string[];
   packages: string[];
+  modelTiers: ModelTiers;
   conflicts: PatternConflict[];
   problems: ConfigProblem[];
   valid: boolean;
@@ -186,14 +194,20 @@ function walkFiles(dir: string, base: string, out: string[] = []): string[] {
   return out;
 }
 
+function asModelTier(value: string | undefined): ModelTier | undefined {
+  return value && (MODEL_TIERS as readonly string[]).includes(value) ? (value as ModelTier) : undefined;
+}
+
 function entry(
   domainDir: string,
   relPath: string,
   id: string,
   consumes: string[],
-  layer?: RegistryEntry['layer']
+  layer?: RegistryEntry['layer'],
+  modelTiers?: ModelTiers
 ): RegistryEntry {
   const fm = readFrontmatter(join(domainDir, relPath));
+  const tier = modelTiers ? asModelTier(frontmatterString(fm, 'tier')) : undefined;
   return {
     id,
     name: frontmatterString(fm, 'name') || id,
@@ -201,6 +215,8 @@ function entry(
     description: frontmatterString(fm, 'description'),
     consumes: consumes.length > 0 ? consumes : undefined,
     layer,
+    tier,
+    model: tier ? modelTiers?.[tier] : undefined,
   };
 }
 
@@ -245,6 +261,7 @@ function absentStudioConfig(): RegistryStudioConfig {
     toggles: { ...defaults.toggles },
     patterns: [],
     packages: [],
+    modelTiers: { ...defaults.modelTiers },
     conflicts: [],
     problems: [],
     valid: true,
@@ -272,6 +289,7 @@ function buildStudioConfig(domainDir: string, opencodeDir?: string): RegistryStu
     toggles: resolved.resolution.config.toggles,
     patterns: resolved.resolution.enabledPatterns,
     packages: resolved.resolution.enabledPackages,
+    modelTiers: resolved.resolution.config.modelTiers,
     conflicts: resolved.resolution.conflicts,
     problems: resolved.resolution.problems,
     valid: resolved.resolution.valid,
@@ -284,12 +302,18 @@ export function buildRegistry(domainDir: string, generatedAt: string, opencodeDi
   const consumers = projections.consumers ?? {};
   const studioConfig = buildStudioConfig(domainDir, opencodeDir);
 
-  const mapEntries = (paths: string[] | undefined, layer?: RegistryEntry['layer']): RegistryEntry[] =>
-    (paths ?? []).map((rel) => entry(domainDir, rel, basename(rel, '.md'), consumedOutputs(rel, basename(rel, '.md'), consumers), layer));
+  const mapEntries = (
+    paths: string[] | undefined,
+    layer?: RegistryEntry['layer'],
+    modelTiers?: ModelTiers
+  ): RegistryEntry[] =>
+    (paths ?? []).map((rel) =>
+      entry(domainDir, rel, basename(rel, '.md'), consumedOutputs(rel, basename(rel, '.md'), consumers), layer, modelTiers)
+    );
 
   const roster = selectStudioRoster(manifest, studioConfig.studioMode);
-  const agents = mapEntries(roster.agents);
-  const subagents = mapEntries(roster.subagents);
+  const agents = mapEntries(roster.agents, undefined, studioConfig.modelTiers);
+  const subagents = mapEntries(roster.subagents, undefined, studioConfig.modelTiers);
   const commands = mapEntries(manifest.commands, 'command');
 
   const abilities: RegistryEntry[] = (manifest.abilities ?? []).map((ability) => {
