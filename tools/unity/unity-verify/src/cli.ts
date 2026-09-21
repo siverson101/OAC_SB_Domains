@@ -20,6 +20,10 @@ export function resolveOptions(argv: string[]): VerifyOptions {
 
   const phaseRaw = firstString(args, ['phase']);
   const intensityRaw = firstString(args, ['review-intensity', 'reviewIntensity']);
+  const changeScopeRaw = firstString(args, ['change-scope', 'changeScope']);
+  const changeScope = changeScopeRaw
+    ? changeScopeRaw.split(',').map((token) => token.trim()).filter((token) => token !== '')
+    : undefined;
 
   return {
     projectRoot,
@@ -33,6 +37,7 @@ export function resolveOptions(argv: string[]): VerifyOptions {
       intensityRaw && (INTENSITIES as string[]).includes(intensityRaw)
         ? (intensityRaw as ReviewIntensity)
         : 'full',
+    changeScope,
     gatesJson: firstString(args, ['gates', 'gates-json', 'gatesJson']),
   };
 }

@@ -39,6 +39,7 @@ export type VerifyStatus =
   | 'passed'
   | 'failed'
   | 'warning'
+  | 'refused'
   | 'unavailable'
   | 'unknown'
   | 'not_run';
@@ -63,6 +64,11 @@ export interface VerifyBase {
   summary: string;
   errors: string[];
   safetyGate: VerifySafetyGate;
+  // The declared change scope (comma-separated files/symbols) for a mutation
+  // validation, or `null` when none was declared. `compile-and-verify-project
+  // --phase validate` refuses without one; the declared scope bounds the
+  // reported delta (see `VerifyDelta`).
+  changeScope: string[] | null;
   checkpoint: VerifySnapshot | null;
   delta: VerifyDelta;
 }
@@ -76,6 +82,7 @@ export interface VerifyOptions {
   phase: VerifyPhase;
   cliCommand: string;
   reviewIntensity: ReviewIntensity;
+  changeScope?: string[];
   gatesJson?: string;
 }
 
@@ -109,6 +116,11 @@ export interface VerifySnapshot {
   gateResult: string | null;
 }
 
+// The bounded delta. When a change scope is declared, only issues that match a
+// scope token count as new/resolved: an out-of-scope issue never appears in
+// `newIssues`/`resolvedIssues`, so a mutation cannot claim a verdict for
+// changes outside the declared scope. `computed: false` with `null` issue
+// arrays still means "not computed", never "clean".
 export interface VerifyDelta {
   computed: boolean;
   newIssues: VerifyIssue[] | null;

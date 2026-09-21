@@ -569,6 +569,7 @@ function makeResult(ability, status, summary, errors, route, requiresEditor = fa
   return {
     ...makeEnvelope({ ability, family: "verify", mode: "offline", status, summary, errors, route }),
     safetyGate: { mutates: false, requiresEditor },
+    changeScope: null,
     checkpoint: null,
     delta: {
       computed: false,
@@ -605,6 +606,13 @@ function issueKey(issue) {
 var MAX_ISSUES = 50;
 function normalizeMessage(text) {
   return text.replace(/\s+/g, " ").trim();
+}
+function issueInScope(issue, scope) {
+  const tokens = scope.map((token) => token.trim().toLowerCase()).filter((token) => token !== "");
+  if (tokens.length === 0)
+    return true;
+  const haystack = `${issue.id} ${issue.message}`.toLowerCase();
+  return tokens.some((token) => haystack.includes(token));
 }
 function pushIssue(issues, seen, issue) {
   if (issues.length >= MAX_ISSUES)
@@ -651,7 +659,7 @@ function compilePending(compile) {
     return true;
   return false;
 }
-function computeDelta(before, after, scan = { ok: true }) {
+function computeDelta(before, after, scan = { ok: true }, changeScope = []) {
   const reasons = [];
   const validateScanFailed = !scan.ok || after === null || isCompileUnavailable(after?.compile);
   const pending = !validateScanFailed && compilePending(after?.compile);
@@ -680,13 +688,19 @@ function computeDelta(before, after, scan = { ok: true }) {
   }
   const beforeKeys = new Set(before.issues.map(issueKey));
   const afterKeys = new Set(after.issues.map(issueKey));
+  const rawNew = after.issues.filter((issue) => !beforeKeys.has(issueKey(issue)));
+  const rawResolved = before.issues.filter((issue) => !afterKeys.has(issueKey(issue)));
+  const scoped = changeScope.some((token) => token.trim() !== "");
+  const newIssues = scoped ? rawNew.filter((issue) => issueInScope(issue, changeScope)) : rawNew;
+  const resolvedIssues = scoped ? rawResolved.filter((issue) => issueInScope(issue, changeScope)) : rawResolved;
+  const excluded = rawNew.length - newIssues.length + (rawResolved.length - resolvedIssues.length);
   return {
     computed: true,
-    newIssues: after.issues.filter((issue) => !beforeKeys.has(issueKey(issue))),
-    resolvedIssues: before.issues.filter((issue) => !afterKeys.has(issueKey(issue))),
+    newIssues,
+    resolvedIssues,
     validateScanFailed: false,
     compilePending: false,
-    reasons: []
+    reasons: excluded > 0 ? [`${excluded} out-of-scope issue(s) excluded from the delta`] : []
   };
 }
 function notComputedDelta(reason) {
@@ -763,6 +777,7 @@ function writeCheckpoint(options, snapshot) {
 }
 
 // tools/unity/unity-verify/src/gates.ts
+var EXTERNAL_VERDICTS = ["confirmed", "uncertain"];
 var GATE_ORDER = [
   "compile",
   "editMode",
@@ -796,21 +811,28 @@ function orderIndex(gate) {
   const index = GATE_ORDER.indexOf(gate);
   return index === -1 ? GATE_ORDER.length : index;
 }
+function effectiveGateStatus(entry) {
+  if (!entry.externalVerdict)
+    return entry.status;
+  const external = entry.externalVerdict === "uncertain" ? "warning" : "passed";
+  return severity(external) > severity(entry.status) ? external : entry.status;
+}
 function foldGates(entries, intensity = "full") {
   const applicable = gatesForIntensity(intensity);
   const considered = entries.filter((entry) => applicable.includes(entry.gate)).slice().sort((a, b) => orderIndex(a.gate) - orderIndex(b.gate));
   let strictest = null;
   for (const entry of considered) {
-    if (!strictest || severity(entry.status) > severity(strictest.status))
+    if (!strictest || severity(effectiveGateStatus(entry)) > severity(effectiveGateStatus(strictest))) {
       strictest = entry;
+    }
   }
   return {
-    status: strictest?.status ?? "not_run",
+    status: strictest ? effectiveGateStatus(strictest) : "not_run",
     strictest: strictest?.gate ?? null,
     intensity,
     entries: considered,
-    hardFailures: considered.filter((entry) => entry.status === "failed").length,
-    reviewRequired: considered.filter((entry) => entry.status === "warning").length
+    hardFailures: considered.filter((entry) => effectiveGateStatus(entry) === "failed").length,
+    reviewRequired: considered.filter((entry) => effectiveGateStatus(entry) === "warning").length
   };
 }
 function gateStatusFromResult(status) {
@@ -886,7 +908,21 @@ function parseGateOverrides(json) {
         errors.push(`ignored --gates override "${gate}": unknown status "${status ?? "unknown"}"`);
         continue;
       }
-      out.push({ gate, status, detail: str(entry, "detail") ?? undefined });
+      const externalRaw = str(entry, "externalVerdict");
+      let externalVerdict;
+      if (externalRaw !== null) {
+        if (EXTERNAL_VERDICTS.includes(externalRaw)) {
+          externalVerdict = externalRaw;
+        } else {
+          errors.push(`ignored --gates override "${gate}": unknown externalVerdict "${externalRaw}"`);
+        }
+      }
+      out.push({
+        gate,
+        status,
+        ...externalVerdict ? { externalVerdict } : {},
+        detail: str(entry, "detail") ?? undefined
+      });
     }
     return { entries: out, errors };
   } catch {
@@ -899,9 +935,18 @@ function readData(options, file) {
   return readJson(join6(projectDataDir(options), file));
 }
 function compileAndVerifyProject(options) {
+  const changeScope = (options.changeScope ?? []).map((token) => token.trim()).filter((token) => token !== "");
+  if (options.phase === "validate" && changeScope.length === 0) {
+    const refusal = "validate requires a declared change scope (--change-scope, comma-separated files/symbols); refusing to report a verdict";
+    const base = makeResult(options.ability, "refused", refusal, [refusal], "offline");
+    base.mode = VERIFY_MODES[options.ability];
+    base.delta = notComputedDelta("change scope required; no delta computed");
+    return { ...base, phase: options.phase, checkpointPath: null };
+  }
   const snapshot = captureSnapshot(options);
   const base = makeResult(options.ability, "observed_locally", "Compile checkpoint captured from Library/ScriptAssemblies", [], "offline");
   base.mode = VERIFY_MODES[options.ability];
+  base.changeScope = changeScope.length > 0 ? changeScope : null;
   base.checkpoint = snapshot;
   if (options.phase === "checkpoint") {
     const path = writeCheckpoint(options, snapshot);
@@ -910,7 +955,7 @@ function compileAndVerifyProject(options) {
     return { ...base, phase: options.phase, checkpointPath: path };
   }
   const before = readCheckpoint(options);
-  const delta = computeDelta(before, snapshot);
+  const delta = computeDelta(before, snapshot, { ok: true }, changeScope);
   base.delta = delta;
   if (snapshot.compile.status === "unavailable") {
     base.status = "unavailable";
@@ -1075,6 +1120,8 @@ function resolveOptions(argv) {
   const ability = resolveAbility(requested, VERIFY_ABILITIES, "compile-and-verify-project");
   const phaseRaw = firstString(args, ["phase"]);
   const intensityRaw = firstString(args, ["review-intensity", "reviewIntensity"]);
+  const changeScopeRaw = firstString(args, ["change-scope", "changeScope"]);
+  const changeScope = changeScopeRaw ? changeScopeRaw.split(",").map((token) => token.trim()).filter((token) => token !== "") : undefined;
   return {
     projectRoot,
     opencodeDir,
@@ -1084,6 +1131,7 @@ function resolveOptions(argv) {
     phase: phaseRaw && PHASES.includes(phaseRaw) ? phaseRaw : "validate",
     cliCommand: firstString(args, ["unity-cli", "unityCli"]) ?? "unity",
     reviewIntensity: intensityRaw && INTENSITIES.includes(intensityRaw) ? intensityRaw : "full",
+    changeScope,
     gatesJson: firstString(args, ["gates", "gates-json", "gatesJson"])
   };
 }
