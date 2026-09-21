@@ -1,7 +1,8 @@
-import { describe, expect, test } from 'bun:test';
-import { readFileSync } from 'node:fs';
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { buildRegistry } from '../tools/shared/registry/src/build';
+import { buildRegistry, type Registry } from '../tools/shared/registry/src/build';
 import { frontmatterString, frontmatterStringArray, parseFrontmatter } from '../tools/shared/registry/src/frontmatter';
 import { claimResource, emptyBoard } from '../tools/unity/unity-compose/src/coordination-board';
 
@@ -13,14 +14,14 @@ const manifest = JSON.parse(readFileSync(join(unity3dDir, 'sb-domain.json'), 'ut
     lean: {
       agents: string[];
       subagents: string[];
-      optional: { path: string; enabledBy: string }[];
+      optional: (string | { path?: string })[];
     };
   };
   abilities: string[];
 };
 
 const lean = manifest.studioModes.lean;
-const optionalAgents = lean.optional.map((entry) => entry.path);
+const optionalAgents = lean.optional.map((entry) => (typeof entry === 'string' ? entry : entry.path)).filter((p): p is string => Boolean(p));
 const leanAgents = [...lean.agents, ...lean.subagents, ...optionalAgents];
 const knownAbilities = new Set(manifest.abilities);
 const validTiers = new Set(['router', 'lead', 'specialist']);
@@ -49,7 +50,7 @@ describe('Lean agent hierarchy', () => {
     expect(optionalAgents).toHaveLength(2);
     expect(optionalAgents).toContain('agent/subagents/unity/tdd-specialist.md');
     expect(optionalAgents).toContain('agent/subagents/unity/native-plugin.md');
-    expect(lean.optional.map((entry) => entry.enabledBy).sort()).toEqual(['native-subproject', 'tdd']);
+    expect(Object.values(gatedEnabledBy).sort()).toEqual(['native-subproject', 'tdd']);
   });
 
   test('every Lean agent declares a valid abstract tier', () => {
@@ -89,7 +90,25 @@ describe('Lean agent hierarchy', () => {
 });
 
 describe('Lean agent registry edges', () => {
-  const registry = buildRegistry(unity3dDir, '2026-09-20T00:00:00.000Z');
+  // Both gates held so the gated extras are in the active roster; the default
+  // (gated-off) roster is covered by tests/registry.test.ts.
+  let gatedDir: string;
+  let registry: Registry;
+  beforeAll(() => {
+    gatedDir = mkdtempSync(join(tmpdir(), 'oac-unity-agents-'));
+    writeFileSync(
+      join(gatedDir, 'unity-studio.json'),
+      JSON.stringify({ schemaVersion: 1, studioMode: 'lean', toggles: { tdd: true, ftf: false } })
+    );
+    mkdirSync(join(gatedDir, 'project-data'), { recursive: true });
+    writeFileSync(
+      join(gatedDir, 'project-data', 'native-project-state.json'),
+      JSON.stringify({ schemaVersion: 1, state: { solutionExists: true } })
+    );
+    registry = buildRegistry(unity3dDir, '2026-09-20T00:00:00.000Z', gatedDir);
+  });
+  afterAll(() => rmSync(gatedDir, { recursive: true, force: true }));
+
   const hasEdge = (from: string, to: string): boolean =>
     registry.edges.some((edge) => edge.type === 'agent-ability' && edge.from === from && edge.to === to);
 

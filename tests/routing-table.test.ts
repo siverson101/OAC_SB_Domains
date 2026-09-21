@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { buildRegistry, type Registry } from '../tools/shared/registry/src/build';
@@ -81,6 +81,10 @@ const LEAN_ROUTING: RoutingTable = {
       'unity-run-tests',
     ],
   },
+};
+
+// The gated Lean extras, active only when their gate holds.
+const LEAN_GATED_ROUTING: RoutingTable = {
   'tdd-specialist': {
     tier: 'specialist',
     abilities: [
@@ -235,6 +239,23 @@ function withMode<T>(studioMode: 'lean' | 'full', config: unknown, run: (opencod
   }
 }
 
+function withGatedLean<T>(toggles: Record<string, boolean>, native: boolean, run: (opencodeDir: string) => T): T {
+  const dir = mkdtempSync(join(tmpdir(), 'oac-routing-gated-'));
+  try {
+    writeFileSync(join(dir, 'unity-studio.json'), JSON.stringify({ schemaVersion: 1, studioMode: 'lean', toggles }));
+    if (native) {
+      mkdirSync(join(dir, 'project-data'), { recursive: true });
+      writeFileSync(
+        join(dir, 'project-data', 'native-project-state.json'),
+        JSON.stringify({ schemaVersion: 1, state: { solutionExists: true } })
+      );
+    }
+    return run(dir);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 // Derived from the registry's own agent-ability edges, so the table is the
 // registry's view rather than a second parse of the frontmatter.
 function routingTable(registry: Registry): RoutingTable {
@@ -265,6 +286,36 @@ describe('routing table snapshot', () => {
     withMode('full', { schemaVersion: 1, studioMode: 'full' }, (dir) => {
       const registry = buildRegistry(unity3dDir, '2026-09-20T00:00:00.000Z', dir);
       expect(routingTable(registry)).toEqual(FULL_ROUTING);
+    });
+  });
+
+  test('the default Lean config excludes both gated specialists', () => {
+    withMode('lean', { schemaVersion: 1, studioMode: 'lean' }, (dir) => {
+      const registry = buildRegistry(unity3dDir, '2026-09-20T00:00:00.000Z', dir);
+      const table = routingTable(registry);
+      expect(table['tdd-specialist']).toBeUndefined();
+      expect(table['native-plugin']).toBeUndefined();
+      expect(registry.counts.subagents).toBe(7);
+    });
+  });
+
+  test('includes the TDD specialist when the toggle is on', () => {
+    withGatedLean({ tdd: true, ftf: false }, false, (dir) => {
+      const registry = buildRegistry(unity3dDir, '2026-09-20T00:00:00.000Z', dir);
+      const table = routingTable(registry);
+      expect(table['tdd-specialist']).toEqual(LEAN_GATED_ROUTING['tdd-specialist']);
+      expect(table['native-plugin']).toBeUndefined();
+      expect(registry.counts.subagents).toBe(8);
+    });
+  });
+
+  test('includes the native-plugin specialist when native detection is present', () => {
+    withGatedLean({ tdd: false, ftf: false }, true, (dir) => {
+      const registry = buildRegistry(unity3dDir, '2026-09-20T00:00:00.000Z', dir);
+      const table = routingTable(registry);
+      expect(table['native-plugin']).toEqual(LEAN_GATED_ROUTING['native-plugin']);
+      expect(table['tdd-specialist']).toBeUndefined();
+      expect(registry.counts.subagents).toBe(8);
     });
   });
 

@@ -115,22 +115,27 @@ describe('collectAssets', () => {
 
 describe('selectHierarchy', () => {
     const manifest = JSON.parse(fs.readFileSync(path.join(DOMAIN_DIR, 'sb-domain.json'), 'utf8'));
+    const options = { domainDir: DOMAIN_DIR };
 
     test('lean membership is agents + 7 base subagents, gated extras excluded', () => {
-        const lean = selectHierarchy(manifest, 'lean', {});
+        const lean = selectHierarchy(manifest, 'lean', {}, options);
         expect(lean.agents).toEqual(['agent/unity-3d-orchestrator.md']);
         expect(lean.subagents).toHaveLength(7);
         expect(lean.subagents).not.toContain('agent/subagents/unity/tdd-specialist.md');
     });
 
     test('gating includes only the enabled optional extras', () => {
-        const lean = selectHierarchy(manifest, 'lean', { tdd: true });
+        const lean = selectHierarchy(manifest, 'lean', { tdd: true }, options);
         expect(lean.subagents).toContain('agent/subagents/unity/tdd-specialist.md');
         expect(lean.subagents).not.toContain('agent/subagents/unity/native-plugin.md');
+
+        const native = selectHierarchy(manifest, 'lean', { 'native-subproject': true }, options);
+        expect(native.subagents).toContain('agent/subagents/unity/native-plugin.md');
+        expect(native.subagents).not.toContain('agent/subagents/unity/tdd-specialist.md');
     });
 
     test('full membership is the orchestrator plus 17 full-studio subagents', () => {
-        const full = selectHierarchy(manifest, 'full', {});
+        const full = selectHierarchy(manifest, 'full', {}, options);
         expect(full.agents).toEqual(['agent/full-studio/full-studio-orchestrator.md']);
         expect(full.subagents).toHaveLength(17);
         expect(full.subagents.every((rel) => rel.startsWith('agent/full-studio/'))).toBe(true);
@@ -143,23 +148,40 @@ describe('selectHierarchy', () => {
 });
 
 describe('resolveStudioMode', () => {
-    test('honours the flag and its aliases', () => {
-        expect(resolveStudioMode({ 'studio-mode': 'lean' })).toBe('lean');
-        expect(resolveStudioMode({ 'studio-mode': 'full' })).toBe('full');
-        expect(normalizeStudioMode('Full Studio')).toBe('full');
-        expect(normalizeStudioMode('full-studio')).toBe('full');
+    test('accepts only lean and full, with no aliases', async () => {
+        expect(await resolveStudioMode({ 'studio-mode': 'lean' })).toBe('lean');
+        expect(await resolveStudioMode({ 'studio-mode': 'full' })).toBe('full');
+        expect(normalizeStudioMode('Full Studio')).toBeNull();
+        expect(normalizeStudioMode('full-studio')).toBeNull();
     });
 
-    test('defaults to lean when non-interactive', () => {
-        expect(resolveStudioMode({}, { interactive: false })).toBe('lean');
+    test('defaults to lean when non-interactive', async () => {
+        expect(await resolveStudioMode({}, { interactive: false })).toBe('lean');
     });
 
-    test('prompts when interactive and defaults to lean on an empty answer', () => {
-        expect(resolveStudioMode({}, { interactive: true, prompt: () => '' })).toBe('lean');
-        expect(resolveStudioMode({}, { interactive: true, prompt: () => 'full' })).toBe('full');
+    test('uses the existing config mode when non-interactive', async () => {
+        expect(await resolveStudioMode({}, { interactive: false, existingMode: 'full' })).toBe('full');
     });
 
-    test('throws on an unknown mode', () => {
-        expect(() => resolveStudioMode({ 'studio-mode': 'wide' })).toThrow();
+    test('does not prompt on a dry run', async () => {
+        const prompt = () => {
+            throw new Error('prompted on dry run');
+        };
+        expect(await resolveStudioMode({}, { interactive: true, dryRun: true, prompt })).toBe('lean');
+        expect(await resolveStudioMode({}, { interactive: true, dryRun: true, existingMode: 'full', prompt })).toBe('full');
+    });
+
+    test('prompts when interactive and falls back to the existing mode', async () => {
+        expect(await resolveStudioMode({}, { interactive: true, prompt: async () => '' })).toBe('lean');
+        expect(await resolveStudioMode({}, { interactive: true, prompt: async () => 'full' })).toBe('full');
+        expect(await resolveStudioMode({}, { interactive: true, existingMode: 'full', prompt: async () => '' })).toBe('full');
+    });
+
+    test('throws on an unknown mode', async () => {
+        await expect(resolveStudioMode({ 'studio-mode': 'wide' })).rejects.toThrow();
+    });
+
+    test('throws on a bare --studio-mode with no value', async () => {
+        await expect(resolveStudioMode({ 'studio-mode': true })).rejects.toThrow();
     });
 });

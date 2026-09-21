@@ -22,6 +22,14 @@ function apply(mode, dir, extra) {
     );
 }
 
+function applyRaw(args) {
+    return spawnSync(process.execPath, [MERGE, ...args], { encoding: 'utf8' });
+}
+
+function writeConfig(dir, config) {
+    fs.writeFileSync(path.join(dir, 'unity-studio.json'), JSON.stringify(config));
+}
+
 function withMetadata(dir) {
     fs.mkdirSync(path.join(dir, 'config'), { recursive: true });
     fs.writeFileSync(path.join(dir, 'config', 'agent-metadata.json'), '{\n  "agents": {}\n}\n');
@@ -123,12 +131,31 @@ describe('studio-mode selection', () => {
             fs.mkdirSync(path.join(dir, 'project-data'), { recursive: true });
             fs.writeFileSync(
                 path.join(dir, 'project-data', 'native-project-state.json'),
-                JSON.stringify({ schemaVersion: 1, state: { status: 'detected', solutionExists: true } })
+                JSON.stringify({ schemaVersion: 1, state: { status: 'declared', solutionExists: true } })
             );
             const res = apply('lean', dir);
             expect(res.status).toBe(0);
             expect(exists(dir, 'agent/subagents/unity/native-plugin.md')).toBe(true);
             expect(exists(dir, 'agent/subagents/unity/tdd-specialist.md')).toBe(false);
+        } finally {
+            fs.rmSync(dir, { recursive: true, force: true });
+        }
+    });
+
+    test('does not enable native-plugin on a declared solution whose file is missing', () => {
+        const dir = withMetadata(freshDir());
+        try {
+            fs.mkdirSync(path.join(dir, 'project-data'), { recursive: true });
+            fs.writeFileSync(
+                path.join(dir, 'project-data', 'native-project-state.json'),
+                JSON.stringify({
+                    schemaVersion: 1,
+                    state: { status: 'declared', solution: 'Native/build.sln', solutionExists: false },
+                })
+            );
+            const res = apply('lean', dir);
+            expect(res.status).toBe(0);
+            expect(exists(dir, 'agent/subagents/unity/native-plugin.md')).toBe(false);
         } finally {
             fs.rmSync(dir, { recursive: true, force: true });
         }
@@ -160,6 +187,58 @@ describe('studio-mode selection', () => {
         try {
             const res = apply('wide', dir);
             expect(res.status).not.toBe(0);
+            expect(res.stderr).toContain('Unknown studio mode');
+        } finally {
+            fs.rmSync(dir, { recursive: true, force: true });
+        }
+    });
+
+    test('rejects a bare --studio-mode instead of prompting or defaulting', () => {
+        const dir = withMetadata(freshDir());
+        try {
+            const res = applyRaw(['--domain-dir', DOMAIN, '--opencode-dir', dir, '--studio-mode']);
+            expect(res.status).not.toBe(0);
+            expect(res.stderr).toContain('requires a value');
+            expect(exists(dir, 'agent')).toBe(false);
+        } finally {
+            fs.rmSync(dir, { recursive: true, force: true });
+        }
+    });
+
+    test('uses an existing config studioMode when no flag is given', () => {
+        const dir = withMetadata(freshDir());
+        try {
+            writeConfig(dir, { schemaVersion: 1, studioMode: 'full' });
+            const res = apply(null, dir);
+            expect(res.status).toBe(0);
+            expect(exists(dir, 'agent/full-studio/full-studio-orchestrator.md')).toBe(true);
+            expect(JSON.parse(fs.readFileSync(path.join(dir, 'unity-studio.json'), 'utf8')).studioMode).toBe('full');
+        } finally {
+            fs.rmSync(dir, { recursive: true, force: true });
+        }
+    });
+
+    test('warns before overwriting a differing existing studioMode', () => {
+        const dir = withMetadata(freshDir());
+        try {
+            writeConfig(dir, { schemaVersion: 1, studioMode: 'lean' });
+            const res = apply('full', dir);
+            expect(res.status).toBe(0);
+            expect(res.stderr).toContain("overwriting existing studioMode 'lean' with 'full'");
+            expect(JSON.parse(fs.readFileSync(path.join(dir, 'unity-studio.json'), 'utf8')).studioMode).toBe('full');
+        } finally {
+            fs.rmSync(dir, { recursive: true, force: true });
+        }
+    });
+
+    test('a dry run with no flag resolves from config and never blocks', () => {
+        const dir = withMetadata(freshDir());
+        try {
+            writeConfig(dir, { schemaVersion: 1, studioMode: 'full' });
+            const res = apply(null, dir, ['--dry-run']);
+            expect(res.status).toBe(0);
+            expect(res.stdout).toContain('studioMode=full');
+            expect(exists(dir, 'agent')).toBe(false);
         } finally {
             fs.rmSync(dir, { recursive: true, force: true });
         }

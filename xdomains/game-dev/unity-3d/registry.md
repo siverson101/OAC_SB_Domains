@@ -13,7 +13,8 @@ per-file MIT notices are required. If external repos are imported later, add the
 attribution file (`THIRD_PARTY_NOTICES.md`) and to the "External sources" table below.
 
 Source legend
-- `oac-build` — OAC-generated Unity 3D system.
+- `oac-build` — OAC-generated Unity 3D system (OAC/Unity).
+- `claude-unity-game-studio` — Ido Cohen, MIT; reauthored design reference for the Full Studio hierarchy.
 
 Agents
 ------
@@ -32,6 +33,35 @@ Subagents
 | UnityShaderVFX | subagent | `agent/subagents/unity/shadervfx.md` | oac-build | performance-budgets, navigation | Orchestrator; `/unity-vfx`, `/unity-ase` |
 | UnityArtAsset | subagent | `agent/subagents/unity/artasset.md` | oac-build | project-layout, performance-budgets | Orchestrator; scene/art tasks |
 | UnityQA | subagent | `agent/subagents/unity/qa.md` | oac-build | validation-rules, build-cli | Orchestrator; quality-gate, `/unity-test`, `/unity-build` |
+| UnityTddSpecialist | subagent (gated) | `agent/subagents/unity/tdd-specialist.md` | oac-build | test seams, EditMode-first loops | Orchestrator when `toggles.tdd` is true |
+| UnityNativePlugin | subagent (gated) | `agent/subagents/unity/native-plugin.md` | oac-build | native interop, platform builds | Orchestrator when native detection is affirmative |
+
+Full Studio agents
+------------------
+The mutually-exclusive Full Studio hierarchy (studio mode `full`), reauthored from the MIT
+`claude-unity-game-studio` template (see `docs/Attribution.md`). The orchestrator is the `mode:
+primary` entry; every other row is a subagent.
+
+| Item | Type | Path | Source | Uses | Used by |
+|------|------|------|--------|------|---------|
+| FullStudioOrchestrator | primary agent | `agent/full-studio/full-studio-orchestrator.md` | claude-unity-game-studio (MIT) | directors; unity-3d context | User |
+| CreativeDirector | subagent | `agent/full-studio/creative-director.md` | claude-unity-game-studio (MIT) | contract-aware-design, gate-review | FullStudioOrchestrator |
+| TechnicalDirector | subagent | `agent/full-studio/technical-director.md` | claude-unity-game-studio (MIT) | code-navigation, compile-and-verify-project | FullStudioOrchestrator |
+| Producer | subagent | `agent/full-studio/producer.md` | claude-unity-game-studio (MIT) | coordination-board, project-status | FullStudioOrchestrator |
+| ArtDirector | subagent | `agent/full-studio/art-director.md` | claude-unity-game-studio (MIT) | asset-intelligence, contract-aware-design | FullStudioOrchestrator |
+| GameDesigner | subagent | `agent/full-studio/game-designer.md` | claude-unity-game-studio (MIT) | primitive-composition, contract-aware-design | FullStudioOrchestrator |
+| LeadProgrammer | subagent | `agent/full-studio/lead-programmer.md` | claude-unity-game-studio (MIT) | code-navigation, pattern-library | FullStudioOrchestrator |
+| QaLead | subagent | `agent/full-studio/qa-lead.md` | claude-unity-game-studio (MIT) | run-edit-mode-tests, run-play-mode-tests | FullStudioOrchestrator |
+| ArtLead | subagent | `agent/full-studio/art-lead.md` | claude-unity-game-studio (MIT) | asset-intelligence, shader-helper | FullStudioOrchestrator |
+| GameplayProgrammer | subagent | `agent/full-studio/gameplay-programmer.md` | claude-unity-game-studio (MIT) | input-automation, script-scaffolding | LeadProgrammer |
+| UiProgrammer | subagent | `agent/full-studio/ui-programmer.md` | claude-unity-game-studio (MIT) | uitk-interaction, runtime-ui-validation | LeadProgrammer |
+| PerformanceAnalyst | subagent | `agent/full-studio/performance-analyst.md` | claude-unity-game-studio (MIT) | performance-diagnostics, runtime-debugging | TechnicalDirector |
+| ShaderSpecialist | subagent | `agent/full-studio/shader-specialist.md` | claude-unity-game-studio (MIT) | shader-helper, performance-diagnostics | ArtLead |
+| AudioSpecialist | subagent | `agent/full-studio/audio-specialist.md` | claude-unity-game-studio (MIT) | asset-intelligence, script-scaffolding | ArtLead |
+| LevelDesigner | subagent | `agent/full-studio/level-designer.md` | claude-unity-game-studio (MIT) | prefab-automation, scene-editing | GameDesigner |
+| TechnicalArtist | subagent | `agent/full-studio/technical-artist.md` | claude-unity-game-studio (MIT) | prefab-automation, scene-editing, shader-helper | ArtLead |
+| NativePlugin | subagent | `agent/full-studio/native-plugin.md` | claude-unity-game-studio (MIT) | platform-info, unity-build | TechnicalDirector |
+| TddSpecialist | subagent | `agent/full-studio/tdd-specialist.md` | claude-unity-game-studio (MIT) | unity-change-loop, run-edit-mode-tests | QaLead |
 
 Commands
 --------

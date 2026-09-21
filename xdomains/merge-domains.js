@@ -37,71 +37,31 @@ function normalizeStudioMode(value) {
   if (typeof value !== 'string') return null;
   const normalized = value.trim().toLowerCase();
   if (normalized === 'lean') return 'lean';
-  if (normalized === 'full' || normalized === 'full-studio' || normalized === 'fullstudio' || normalized === 'full studio') return 'full';
+  if (normalized === 'full') return 'full';
   return null;
 }
 
-function promptStudioMode(question) {
-  process.stdout.write(question);
-  const chunks = [];
-  const buf = Buffer.alloc(1);
-  for (;;) {
-    let read;
-    try {
-      read = fs.readSync(0, buf, 0, 1, null);
-    } catch (error) {
-      if (error && error.code === 'EAGAIN') continue;
-      return null;
-    }
-    if (read === 0) break;
-    const ch = buf.toString('utf8');
-    if (ch === '\n') break;
-    if (ch !== '\r') chunks.push(ch);
+// Non-spinning prompt: node:readline/promises reads a line without the EAGAIN
+// spin the previous byte-loop had, and the interface is always closed.
+async function promptStudioMode(question) {
+  const readline = require('node:readline/promises');
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    return await rl.question(question);
+  } finally {
+    rl.close();
   }
-  return chunks.join('');
 }
 
-function resolveStudioMode(argv, options) {
-  const opts = options || {};
-  const flag = argv['studio-mode'] !== undefined ? argv['studio-mode'] : argv.studioMode;
-  if (flag !== undefined && flag !== true) {
-    const mode = normalizeStudioMode(String(flag));
-    if (!mode) throw new Error(`Unknown studio mode: ${flag}`);
-    return mode;
+function optionalPaths(optional) {
+  const out = [];
+  for (const entry of optional || []) {
+    const rel = typeof entry === 'string' ? entry : entry && entry.path;
+    if (rel) out.push(rel);
   }
-
-  const interactive = opts.interactive !== undefined ? opts.interactive : Boolean(process.stdin.isTTY);
-  if (!interactive) return 'lean';
-
-  const prompt = opts.prompt || promptStudioMode;
-  const answer = prompt('Studio mode: Lean | Full Studio [lean]: ');
-  return normalizeStudioMode(String(answer === null || answer === undefined ? '' : answer).trim()) || 'lean';
+  return out;
 }
 
-// Membership lives only in `studioModes`; a manifest without it falls back to
-// the legacy flat `agents`/`subagents` arrays (fail-soft for older domains).
-function selectHierarchy(manifest, studioMode, gating) {
-  const gates = gating || {};
-  const modes = manifest.studioModes;
-  if (!modes || typeof modes !== 'object') {
-    return { agents: manifest.agents || [], subagents: manifest.subagents || [] };
-  }
-  const mode = modes[studioMode] || {};
-  const agents = [...(mode.agents || [])];
-  const subagents = [...(mode.subagents || [])];
-  for (const optional of mode.optional || []) {
-    if (!optional || !optional.path) continue;
-    const enabledBy = optional.enabledBy;
-    if (enabledBy === undefined || gates[enabledBy] === true) subagents.push(optional.path);
-  }
-  return { agents, subagents };
-}
-
-// Optional Lean extras gate on the installed `.opencode/unity-studio.json`
-// toggle and on a detected native sub-project. Detection reads the persisted
-// `native-project-state.json` artifact (written by project-scan); when no
-// project-data is supplied the engine looks under `<opencode-dir>/project-data`.
-// A missing artifact means "not detected" — the conservative default.
 function readStudioConfig(opencodeDir) {
   const file = path.join(opencodeDir, 'unity-studio.json');
   if (!isFile(file)) return null;
@@ -113,26 +73,97 @@ function readStudioConfig(opencodeDir) {
   }
 }
 
-function detectNativeSubproject(opencodeDir, projectDataDir) {
-  const dir = typeof projectDataDir === 'string' && projectDataDir ? projectDataDir : path.join(opencodeDir, 'project-data');
-  const file = path.join(dir, 'native-project-state.json');
+function readExistingStudioMode(opencodeDir) {
+  if (!opencodeDir) return null;
+  const config = readStudioConfig(opencodeDir);
+  return config ? normalizeStudioMode(config.studioMode) : null;
+}
+
+function hasStudioModeFlag(argv) {
+  return argv['studio-mode'] !== undefined || argv.studioMode !== undefined;
+}
+
+// A bare `--studio-mode` (present, no value) or an unknown value errors rather
+// than silently falling through to the prompt or the default. The only accepted
+// values are `lean` and `full`.
+async function resolveStudioMode(argv, options) {
+  const opts = options || {};
+
+  if (hasStudioModeFlag(argv)) {
+    const flag = argv['studio-mode'] !== undefined ? argv['studio-mode'] : argv.studioMode;
+    if (flag === true) throw new Error('--studio-mode requires a value: lean or full');
+    const mode = normalizeStudioMode(String(flag));
+    if (!mode) throw new Error(`Unknown studio mode: ${flag} (expected lean or full)`);
+    return mode;
+  }
+
+  const existing = opts.existingMode !== undefined ? opts.existingMode : readExistingStudioMode(opts.opencodeDir);
+  const dryRun = opts.dryRun === true;
+  const interactive = opts.interactive !== undefined ? opts.interactive : Boolean(process.stdin.isTTY);
+
+  // A dry run is read-only and must never block on stdin.
+  if (dryRun || !interactive) return existing || 'lean';
+
+  const prompt = opts.prompt || promptStudioMode;
+  const fallback = existing || 'lean';
+  const answer = await prompt(`Studio mode: Lean | Full Studio [${fallback}]: `);
+  return normalizeStudioMode(String(answer === null || answer === undefined ? '' : answer).trim()) || fallback;
+}
+
+function readAgentEnabledBy(domainDir, relPath) {
+  if (!domainDir || !relPath) return undefined;
+  try {
+    return parseFrontmatter(fs.readFileSync(path.join(domainDir, relPath), 'utf8')).enabledBy;
+  } catch (_) {
+    return undefined;
+  }
+}
+
+// Membership lives only in `studioModes`; a manifest without it falls back to
+// the legacy flat `agents`/`subagents` arrays (fail-soft for older domains).
+// The gating condition lives once, in each optional agent's frontmatter
+// `enabledBy`; an optional path with no `enabledBy` is always installed.
+function selectHierarchy(manifest, studioMode, gating, options) {
+  const opts = options || {};
+  const gates = gating || {};
+  const modes = manifest.studioModes;
+  if (!modes || typeof modes !== 'object') {
+    return { agents: manifest.agents || [], subagents: manifest.subagents || [] };
+  }
+  const mode = modes[studioMode] || {};
+  const agents = [...(mode.agents || [])];
+  const subagents = [...(mode.subagents || [])];
+  for (const rel of optionalPaths(mode.optional)) {
+    const enabledBy = opts.readEnabledBy ? opts.readEnabledBy(rel) : readAgentEnabledBy(opts.domainDir, rel);
+    if (enabledBy === undefined || gates[enabledBy] === true) subagents.push(rel);
+  }
+  return { agents, subagents };
+}
+
+// Optional Lean extras gate on the installed `.opencode/unity-studio.json`
+// toggle and on a detected native sub-project. Detection reads the standard
+// persisted `native-project-state.json` artifact (written by project-scan) at
+// `<opencode-dir>/project-data/`. A missing artifact, or a merely declared
+// solution whose file is missing, means "not detected" — the conservative
+// default. Only an affirmative `solutionExists === true` enables the gate.
+function detectNativeSubproject(opencodeDir) {
+  const file = path.join(opencodeDir, 'project-data', 'native-project-state.json');
   if (!isFile(file)) return false;
   try {
     const state = readJson(file);
     const native = state && state.state;
-    if (!native) return false;
-    return native.solutionExists === true || Boolean(native.solution);
+    return Boolean(native) && native.solutionExists === true;
   } catch (_) {
     return false;
   }
 }
 
-function resolveGating(opencodeDir, projectDataDir) {
+function resolveGating(opencodeDir) {
   const config = readStudioConfig(opencodeDir);
   const toggles = config && config.toggles && typeof config.toggles === 'object' ? config.toggles : {};
   return {
     tdd: toggles.tdd === true,
-    'native-subproject': detectNativeSubproject(opencodeDir, projectDataDir),
+    'native-subproject': detectNativeSubproject(opencodeDir),
   };
 }
 
@@ -299,7 +330,7 @@ function collectAssets(domainDir, manifest, warnings, options) {
 
   // The selected hierarchy (mode membership + optional gating) then the
   // always-installed shared assets.
-  const hierarchy = selectHierarchy(manifest, opts.studioMode || 'lean', opts.gating);
+  const hierarchy = selectHierarchy(manifest, opts.studioMode || 'lean', opts.gating, { domainDir });
   for (const rel of hierarchy.agents) addFile(rel);
   for (const rel of hierarchy.subagents) addFile(rel);
 
@@ -440,7 +471,7 @@ function readAdaptations(domainDir) {
 // Main
 // ---------------------------------------------------------------------------
 
-function main() {
+async function main() {
   const argv = parseArgs(process.argv.slice(2));
 
   const domainDirArg = argv['domain-dir'] || argv['plugin-dir'];
@@ -463,9 +494,10 @@ function main() {
     process.exit(2);
   }
 
+  const existingMode = readExistingStudioMode(opencodeDir);
   let studioMode;
   try {
-    studioMode = resolveStudioMode(argv);
+    studioMode = await resolveStudioMode(argv, { opencodeDir, existingMode, dryRun });
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     process.exit(2);
@@ -481,7 +513,10 @@ function main() {
   const domain = manifest.domain || path.basename(path.dirname(domainDir));
   const subdomain = argv.subdomain || manifest.subdomain || path.basename(domainDir);
   const warnings = [];
-  const gating = resolveGating(opencodeDir, argv['project-data']);
+  if (hasStudioModeFlag(argv) && existingMode && existingMode !== studioMode) {
+    console.error(`  warning: overwriting existing studioMode '${existingMode}' with '${studioMode}'`);
+  }
+  const gating = resolveGating(opencodeDir);
 
   const assets = collectAssets(domainDir, manifest, warnings, { studioMode, gating });
 
@@ -536,7 +571,10 @@ function main() {
 }
 
 if (require.main === module) {
-  main();
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  });
 }
 
 module.exports = {
@@ -546,7 +584,9 @@ module.exports = {
   normalizeStudioMode,
   resolveStudioMode,
   selectHierarchy,
+  optionalPaths,
   readStudioConfig,
+  readExistingStudioMode,
   detectNativeSubproject,
   resolveGating,
   persistStudioMode,

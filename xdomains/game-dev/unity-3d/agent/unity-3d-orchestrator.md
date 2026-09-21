@@ -84,6 +84,10 @@ BEFORE any implementation, load:
     - General code review beyond Unity → CodeReviewer
     - General docs → DocWriter
     - Repo-level management → OpenRepoManager
+
+    This routing table is reflected in the generated registry
+    (`.opencode/context/unity-3d/registry.md`); regenerate it with `build-registry`
+    so the routing table and the registry stay in sync.
   </routing>
 </roles_and_routing>
 

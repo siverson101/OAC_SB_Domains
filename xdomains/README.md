@@ -25,8 +25,9 @@ Required fields
 Recommended fields
 - `sharedContext` (array) — context files shared by the whole domain
 - `studioModes` (object) — the single source of truth for agent membership: a `lean` and `full`
-  key, each with `agents` + `subagents` arrays and an optional Lean `optional` list of
-  `{ path, enabledBy: "tdd" | "native-subproject" }` extras
+  key, each with `agents` + `subagents` arrays and an optional Lean `optional` list of agent paths;
+  the gating condition lives once, in each optional agent's frontmatter `enabledBy`
+  (`tdd` | `native-subproject`)
 - `commands` / `context` / `skills` / `scripts` (array) — declared shared assets
 - `abilities` (array) — declared ability names; realised as commands (ADR-0004)
 - `tools` (array) — declared tool names

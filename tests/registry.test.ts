@@ -14,13 +14,46 @@ const bundle = join(repoRoot, 'xdomains', 'scripts', 'shared', 'build-registry.m
 describe('registry build', () => {
   const registry = buildRegistry(unity3dDir, '2026-09-19T00:00:00.000Z');
 
-  test('counts the declared assets', () => {
+  test('counts the declared assets for the default Lean config', () => {
     expect(registry.domain).toBe('game-dev');
     expect(registry.subdomain).toBe('unity-3d');
     expect(registry.counts.agents).toBe(1);
-    expect(registry.counts.subagents).toBe(9);
+    expect(registry.counts.subagents).toBe(7);
     expect(registry.counts.abilities).toBe(29);
     expect(registry.counts.workflows).toBe(3);
+  });
+
+  test('includes a gated specialist only when its gate holds', () => {
+    const tddDir = mkdtempSync(join(tmpdir(), 'oac-registry-tdd-'));
+    const nativeDir = mkdtempSync(join(tmpdir(), 'oac-registry-native-'));
+    try {
+      writeFileSync(
+        join(tddDir, 'unity-studio.json'),
+        JSON.stringify({ schemaVersion: 1, studioMode: 'lean', toggles: { tdd: true, ftf: false } })
+      );
+      const tdd = buildRegistry(unity3dDir, '2026-09-20T00:00:00.000Z', tddDir);
+      expect(tdd.counts.agents).toBe(1);
+      expect(tdd.counts.subagents).toBe(8);
+      expect(tdd.subagents.some((entry) => entry.id === 'tdd-specialist')).toBe(true);
+      expect(tdd.subagents.some((entry) => entry.id === 'native-plugin')).toBe(false);
+
+      mkdirSync(join(nativeDir, 'project-data'), { recursive: true });
+      writeFileSync(
+        join(nativeDir, 'unity-studio.json'),
+        JSON.stringify({ schemaVersion: 1, studioMode: 'lean' })
+      );
+      writeFileSync(
+        join(nativeDir, 'project-data', 'native-project-state.json'),
+        JSON.stringify({ schemaVersion: 1, state: { status: 'declared', solutionExists: true } })
+      );
+      const native = buildRegistry(unity3dDir, '2026-09-20T00:00:00.000Z', nativeDir);
+      expect(native.counts.subagents).toBe(8);
+      expect(native.subagents.some((entry) => entry.id === 'native-plugin')).toBe(true);
+      expect(native.subagents.some((entry) => entry.id === 'tdd-specialist')).toBe(false);
+    } finally {
+      rmSync(tddDir, { recursive: true, force: true });
+      rmSync(nativeDir, { recursive: true, force: true });
+    }
   });
 
   test('enumerates the full-studio hierarchy when the config selects it', () => {
@@ -141,7 +174,7 @@ describe('command usedBy hygiene', () => {
   interface StudioModeRoster {
     agents?: string[];
     subagents?: string[];
-    optional?: { path: string }[];
+    optional?: (string | { path?: string })[];
   }
 
   test('no command usedBy value names an agent', () => {
@@ -151,8 +184,9 @@ describe('command usedBy hygiene', () => {
     };
     const agentIds = new Set<string>();
     for (const mode of Object.values(manifest.studioModes ?? {})) {
-      const rels = [...(mode.agents ?? []), ...(mode.subagents ?? []), ...(mode.optional ?? []).map((entry) => entry.path)];
-      for (const rel of rels) agentIds.add(basename(rel, '.md'));
+      const optional = (mode.optional ?? []).map((entry) => (typeof entry === 'string' ? entry : entry.path));
+      const rels = [...(mode.agents ?? []), ...(mode.subagents ?? []), ...optional];
+      for (const rel of rels) if (rel) agentIds.add(basename(rel, '.md'));
     }
     expect(agentIds.size).toBeGreaterThan(0);
 
