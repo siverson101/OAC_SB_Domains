@@ -8,7 +8,6 @@ inputs: { projectRoot: "string", opencodeDir: "string", ifDue: "boolean?", maxAg
 outputs: { cadence: "object", editor: "object", packages: "object", cli: "object", actions: "array", baselinesUpdated: "array", report: "string" }
 sideEffects: ["writes version-baselines/*.json", "writes version-baselines/*.txt"]
 safetyGate: { mutates: false, requiresEditor: false, requiresApproval: false, writesState: true }
-uses: [gather-unity-context]
 provides: [version-drift]
 requires: [project-data]
 versionCompatibility: { unity: ["6.0", "6.3", "6.5", "LTS+"] }
@@ -57,3 +56,19 @@ now or record it for the user:
   that enumerate Unity CLI commands (the report lists the files it found); never edit them silently.
 
 Report the `report` text verbatim to the user, then act on their confirmation.
+
+## Deliberate deviations from the TODO prompt
+
+The offline hook **detects and records** drift; it does **not** perform the network- or
+judgement-bound work that `docs/TODO.md` describes. Two steps are therefore **surfaced for the agent**
+as ACTION REQUIRED rather than executed here, per the fail-soft rule (a stage-3 hook must be offline,
+read-only, and never fail a build):
+
+- **Pipeline changelog fetch** — the `com.unity.pipeline` changelog is not fetched; the action line
+  names it for the agent to review.
+- **Editor upgrade-guide / deprecated-API file scan** — the upgrade guide is not fetched and project
+  scripts are not scanned for deprecated APIs; the action line points the agent at that review.
+
+This partial-vs-TODO behaviour is intentional: the hook stays offline and deterministic, and the
+judgement-bearing work is delegated to the agent on the user's confirmation.
+

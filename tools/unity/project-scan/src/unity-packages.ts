@@ -1,10 +1,7 @@
 import { join } from 'node:path';
 import { fileExists, readJson, sha256 } from '../../../shared/io';
+import { readManifestDependencies } from '../../../shared/unity-manifest';
 import type { PackageEntry, ProjectInfo } from '../../../shared/types';
-
-interface Manifest {
-  dependencies?: Record<string, string>;
-}
 
 interface LockEntry {
   version?: string;
@@ -32,9 +29,9 @@ export interface UnityPackagesResult {
 export function readUnityPackages(projectRoot: string, info: ProjectInfo | null): UnityPackagesResult {
   const manifestPath = join(projectRoot, 'Packages', 'manifest.json');
   const lockPath = join(projectRoot, 'Packages', 'packages-lock.json');
-  const manifest = readJson<Manifest>(manifestPath);
+  const manifest = readManifestDependencies(manifestPath);
   const lock = readJson<PackagesLock>(lockPath);
-  const manifestDeps = manifest?.dependencies ?? {};
+  const manifestDeps = manifest.dependencies ?? {};
   const lockDeps = lock?.dependencies ?? {};
 
   const map: Record<string, string> = {};
@@ -60,7 +57,7 @@ export function readUnityPackages(projectRoot: string, info: ProjectInfo | null)
     lockPath,
     manifestHash: sha256(manifestPath),
     lockHash: sha256(lockPath),
-    hasManifest: fileExists(manifestPath),
+    hasManifest: manifest.present,
     hasLock: fileExists(lockPath),
   };
 }

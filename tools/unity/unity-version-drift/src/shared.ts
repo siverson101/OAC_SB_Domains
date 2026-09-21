@@ -4,11 +4,18 @@ export { asRecord, str } from '../../../shared/json-helpers';
 
 import { join } from 'node:path';
 import { makeEnvelope } from '../../../shared/result-envelope';
+import type { Route } from '../../../shared/tool-routing';
 import type { VersionDriftAbility, VersionDriftBase, VersionDriftOptions, VersionDriftStatus } from './types';
 
 export const BASELINE_DIR = 'version-baselines';
 
 export const MAX_AGE_HOURS_DEFAULT = 24;
+
+export const EDITOR_BASELINE = 'unity-editor-version.txt';
+export const PACKAGE_BASELINE = 'package-versions.json';
+export const CLI_VERSION_BASELINE = 'unity-cli-version.txt';
+export const CLI_COMMANDS_BASELINE = 'unity-cli-commands.json';
+export const LAST_RUN = 'last-run.json';
 
 export function baselineDir(options: VersionDriftOptions): string {
   return join(options.opencodeDir, 'project-data', BASELINE_DIR);
@@ -24,9 +31,10 @@ export function makeResult(
   ability: VersionDriftAbility,
   status: VersionDriftStatus,
   summary: string,
-  errors: string[]
+  errors: string[],
+  route: Route = 'offline'
 ): VersionDriftBase {
-  // The ability reads on-disk state first; the CLI probe is best-effort, so the
-  // route stays `offline` even when the CLI resolves.
-  return makeEnvelope({ ability, family: 'sense', mode: 'both', route: 'offline', status, summary, errors });
+  // The Editor/package reads are on-disk; the route reports `batch` only when the
+  // best-effort Unity CLI probe actually ran.
+  return makeEnvelope({ ability, family: 'sense', mode: 'both', route, status, summary, errors });
 }

@@ -196,14 +196,19 @@ function makeEnvelope(input) {
 // tools/unity/unity-version-drift/src/shared.ts
 var BASELINE_DIR = "version-baselines";
 var MAX_AGE_HOURS_DEFAULT = 24;
+var EDITOR_BASELINE = "unity-editor-version.txt";
+var PACKAGE_BASELINE = "package-versions.json";
+var CLI_VERSION_BASELINE = "unity-cli-version.txt";
+var CLI_COMMANDS_BASELINE = "unity-cli-commands.json";
+var LAST_RUN = "last-run.json";
 function baselineDir(options) {
   return join(options.opencodeDir, "project-data", BASELINE_DIR);
 }
 function baselineRelPath(file) {
   return `${BASELINE_DIR}/${file}`;
 }
-function makeResult(ability, status, summary, errors) {
-  return makeEnvelope({ ability, family: "sense", mode: "both", route: "offline", status, summary, errors });
+function makeResult(ability, status, summary, errors, route = "offline") {
+  return makeEnvelope({ ability, family: "sense", mode: "both", route, status, summary, errors });
 }
 
 // tools/unity/unity-version-drift/src/cli.ts
@@ -267,12 +272,20 @@ function editorVersionInfo(projectRoot) {
   return { version, revision };
 }
 
+// tools/shared/unity-manifest.ts
+function readManifestDependencies(manifestPath) {
+  if (!fileExists(manifestPath))
+    return { present: false, malformed: false, dependencies: null };
+  const dependencies = asRecord(asRecord(readJson(manifestPath))?.dependencies);
+  if (!dependencies)
+    return { present: true, malformed: true, dependencies: null };
+  const out = {};
+  for (const [name, version] of Object.entries(dependencies))
+    out[name] = String(version);
+  return { present: true, malformed: false, dependencies: out };
+}
+
 // tools/unity/unity-version-drift/src/abilities.ts
-var EDITOR_BASELINE = "unity-editor-version.txt";
-var PACKAGE_BASELINE = "package-versions.json";
-var CLI_VERSION_BASELINE = "unity-cli-version.txt";
-var CLI_COMMANDS_BASELINE = "unity-cli-commands.json";
-var LAST_RUN = "last-run.json";
 var CLI_COMMAND_DOC_PATTERN = /unity\s+command\b/i;
 var CLI_DOC_SKIP_DIRS = new Set(["node_modules", ".git", "scripts", "project-data", "dist", "Library", "Temp"]);
 function nameOf(entry) {
@@ -370,13 +383,18 @@ function computeCadence(options, lastRunUtc) {
   const windowMs = options.maxAgeHours * 3600000;
   const hasValidLast = Number.isFinite(lastMs);
   const fresh = hasValidLast && Number.isFinite(nowMs) && nowMs - lastMs < windowMs;
+  let nextDueUtc = null;
+  if (hasValidLast) {
+    const base = Number.isFinite(nowMs) && lastMs > nowMs ? nowMs : lastMs;
+    nextDueUtc = new Date(base + windowMs).toISOString();
+  }
   return {
     ifDue: options.ifDue,
     maxAgeHours: options.maxAgeHours,
     skipped: options.ifDue && fresh,
     lastRunUtc,
     nowUtc: options.now,
-    nextDueUtc: hasValidLast ? new Date(lastMs + windowMs).toISOString() : null
+    nextDueUtc
   };
 }
 function detectEditor(options, errors) {
@@ -428,19 +446,17 @@ function detectPackages(options, errors) {
     action: null
   };
   const manifestPath = join4(options.projectRoot, "Packages", "manifest.json");
-  if (!fileExists(manifestPath)) {
+  const manifest = readManifestDependencies(manifestPath);
+  if (!manifest.present) {
     section.status = "unavailable";
     return section;
   }
-  const dependencies = asRecord(asRecord(readJson(manifestPath))?.dependencies);
-  if (!dependencies) {
+  if (manifest.malformed || !manifest.dependencies) {
     section.status = "unknown";
     errors.push("Packages/manifest.json is malformed or has no dependencies object; baseline left untouched");
     return section;
   }
-  const current = {};
-  for (const [name, value] of Object.entries(dependencies))
-    current[name] = String(value);
+  const current = manifest.dependencies;
   section.count = Object.keys(current).length;
   const path = join4(baselineDir(options), PACKAGE_BASELINE);
   if (!fileExists(path)) {
@@ -475,8 +491,18 @@ function detectPackages(options, errors) {
 function cliActionText(section, from, to) {
   const added = section.commandsAdded.length > 0 ? section.commandsAdded.join(", ") : "(none)";
   const removed = section.commandsRemoved.length > 0 ? section.commandsRemoved.join(", ") : "(none)";
-  const files = section.actionFiles.length > 0 ? ` Update: ${section.actionFiles.join(", ")}.` : "";
-  return `Review CLI command catalog changes for ${from} → ${to} (new: ${added}; removed: ${removed}) and update context files/docs that enumerate Unity CLI commands.${files}`;
+  return `Review CLI command catalog changes for ${from} → ${to} (new: ${added}; removed: ${removed}) and update context files/docs that enumerate Unity CLI commands.`;
+}
+function captureCommands(options, probe, section, errors, cliVersion, failureMessage) {
+  const commands = probe.commands(options.cliCommand);
+  if (!commands) {
+    errors.push(failureMessage);
+    return false;
+  }
+  writeCommandsBaseline(options, commands, cliVersion);
+  section.commandCount = commands.length;
+  section.updated.push(baselineRelPath(CLI_COMMANDS_BASELINE));
+  return true;
 }
 function detectCli(options, errors) {
   const section = {
@@ -511,18 +537,14 @@ function detectCli(options, errors) {
     writeBaselineText(versionPath, probeResult.version);
     section.status = "baseline_created";
     section.updated.push(baselineRelPath(CLI_VERSION_BASELINE));
-    const commands = probe.commands(options.cliCommand);
-    if (commands) {
-      writeCommandsBaseline(options, commands, probeResult.version);
-      section.commandCount = commands.length;
-      section.updated.push(baselineRelPath(CLI_COMMANDS_BASELINE));
-    } else {
-      errors.push("could not capture the Unity command catalog; version baseline recorded");
-    }
+    captureCommands(options, probe, section, errors, probeResult.version, "could not capture the Unity command catalog; version baseline recorded");
     return section;
   }
   if (baseline === probeResult.version) {
     section.status = "unchanged";
+    if (!fileExists(join4(baselineDir(options), CLI_COMMANDS_BASELINE))) {
+      captureCommands(options, probe, section, errors, probeResult.version, "Unity CLI version unchanged but the command catalog could not be captured");
+    }
     return section;
   }
   writeBaselineText(versionPath, probeResult.version);
@@ -601,11 +623,27 @@ function isObserved(status) {
   return status === "unchanged" || status === "changed" || status === "baseline_created";
 }
 function overallStatus(editor, packages, cli) {
-  return isObserved(editor.status) || isObserved(packages.status) || isObserved(cli.status) ? "observed_locally" : "unavailable";
+  if (isObserved(editor.status) || isObserved(packages.status) || isObserved(cli.status))
+    return "observed_locally";
+  if (editor.status === "unknown" || packages.status === "unknown" || cli.status === "unknown")
+    return "unknown";
+  return "unavailable";
+}
+function unknownReasons(editor, packages, cli) {
+  const reasons = [];
+  if (editor.status === "unknown")
+    reasons.push("ProjectSettings/ProjectVersion.txt is present but unreadable");
+  if (packages.status === "unknown")
+    reasons.push("Packages/manifest.json or package-versions.json is present but malformed");
+  if (cli.status === "unknown")
+    reasons.push("the Unity CLI is present but its version could not be read");
+  return reasons;
 }
 function summarize(status, editor, packages, cli) {
   if (status === "unavailable")
     return "No Unity project files found under the project root";
+  if (status === "unknown")
+    return `Version state unknown: ${unknownReasons(editor, packages, cli).join("; ")}`;
   const changes = [];
   if (editor.status === "changed")
     changes.push(`Editor ${editor.baseline} → ${editor.current}`);
@@ -667,7 +705,7 @@ function renderPackages(section) {
       lines.push("[Packages] unavailable — no Packages/manifest.json");
       break;
     default:
-      lines.push("[Packages] unknown — Packages/manifest.json is malformed");
+      lines.push("[Packages] unknown — manifest or baseline is malformed");
       break;
   }
   for (const file of section.updated)
@@ -699,6 +737,9 @@ function renderCli(section) {
   }
   for (const file of section.updated)
     lines.push(`  → Updated ${file}`);
+  if (section.actionFiles.length > 0) {
+    lines.push(`  → Updated context files: ${section.actionFiles.join(", ")}`);
+  }
   if (section.action)
     lines.push(`  → ACTION REQUIRED: ${section.action}`);
   return lines;
@@ -744,8 +785,9 @@ function runVersionDrift(options) {
   const actions = [editor.action, packages.action, cli.action].filter((action) => action !== null);
   const baselinesUpdated = [...editor.updated, ...packages.updated, ...cli.updated];
   const status = overallStatus(editor, packages, cli);
+  const route = cli.available ? "batch" : "offline";
   const result = {
-    ...makeResult(options.ability, status, summarize(status, editor, packages, cli), errors),
+    ...makeResult(options.ability, status, summarize(status, editor, packages, cli), errors, route),
     cadence,
     editor,
     packages,
