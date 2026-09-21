@@ -544,6 +544,10 @@ function bool(obj, key) {
   const value = obj?.[key];
   return typeof value === "boolean" ? value : null;
 }
+function stringArray(obj, key) {
+  const value = obj?.[key];
+  return Array.isArray(value) ? value.filter((item) => typeof item === "string") : [];
+}
 
 // tools/unity/unity-verify/src/shared.ts
 import { join as join4 } from "node:path";
@@ -1218,9 +1222,41 @@ function compileGate(compileState) {
     return { gate: "compile", status: "passed" };
   return { gate: "compile", status: "unknown" };
 }
+function visualTestName(test) {
+  return str(test, "fullname") ?? "(unknown visual test)";
+}
+function visualTestFailed(test) {
+  const status = (str(test, "status") ?? "").toLowerCase();
+  return status.includes("fail") || status.includes("error");
+}
+function visualTestHasScreenshot(test) {
+  const screenshots = stringArray(test, "screenshots");
+  const missing = stringArray(test, "missingScreenshots");
+  return screenshots.length - missing.length > 0;
+}
 function visualGate(testInventory) {
   const visual = asRecord(testInventory?.visualVerification);
-  if (!visual || bool(visual, "found") !== true)
+  if (!visual)
+    return { gate: "visual", status: "not_run" };
+  if (Array.isArray(visual.tests)) {
+    const tests = asArray(visual.tests).map(asRecord).filter((test) => test !== null);
+    if (tests.length === 0)
+      return { gate: "visual", status: "not_run" };
+    const failed = tests.filter(visualTestFailed);
+    if (failed.length > 0) {
+      return { gate: "visual", status: "failed", detail: `visual test failed: ${failed.map(visualTestName).join(", ")}` };
+    }
+    const missing = tests.filter((test) => !visualTestHasScreenshot(test));
+    if (missing.length > 0) {
+      return {
+        gate: "visual",
+        status: "failed",
+        detail: `missing screenshot: ${missing.map(visualTestName).join(", ")}`
+      };
+    }
+    return { gate: "visual", status: "passed" };
+  }
+  if (bool(visual, "found") !== true)
     return { gate: "visual", status: "not_run" };
   const results = asArray(visual.results).map(asRecord);
   const failed = results.some((result) => (str(result, "status") ?? "").toLowerCase().includes("fail"));

@@ -4,7 +4,7 @@
 // EditMode/PlayMode, scene/asset, build, performance, and visual verification.
 // The review-intensity knob (`full | lean | solo`) decides which gates apply;
 // the folded verdict is the strictest of the applicable gates.
-import { asArray, asRecord, bool, str, type Json } from './shared';
+import { asArray, asRecord, bool, str, stringArray, type Json } from './shared';
 import type { ReviewIntensity } from './types';
 
 export type GateName =
@@ -131,9 +131,49 @@ function compileGate(compileState: Json | null): GateEntry {
   return { gate: 'compile', status: 'unknown' };
 }
 
+function visualTestName(test: Json): string {
+  return str(test, 'fullname') ?? '(unknown visual test)';
+}
+
+function visualTestFailed(test: Json): boolean {
+  const status = (str(test, 'status') ?? '').toLowerCase();
+  return status.includes('fail') || status.includes('error');
+}
+
+function visualTestHasScreenshot(test: Json): boolean {
+  const screenshots = stringArray(test, 'screenshots');
+  const missing = stringArray(test, 'missingScreenshots');
+  return screenshots.length - missing.length > 0;
+}
+
 function visualGate(testInventory: Json | null): GateEntry {
   const visual = asRecord(testInventory?.visualVerification);
-  if (!visual || bool(visual, 'found') !== true) return { gate: 'visual', status: 'not_run' };
+  if (!visual) return { gate: 'visual', status: 'not_run' };
+
+  // Inventory versions that report a `tests` array gate each visual test; an
+  // older inventory without one falls back to the aggregate result shape.
+  if (Array.isArray(visual.tests)) {
+    const tests = asArray(visual.tests)
+      .map(asRecord)
+      .filter((test): test is Json => test !== null);
+    if (tests.length === 0) return { gate: 'visual', status: 'not_run' };
+
+    const failed = tests.filter(visualTestFailed);
+    if (failed.length > 0) {
+      return { gate: 'visual', status: 'failed', detail: `visual test failed: ${failed.map(visualTestName).join(', ')}` };
+    }
+    const missing = tests.filter((test) => !visualTestHasScreenshot(test));
+    if (missing.length > 0) {
+      return {
+        gate: 'visual',
+        status: 'failed',
+        detail: `missing screenshot: ${missing.map(visualTestName).join(', ')}`,
+      };
+    }
+    return { gate: 'visual', status: 'passed' };
+  }
+
+  if (bool(visual, 'found') !== true) return { gate: 'visual', status: 'not_run' };
   const results = asArray(visual.results).map(asRecord);
   const failed = results.some((result) => (str(result, 'status') ?? '').toLowerCase().includes('fail'));
   return failed
