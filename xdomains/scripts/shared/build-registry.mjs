@@ -358,6 +358,30 @@ function renderStudioConfigLines(view) {
   }
   return lines;
 }
+// tools/unity/studio-config/src/roster.ts
+function optionalPaths(optional) {
+  const out = [];
+  for (const entry of optional ?? []) {
+    const rel = typeof entry === "string" ? entry : entry?.path;
+    if (rel)
+      out.push(rel);
+  }
+  return out;
+}
+function isGateEnabled(enabledBy, gates) {
+  if (enabledBy === undefined)
+    return true;
+  return gates[enabledBy] === true;
+}
+function selectActiveRoster(source, gates, enabledByFor) {
+  const agents = [...source.agents];
+  const subagents = [...source.subagents];
+  for (const path of source.optional) {
+    if (isGateEnabled(enabledByFor(path), gates))
+      subagents.push(path);
+  }
+  return { agents, subagents };
+}
 
 // tools/unity/studio-config/src/resolve.ts
 function resolveStudioConfigProject(options) {
@@ -582,24 +606,30 @@ function frontmatterStringArray(fm, key) {
 function toPosix(path) {
   return path.split(sep).join("/");
 }
-function selectStudioRoster(manifest, studioMode) {
+function selectStudioRoster(manifest, studioMode, gates, domainDir) {
   const mode = manifest.studioModes?.[studioMode];
-  if (mode) {
-    return {
-      agents: mode.agents ?? [],
-      subagents: [...mode.subagents ?? [], ...(mode.optional ?? []).map((entry) => entry.path)]
-    };
-  }
-  return { agents: manifest.agents ?? [], subagents: manifest.subagents ?? [] };
+  if (!mode)
+    return { agents: manifest.agents ?? [], subagents: manifest.subagents ?? [] };
+  return selectActiveRoster({
+    agents: mode.agents ?? [],
+    subagents: mode.subagents ?? [],
+    optional: optionalPaths(mode.optional)
+  }, gates, (rel) => frontmatterString(readFrontmatter(join2(domainDir, rel)), "enabledBy"));
 }
 function allStudioAgents(manifest) {
   if (!manifest.studioModes)
     return [...manifest.agents ?? [], ...manifest.subagents ?? []];
   const out = [];
   for (const mode of Object.values(manifest.studioModes)) {
-    out.push(...mode.agents ?? [], ...mode.subagents ?? [], ...(mode.optional ?? []).map((entry) => entry.path));
+    out.push(...mode.agents ?? [], ...mode.subagents ?? [], ...optionalPaths(mode.optional));
   }
   return out;
+}
+function nativeSubprojectPresent(opencodeDir) {
+  if (!opencodeDir)
+    return false;
+  const artifact = readJson(join2(opencodeDir, "project-data", "native-project-state.json"));
+  return artifact?.state?.solutionExists === true;
 }
 function isDir(path) {
   try {
@@ -715,7 +745,11 @@ function buildRegistry(domainDir, generatedAt, opencodeDir) {
   const consumers = projections.consumers ?? {};
   const studioConfig = buildStudioConfig(domainDir, opencodeDir);
   const mapEntries = (paths, layer, modelTiers) => (paths ?? []).map((rel) => entry(domainDir, rel, basename(rel, ".md"), consumedOutputs(rel, basename(rel, ".md"), consumers), layer, modelTiers));
-  const roster = selectStudioRoster(manifest, studioConfig.studioMode);
+  const gates = {
+    tdd: studioConfig.toggles.tdd === true,
+    "native-subproject": nativeSubprojectPresent(opencodeDir)
+  };
+  const roster = selectStudioRoster(manifest, studioConfig.studioMode, gates, domainDir);
   const agents = mapEntries(roster.agents, undefined, studioConfig.modelTiers);
   const subagents = mapEntries(roster.subagents, undefined, studioConfig.modelTiers);
   const commands = mapEntries(manifest.commands, "command");

@@ -5,12 +5,15 @@ import { readJson } from '../../../shared/io';
 import {
   defaultStudioConfig,
   MODEL_TIERS,
+  optionalPaths,
   resolveStudioConfigProject,
+  selectActiveRoster,
   type ConfigProblem,
   type ModelTier,
   type ModelTiers,
   type PatternConflict,
   type ReviewIntensity,
+  type StudioGates,
   type StudioMode,
   type StudioToggles,
 } from '../../../unity/studio-config/src/resolve';
@@ -83,7 +86,7 @@ export interface Registry {
 interface StudioModeRoster {
   agents?: string[];
   subagents?: string[];
-  optional?: { path: string; enabledBy?: string }[];
+  optional?: (string | { path?: string })[];
 }
 
 interface Manifest {
@@ -144,20 +147,26 @@ function toPosix(path: string): string {
 
 // Membership lives only in `studioModes`; a manifest without it falls back to
 // the legacy flat arrays (fail-soft for domains that predate studio modes).
+// The gating condition is read once, from each optional agent's frontmatter
+// `enabledBy`, through the shared `selectActiveRoster` semantics the apply
+// engine also uses.
 function selectStudioRoster(
   manifest: Manifest,
-  studioMode: StudioMode
+  studioMode: StudioMode,
+  gates: StudioGates,
+  domainDir: string
 ): { agents: string[]; subagents: string[] } {
   const mode = manifest.studioModes?.[studioMode];
-  if (mode) {
-    return {
+  if (!mode) return { agents: manifest.agents ?? [], subagents: manifest.subagents ?? [] };
+  return selectActiveRoster(
+    {
       agents: mode.agents ?? [],
-      // Optional Lean extras are part of the mode's declared roster; the
-      // registry documents them even when install-time gating leaves them out.
-      subagents: [...(mode.subagents ?? []), ...(mode.optional ?? []).map((entry) => entry.path)],
-    };
-  }
-  return { agents: manifest.agents ?? [], subagents: manifest.subagents ?? [] };
+      subagents: mode.subagents ?? [],
+      optional: optionalPaths(mode.optional),
+    },
+    gates,
+    (rel) => frontmatterString(readFrontmatter(join(domainDir, rel)), 'enabledBy')
+  );
 }
 
 // Every agent any mode can install, for validating cross-hierarchy workflow
@@ -166,9 +175,20 @@ function allStudioAgents(manifest: Manifest): string[] {
   if (!manifest.studioModes) return [...(manifest.agents ?? []), ...(manifest.subagents ?? [])];
   const out: string[] = [];
   for (const mode of Object.values(manifest.studioModes)) {
-    out.push(...(mode.agents ?? []), ...(mode.subagents ?? []), ...(mode.optional ?? []).map((entry) => entry.path));
+    out.push(...(mode.agents ?? []), ...(mode.subagents ?? []), ...optionalPaths(mode.optional));
   }
   return out;
+}
+
+// Native detection reads the standard project-data artifact (written by
+// project-scan); a missing file or a merely declared solution is "not
+// detected". Affirmative means the solution file exists.
+function nativeSubprojectPresent(opencodeDir?: string): boolean {
+  if (!opencodeDir) return false;
+  const artifact = readJson<{ state?: { solutionExists?: boolean } }>(
+    join(opencodeDir, 'project-data', 'native-project-state.json')
+  );
+  return artifact?.state?.solutionExists === true;
 }
 
 function isDir(path: string): boolean {
@@ -311,7 +331,11 @@ export function buildRegistry(domainDir: string, generatedAt: string, opencodeDi
       entry(domainDir, rel, basename(rel, '.md'), consumedOutputs(rel, basename(rel, '.md'), consumers), layer, modelTiers)
     );
 
-  const roster = selectStudioRoster(manifest, studioConfig.studioMode);
+  const gates: StudioGates = {
+    tdd: studioConfig.toggles.tdd === true,
+    'native-subproject': nativeSubprojectPresent(opencodeDir),
+  };
+  const roster = selectStudioRoster(manifest, studioConfig.studioMode, gates, domainDir);
   const agents = mapEntries(roster.agents, undefined, studioConfig.modelTiers);
   const subagents = mapEntries(roster.subagents, undefined, studioConfig.modelTiers);
   const commands = mapEntries(manifest.commands, 'command');

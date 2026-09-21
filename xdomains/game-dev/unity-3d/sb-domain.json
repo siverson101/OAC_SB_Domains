@@ -35,14 +35,8 @@
           "agent/subagents/unity/qa.md"
         ],
         "optional": [
-          {
-            "path": "agent/subagents/unity/tdd-specialist.md",
-            "enabledBy": "tdd"
-          },
-          {
-            "path": "agent/subagents/unity/native-plugin.md",
-            "enabledBy": "native-subproject"
-          }
+          "agent/subagents/unity/tdd-specialist.md",
+          "agent/subagents/unity/native-plugin.md"
         ]
       },
       "full": {
