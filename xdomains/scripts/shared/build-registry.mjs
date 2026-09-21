@@ -376,9 +376,12 @@ function isGateEnabled(enabledBy, gates) {
 function selectActiveRoster(source, gates, enabledByFor) {
   const agents = [...source.agents];
   const subagents = [...source.subagents];
+  const seen = new Set(subagents);
   for (const path of source.optional) {
-    if (isGateEnabled(enabledByFor(path), gates))
+    if (!seen.has(path) && isGateEnabled(enabledByFor(path), gates)) {
+      seen.add(path);
       subagents.push(path);
+    }
   }
   return { agents, subagents };
 }

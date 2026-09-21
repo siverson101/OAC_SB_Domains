@@ -36,10 +36,16 @@ export function selectActiveRoster(
   gates: StudioGates,
   enabledByFor: (path: string) => string | undefined
 ): { agents: string[]; subagents: string[] } {
+  // Callers are expected to keep `subagents` and `optional` disjoint; the dedupe
+  // is defensive so a manifest overlap cannot emit an agent twice.
   const agents = [...source.agents];
   const subagents = [...source.subagents];
+  const seen = new Set(subagents);
   for (const path of source.optional) {
-    if (isGateEnabled(enabledByFor(path), gates)) subagents.push(path);
+    if (!seen.has(path) && isGateEnabled(enabledByFor(path), gates)) {
+      seen.add(path);
+      subagents.push(path);
+    }
   }
   return { agents, subagents };
 }

@@ -143,6 +143,19 @@ describe('gating agreement on a synthetic manifest (both modes carry optional en
       expect(merged.subagents).toContain('agent/full-studio/full-always.md');
     }
   });
+
+  test('an optional path already listed in subagents is not duplicated', () => {
+    const modes = { lean: { agents: [], subagents: ['agent/x.md'], optional: ['agent/x.md'] } };
+    const gates: StudioGates = { tdd: false, 'native-subproject': false };
+    const merged = merge.selectHierarchy({ studioModes: modes }, 'lean', gates, { readEnabledBy: () => undefined });
+    const canonical = selectActiveRoster(
+      { agents: [], subagents: ['agent/x.md'], optional: ['agent/x.md'] },
+      gates,
+      () => undefined
+    );
+    expect(merged.subagents).toEqual(['agent/x.md']);
+    expect(canonical.subagents).toEqual(['agent/x.md']);
+  });
 });
 
 describe('optionalPaths parity', () => {
@@ -211,4 +224,9 @@ describe('native sub-project detection agreement', () => {
       }
     });
   }
+
+  test('both tolerate an absent opencode dir', () => {
+    expect(nativeSubprojectPresent(undefined)).toBe(false);
+    expect(merge.detectNativeSubproject(undefined)).toBe(false);
+  });
 });

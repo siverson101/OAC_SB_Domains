@@ -150,9 +150,14 @@ function selectHierarchy(manifest, studioMode, gating, options) {
   const mode = modes[studioMode] || {};
   const agents = [...(mode.agents || [])];
   const subagents = [...(mode.subagents || [])];
+  const seen = new Set(subagents);
   for (const rel of optionalPaths(mode.optional)) {
+    if (seen.has(rel)) continue;
     const enabledBy = opts.readEnabledBy ? opts.readEnabledBy(rel) : readAgentEnabledBy(opts.domainDir, rel);
-    if (isGateEnabled(enabledBy, gates)) subagents.push(rel);
+    if (isGateEnabled(enabledBy, gates)) {
+      seen.add(rel);
+      subagents.push(rel);
+    }
   }
   return { agents, subagents };
 }
@@ -167,6 +172,7 @@ function selectHierarchy(manifest, studioMode, gating, options) {
 // Keep in sync with nativeSubprojectPresent in
 // tools/shared/registry/src/build.ts; pinned by tests/gating-agreement.test.ts.
 function detectNativeSubproject(opencodeDir) {
+  if (!opencodeDir) return false;
   const file = path.join(opencodeDir, 'project-data', 'native-project-state.json');
   if (!isFile(file)) return false;
   try {
