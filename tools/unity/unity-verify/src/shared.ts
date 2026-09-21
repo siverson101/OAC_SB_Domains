@@ -48,6 +48,7 @@ export function makeResult(
   return {
     ...makeEnvelope({ ability, family: 'verify', mode: 'offline', status, summary, errors, route }),
     safetyGate: { mutates: false, requiresEditor },
+    changeScope: null,
     checkpoint: null,
     delta: {
       computed: false,

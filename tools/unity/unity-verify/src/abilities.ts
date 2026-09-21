@@ -59,6 +59,16 @@ function readData(options: VerifyOptions, file: string): Json | null {
 // ---------------------------------------------------------------------------
 
 function compileAndVerifyProject(options: VerifyOptions): CompileVerifyResult {
+  const changeScope = (options.changeScope ?? []).map((token) => token.trim()).filter((token) => token !== '');
+
+  if (options.phase === 'validate' && changeScope.length === 0) {
+    const refusal = 'validate requires a declared change scope (--change-scope, comma-separated files/symbols); refusing to report a verdict';
+    const base = makeResult(options.ability, 'refused', refusal, [refusal], 'offline');
+    base.mode = VERIFY_MODES[options.ability];
+    base.delta = notComputedDelta('change scope required; no delta computed');
+    return { ...base, phase: options.phase, checkpointPath: null };
+  }
+
   const snapshot = captureSnapshot(options);
   const base = makeResult(
     options.ability,
@@ -68,6 +78,7 @@ function compileAndVerifyProject(options: VerifyOptions): CompileVerifyResult {
     'offline'
   );
   base.mode = VERIFY_MODES[options.ability];
+  base.changeScope = changeScope.length > 0 ? changeScope : null;
   base.checkpoint = snapshot;
 
   if (options.phase === 'checkpoint') {
@@ -78,7 +89,7 @@ function compileAndVerifyProject(options: VerifyOptions): CompileVerifyResult {
   }
 
   const before = readCheckpoint(options);
-  const delta = computeDelta(before, snapshot);
+  const delta = computeDelta(before, snapshot, { ok: true }, changeScope);
   base.delta = delta;
 
   if (snapshot.compile.status === 'unavailable') {

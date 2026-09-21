@@ -36,6 +36,16 @@ function normalizeMessage(text: string): string {
   return text.replace(/\s+/g, ' ').trim();
 }
 
+// A declared change scope is a set of file/symbol tokens. An issue is in scope
+// when any token appears in its id or message (case-insensitive); an empty
+// scope means "no scope declared" and filters nothing.
+export function issueInScope(issue: VerifyIssue, scope: string[]): boolean {
+  const tokens = scope.map((token) => token.trim().toLowerCase()).filter((token) => token !== '');
+  if (tokens.length === 0) return true;
+  const haystack = `${issue.id} ${issue.message}`.toLowerCase();
+  return tokens.some((token) => haystack.includes(token));
+}
+
 function pushIssue(issues: VerifyIssue[], seen: Set<string>, issue: VerifyIssue): void {
   if (issues.length >= MAX_ISSUES) return;
   const key = issueKey(issue);
@@ -94,7 +104,8 @@ export function compilePending(compile: Partial<VerifyCompile> | null | undefine
 export function computeDelta(
   before: VerifySnapshot | null,
   after: VerifySnapshot | null,
-  scan: DeltaScan = { ok: true }
+  scan: DeltaScan = { ok: true },
+  changeScope: string[] = []
 ): VerifyDelta {
   const reasons: string[] = [];
   const validateScanFailed = !scan.ok || after === null || isCompileUnavailable(after?.compile);
@@ -124,13 +135,19 @@ export function computeDelta(
 
   const beforeKeys = new Set(before.issues.map(issueKey));
   const afterKeys = new Set(after.issues.map(issueKey));
+  const rawNew = after.issues.filter((issue) => !beforeKeys.has(issueKey(issue)));
+  const rawResolved = before.issues.filter((issue) => !afterKeys.has(issueKey(issue)));
+  const scoped = changeScope.some((token) => token.trim() !== '');
+  const newIssues = scoped ? rawNew.filter((issue) => issueInScope(issue, changeScope)) : rawNew;
+  const resolvedIssues = scoped ? rawResolved.filter((issue) => issueInScope(issue, changeScope)) : rawResolved;
+  const excluded = rawNew.length - newIssues.length + (rawResolved.length - resolvedIssues.length);
   return {
     computed: true,
-    newIssues: after.issues.filter((issue) => !beforeKeys.has(issueKey(issue))),
-    resolvedIssues: before.issues.filter((issue) => !afterKeys.has(issueKey(issue))),
+    newIssues,
+    resolvedIssues,
     validateScanFailed: false,
     compilePending: false,
-    reasons: [],
+    reasons: excluded > 0 ? [`${excluded} out-of-scope issue(s) excluded from the delta`] : [],
   };
 }
 

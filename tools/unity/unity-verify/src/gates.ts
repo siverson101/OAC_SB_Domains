@@ -19,9 +19,17 @@ export type GateName =
 
 export type GateStatus = 'passed' | 'failed' | 'warning' | 'not_run' | 'unavailable' | 'unknown';
 
+// An external reviewer's verdict on a gate, independent of the on-disk status.
+// `uncertain` folds at least as strict as `warning`; `confirmed` contributes a
+// `passed` verdict and so cannot override a harder on-disk status.
+export type ExternalVerdict = 'confirmed' | 'uncertain';
+
+export const EXTERNAL_VERDICTS: ExternalVerdict[] = ['confirmed', 'uncertain'];
+
 export interface GateEntry {
   gate: GateName;
   status: GateStatus;
+  externalVerdict?: ExternalVerdict;
   detail?: string;
 }
 
@@ -73,6 +81,16 @@ function orderIndex(gate: GateName): number {
   return index === -1 ? GATE_ORDER.length : index;
 }
 
+// The external verdict is folded as an additional status contribution:
+// `uncertain` contributes `warning`, `confirmed` contributes `passed`, and the
+// stricter of the two wins. So `confirmed` can fill a `not_run` gate but never
+// overrides a `failed`/`warning`/`unknown` on-disk status.
+export function effectiveGateStatus(entry: GateEntry): GateStatus {
+  if (!entry.externalVerdict) return entry.status;
+  const external: GateStatus = entry.externalVerdict === 'uncertain' ? 'warning' : 'passed';
+  return severity(external) > severity(entry.status) ? external : entry.status;
+}
+
 export function foldGates(entries: GateEntry[], intensity: ReviewIntensity = 'full'): FoldedGates {
   const applicable = gatesForIntensity(intensity);
   const considered = entries
@@ -82,16 +100,18 @@ export function foldGates(entries: GateEntry[], intensity: ReviewIntensity = 'fu
 
   let strictest: GateEntry | null = null;
   for (const entry of considered) {
-    if (!strictest || severity(entry.status) > severity(strictest.status)) strictest = entry;
+    if (!strictest || severity(effectiveGateStatus(entry)) > severity(effectiveGateStatus(strictest))) {
+      strictest = entry;
+    }
   }
 
   return {
-    status: strictest?.status ?? 'not_run',
+    status: strictest ? effectiveGateStatus(strictest) : 'not_run',
     strictest: strictest?.gate ?? null,
     intensity,
     entries: considered,
-    hardFailures: considered.filter((entry) => entry.status === 'failed').length,
-    reviewRequired: considered.filter((entry) => entry.status === 'warning').length,
+    hardFailures: considered.filter((entry) => effectiveGateStatus(entry) === 'failed').length,
+    reviewRequired: considered.filter((entry) => effectiveGateStatus(entry) === 'warning').length,
   };
 }
 
@@ -181,7 +201,21 @@ export function parseGateOverrides(json: string | undefined): ParsedGateOverride
         errors.push(`ignored --gates override "${gate}": unknown status "${status ?? 'unknown'}"`);
         continue;
       }
-      out.push({ gate: gate as GateName, status: status as GateStatus, detail: str(entry, 'detail') ?? undefined });
+      const externalRaw = str(entry, 'externalVerdict');
+      let externalVerdict: ExternalVerdict | undefined;
+      if (externalRaw !== null) {
+        if ((EXTERNAL_VERDICTS as string[]).includes(externalRaw)) {
+          externalVerdict = externalRaw as ExternalVerdict;
+        } else {
+          errors.push(`ignored --gates override "${gate}": unknown externalVerdict "${externalRaw}"`);
+        }
+      }
+      out.push({
+        gate: gate as GateName,
+        status: status as GateStatus,
+        ...(externalVerdict ? { externalVerdict } : {}),
+        detail: str(entry, 'detail') ?? undefined,
+      });
     }
     return { entries: out, errors };
   } catch {

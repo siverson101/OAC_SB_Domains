@@ -5,8 +5,9 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { runVerify } from '../tools/unity/unity-verify/src/abilities';
 import { captureSnapshot, readCheckpoint } from '../tools/unity/unity-verify/src/checkpoint';
-import { collectIssues, compilePending, computeDelta, notComputedDelta } from '../tools/unity/unity-verify/src/delta';
+import { collectIssues, compilePending, computeDelta, issueInScope, notComputedDelta } from '../tools/unity/unity-verify/src/delta';
 import {
+  effectiveGateStatus,
   foldGates,
   gateEntriesFromState,
   gatesForIntensity,
@@ -87,6 +88,7 @@ beforeAll(() => {
     phase: 'validate',
     cliCommand: 'definitely-not-a-real-cli-xyz',
     reviewIntensity: 'full',
+    changeScope: ['Game.dll'],
   };
 });
 
@@ -206,6 +208,41 @@ describe('collectIssues', () => {
   });
 });
 
+describe('change-scope bounded delta', () => {
+  test('issueInScope matches file/symbol tokens case-insensitively', () => {
+    const issue = { kind: 'compile' as const, id: 'error CS1002 in Player.cs', message: 'error CS1002 in Player.cs' };
+    expect(issueInScope(issue, ['player.CS'])).toBe(true);
+    expect(issueInScope(issue, ['Enemy.cs'])).toBe(false);
+    expect(issueInScope(issue, [])).toBe(true);
+    expect(issueInScope(issue, ['  '])).toBe(true);
+  });
+
+  test('an out-of-scope issue is not counted as new', () => {
+    const before = makeSnapshot({ issues: [] });
+    const after = makeSnapshot({
+      issues: [
+        { kind: 'compile', id: 'Assets/Player.cs: error CS1002', message: 'Assets/Player.cs: error CS1002' },
+        { kind: 'compile', id: 'Assets/Enemy.cs: error CS9999', message: 'Assets/Enemy.cs: error CS9999' },
+      ],
+    });
+    const delta = computeDelta(before, after, { ok: true }, ['Player.cs']);
+    expect(delta.computed).toBe(true);
+    expect(delta.newIssues?.map((issue) => issue.id)).toEqual(['Assets/Player.cs: error CS1002']);
+    expect(delta.reasons.join(' ')).toContain('out-of-scope');
+  });
+
+  test('without a scope every issue counts', () => {
+    const after = makeSnapshot({
+      issues: [
+        { kind: 'compile', id: 'Assets/Player.cs: error CS1002', message: 'Assets/Player.cs: error CS1002' },
+        { kind: 'compile', id: 'Assets/Enemy.cs: error CS9999', message: 'Assets/Enemy.cs: error CS9999' },
+      ],
+    });
+    const delta = computeDelta(makeSnapshot({ issues: [] }), after);
+    expect(delta.newIssues?.length).toBe(2);
+  });
+});
+
 describe('gate folding', () => {
   test('strictest-wins picks the failed gate over passed and not_run', () => {
     const folded = foldGates(
@@ -258,6 +295,54 @@ describe('gate folding', () => {
   });
 });
 
+describe('external verdict folding', () => {
+  test('uncertain folds at least as strict as warning', () => {
+    const folded = foldGates([{ gate: 'scene', status: 'passed', externalVerdict: 'uncertain' }], 'full');
+    expect(folded.status).toBe('warning');
+    expect(folded.reviewRequired).toBe(1);
+    expect(effectiveGateStatus({ gate: 'scene', status: 'not_run', externalVerdict: 'uncertain' })).toBe('warning');
+  });
+
+  test('confirmed fills a not_run gate but never overrides a harder status', () => {
+    expect(foldGates([{ gate: 'scene', status: 'not_run', externalVerdict: 'confirmed' }], 'full').status).toBe('passed');
+    expect(foldGates([{ gate: 'scene', status: 'failed', externalVerdict: 'confirmed' }], 'full').status).toBe('failed');
+    expect(foldGates([{ gate: 'scene', status: 'warning', externalVerdict: 'confirmed' }], 'full').status).toBe('warning');
+    expect(foldGates([{ gate: 'scene', status: 'unknown', externalVerdict: 'confirmed' }], 'full').status).toBe('unknown');
+  });
+
+  test('strictest-wins is unchanged: uncertain never masks a hard failure', () => {
+    const folded = foldGates(
+      [
+        { gate: 'compile', status: 'failed', externalVerdict: 'uncertain' },
+        { gate: 'scene', status: 'passed', externalVerdict: 'uncertain' },
+      ],
+      'full'
+    );
+    expect(folded.status).toBe('failed');
+    expect(folded.strictest).toBe('compile');
+    expect(folded.hardFailures).toBe(1);
+  });
+
+  test('parseGateOverrides accepts externalVerdict and drops an unknown one', () => {
+    const { entries } = parseGateOverrides('[{"gate":"build","status":"not_run","externalVerdict":"uncertain"}]');
+    expect(entries).toEqual([{ gate: 'build', status: 'not_run', externalVerdict: 'uncertain', detail: undefined }]);
+
+    const bad = parseGateOverrides('[{"gate":"build","status":"passed","externalVerdict":"maybe"}]');
+    expect(bad.entries).toEqual([{ gate: 'build', status: 'passed', detail: undefined }]);
+    expect(bad.errors.join(' ')).toContain('unknown externalVerdict');
+  });
+
+  test('gate-review folds an uncertain override to warning', () => {
+    const result = runVerify({
+      ...options,
+      ability: 'gate-review',
+      gatesJson: '[{"gate":"scene","status":"passed","externalVerdict":"uncertain"}]',
+    });
+    expect(result.status).toBe('warning');
+    if ('gates' in result) expect(result.gates.reviewRequired).toBe(1);
+  });
+});
+
 describe('compile-and-verify-project', () => {
   test('the checkpoint phase writes a checkpoint and computes no delta', () => {
     const result = runVerify({ ...options, ability: 'compile-and-verify-project', phase: 'checkpoint' });
@@ -288,6 +373,50 @@ describe('compile-and-verify-project', () => {
     expect(result.delta.computed).toBe(false);
     expect(result.delta.newIssues).toBeNull();
     expect(result.delta.validateScanFailed).toBe(true);
+  });
+
+  test('validate without a declared change scope is refused, never verified', () => {
+    const result = runVerify({ ...options, ability: 'compile-and-verify-project', phase: 'validate', changeScope: [] });
+    expect(result.status).toBe('refused');
+    expect(result.status).not.toBe('verified');
+    expect(result.delta.computed).toBe(false);
+    expect(result.delta.newIssues).toBeNull();
+    expect(result.changeScope).toBeNull();
+    expect(result.errors.join(' ')).toContain('change scope');
+  });
+
+  test('records the declared change scope on the result', () => {
+    const result = runVerify({
+      ...options,
+      ability: 'compile-and-verify-project',
+      phase: 'validate',
+      changeScope: ['Player.cs', 'Enemy.cs'],
+    });
+    expect(result.changeScope).toEqual(['Player.cs', 'Enemy.cs']);
+  });
+
+  test('an out-of-scope issue is not counted in the delta', () => {
+    const checkpoint = join(opencodeDir, 'project-data', 'verify', 'checkpoint.json');
+    write(
+      checkpoint,
+      JSON.stringify({
+        schemaVersion: 1,
+        generatedAt: '2026-01-01T00:00:00.000Z',
+        project: projectRoot,
+        snapshot: makeSnapshot({
+          issues: [{ kind: 'compile', id: 'Assets/Enemy.cs: error CS1', message: 'Assets/Enemy.cs: error CS1' }],
+        }),
+      })
+    );
+    const result = runVerify({
+      ...options,
+      ability: 'compile-and-verify-project',
+      phase: 'validate',
+      changeScope: ['Player.cs'],
+    });
+    expect(result.delta.computed).toBe(true);
+    expect(result.delta.resolvedIssues).toEqual([]);
+    expect(result.status).toBe('verified');
   });
 });
 
@@ -408,5 +537,34 @@ describe('unity-verify bundle', () => {
     expect(parsed.family).toBe('verify');
     expect(parsed.delta).toBeDefined();
     expect(existsSync(bundle)).toBe(true);
+  });
+
+  test('refuses validate without --change-scope and records one when supplied', () => {
+    const refused = spawnSync(
+      process.execPath,
+      [bundle, '--project-root', projectRoot, '--opencode-dir', opencodeDir, '--ability', 'compile-and-verify-project', '--json'],
+      { encoding: 'utf8' }
+    );
+    expect(refused.status).toBe(0);
+    expect(JSON.parse(refused.stdout).status).toBe('refused');
+
+    const scoped = spawnSync(
+      process.execPath,
+      [
+        bundle,
+        '--project-root',
+        projectRoot,
+        '--opencode-dir',
+        opencodeDir,
+        '--ability',
+        'compile-and-verify-project',
+        '--change-scope',
+        'Player.cs, Enemy.cs',
+        '--json',
+      ],
+      { encoding: 'utf8' }
+    );
+    expect(scoped.status).toBe(0);
+    expect(JSON.parse(scoped.stdout).changeScope).toEqual(['Player.cs', 'Enemy.cs']);
   });
 });
