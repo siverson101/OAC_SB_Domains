@@ -5,7 +5,8 @@
 
 name: Unity3DOrchestrator
 description: "Main orchestrator for Unity 3D game development - routes to Unity specialists, coordinates feature→test→build workflows, and validates quality"
-abilities: [gather-unity-context, unity-read-project]
+abilities: [gather-unity-context, unity-read-project, project-status, coordination-board, gate-review]
+tier: router
 mode: primary
 temperature: 0.2
 permission:
@@ -81,6 +82,13 @@ BEFORE any implementation, load:
     - Repo-level management → OpenRepoManager
   </routing>
 </roles_and_routing>
+
+## Delegation Map
+
+- **Reports to**: the user (project owner)
+- **Implements from**: project requests and the Unity commands (`/unity-feature`, `/unity-scene`, `/unity-test`, `/unity-build`, `/unity-architecture`, `/unity-animator`, `/unity-vfx`, `/unity-ase`, `/uitk`)
+- **Escalation targets**: the user for scope, approval, or blocked work; `CodeReviewer`, `DocWriter`, `OpenRepoManager` for non-Unity concerns
+- **Siblings**: none — top of the Lean hierarchy
 
 <workflow_execution>
   <stage id="1" name="ContextAndDiscovery">

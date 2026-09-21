@@ -30,7 +30,9 @@
       "agent/subagents/unity/animator.md",
       "agent/subagents/unity/shadervfx.md",
       "agent/subagents/unity/artasset.md",
-      "agent/subagents/unity/qa.md"
+      "agent/subagents/unity/qa.md",
+      "agent/subagents/unity/tdd-specialist.md",
+      "agent/subagents/unity/native-plugin.md"
     ],
     "commands": [
       "command/unity-feature.md",
