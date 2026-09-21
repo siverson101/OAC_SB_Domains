@@ -65,7 +65,10 @@ export function firstString(args: Record<string, string | boolean>, keys: string
 
 // Parse a comma-separated CLI list (e.g. `--change-scope a,b`,
 // `--abilities a,b,c`). Trims each entry and drops empty ones; an absent value
-// yields `undefined` so the caller can distinguish "not supplied" from "empty".
+// yields `undefined`. Note the `undefined`/empty distinction is not currently
+// used: callers treat both as "no list supplied" (e.g.
+// `compile-and-verify-project` refuses on either), so an empty `--change-scope`
+// is no-scope, not an error.
 export function parseCommaList(value: string | undefined): string[] | undefined {
   if (value === undefined) return undefined;
   return value

@@ -145,6 +145,11 @@ export function renderTestPlan(artifact: TestPlanArtifact): string {
     }
     for (const problem of section.problems) lines.push('', `> Problem: ${problem}`);
   }
+  if (artifact.duplicateSteps.length > 0) {
+    lines.push('', '## Duplicate Steps Dropped', '');
+    lines.push('Declared by more than one capability; shown once in the checklist above:');
+    for (const step of artifact.duplicateSteps) lines.push(`- ${step}`);
+  }
   lines.push('');
   return lines.join('\n');
 }

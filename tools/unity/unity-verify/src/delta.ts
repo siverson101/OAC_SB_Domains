@@ -38,7 +38,11 @@ function normalizeMessage(text: string): string {
 
 // A declared change scope is a set of file/symbol tokens. An issue is in scope
 // when any token appears in its id or message (case-insensitive); an empty
-// scope means "no scope declared" and filters nothing.
+// scope means "no scope declared" and filters nothing. These are substring
+// hints, not exact file matches: `Player` also matches `PlayerController`,
+// `PlayerSpawner`, and unrelated message text. The over-count is the
+// conservative direction for a bounded delta (it never hides an in-scope
+// issue); `scopeUnmatched` reports a scope that matched nothing at all.
 export function issueInScope(issue: VerifyIssue, scope: string[]): boolean {
   const tokens = scope.map((token) => token.trim().toLowerCase()).filter((token) => token !== '');
   if (tokens.length === 0) return true;

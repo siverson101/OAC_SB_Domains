@@ -120,6 +120,12 @@ export interface RedStepInput {
   test: string;
   expectedReason: string;
   observation: RedStepObservation;
+  // True when a results file was supplied but the named test was absent from it.
+  // This is the one `test-not-found` producer, so the reason enum has a single
+  // decision function rather than a hand-built decision at the call site.
+  notFound?: boolean;
+  // The results path, for the `test-not-found` detail only.
+  source?: string;
 }
 
 // The pure decision. `OK` only when an observed test result shows the named test
@@ -129,7 +135,16 @@ export interface RedStepInput {
 // `NG`. Every other outcome is `NG`, naming whether the test passed
 // unexpectedly, failed for a different reason, or did not fail at all.
 export function decideRedStep(input: RedStepInput): RedStepDecision {
-  const { test, expectedReason, observation } = input;
+  const { test, expectedReason, observation, notFound, source } = input;
+
+  if (notFound) {
+    const where = source ? ` in ${source}` : ' in the supplied test results';
+    return {
+      verdict: 'NG',
+      reason: 'test-not-found',
+      detail: `"${test}" was not found${where}; the red step requires the named test to run and fail — abort`,
+    };
+  }
 
   if (observation.result === null) {
     return containsReason(observation.message, expectedReason)
@@ -232,11 +247,13 @@ export function runFailingTestFirst(options: VerifyOptions): FailingTestFirstRes
     if (xml === null) return refuse(`test results not found: ${resultsPath}`);
     const testCase = findTestCase(parseTestCases(xml), test);
     if (!testCase) {
-      const decision: RedStepDecision = {
-        verdict: 'NG',
-        reason: 'test-not-found',
-        detail: `"${test}" was not found in ${resultsPath}; the red step requires the named test to run and fail — abort`,
-      };
+      const decision = decideRedStep({
+        test,
+        expectedReason,
+        observation: { result: null, message: null },
+        notFound: true,
+        source: resultsPath,
+      });
       return finalize(options, test, expectedReason, tdd.enabled, { result: null, message: null }, decision);
     }
     observation = { result: testCase.result, message: testCase.message ?? failureMessage };
