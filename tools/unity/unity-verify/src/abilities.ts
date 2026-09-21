@@ -1,4 +1,4 @@
-// Dispatcher for the four Verify abilities (Phase 2 Step 2.5, ADR-0015).
+// Dispatcher for the five Verify abilities (Phase 2 Step 2.5, Phase 5 Step 5.3, ADR-0015).
 //
 // None of these abilities mutate the project. They checkpoint, scan, run tests,
 // and fold gates; the delta is always reported with the honesty rules from
@@ -14,6 +14,7 @@ import {
   writeCheckpoint,
 } from './checkpoint';
 import { computeDelta, notComputedDelta } from './delta';
+import { runFailingTestFirst, type FailingTestFirstResult } from './failing-test-first';
 import {
   foldGates,
   gateEntriesFromState,
@@ -48,7 +49,11 @@ export interface GateReviewResult extends VerifyBase {
   gates: FoldedGates;
 }
 
-export type VerifyResult = CompileVerifyResult | TestRunVerifyResult | GateReviewResult;
+export type VerifyResult =
+  | CompileVerifyResult
+  | TestRunVerifyResult
+  | GateReviewResult
+  | FailingTestFirstResult;
 
 function readData(options: VerifyOptions, file: string): Json | null {
   return readJson<Json>(join(projectDataDir(options), file));
@@ -219,6 +224,8 @@ export function runVerify(options: VerifyOptions): VerifyResult {
       return runModeTests(options, 'playmode');
     case 'gate-review':
       return gateReview(options);
+    case 'failing-test-first':
+      return runFailingTestFirst(options);
     default: {
       const exhaustive: never = options.ability;
       throw new Error(`unsupported Verify ability: ${String(exhaustive)}`);

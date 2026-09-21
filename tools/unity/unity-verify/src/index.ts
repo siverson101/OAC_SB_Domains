@@ -1,4 +1,4 @@
-// unity-verify — CLI entry for the four Verify abilities (Phase 2 Step 2.5).
+// unity-verify — CLI entry for the five Verify abilities (Phase 2 Step 2.5).
 //
 // Usage:
 //   unity-verify --project-root . --opencode-dir .opencode \
@@ -7,6 +7,8 @@
 //   unity-verify ... --ability run-edit-mode-tests --json
 //   unity-verify ... --ability run-play-mode-tests --json
 //   unity-verify ... --ability gate-review --review-intensity lean --json
+//   unity-verify ... --ability failing-test-first --test "PlayerTests.JumpTest" \
+//     --expected-reason "NullReferenceException" --failure-message "..." --json
 //   unity-verify --list
 //
 // Verify never mutates the project. Every ability is fail-soft: without a Unity
@@ -31,6 +33,7 @@ function render(result: VerifyResult): string {
     lines.push(`  tests: ${result.testRun.counts.passed}/${result.testRun.counts.total} passed`);
   }
   if ('gates' in result) lines.push(`  gates: ${result.gates.status} (${result.gates.strictest ?? 'none'})`);
+  if ('redStep' in result && result.redStep) lines.push(`  STATUS: ${result.redStep}`);
   for (const error of result.errors) lines.push(`  error: ${error}`);
   return lines.join('\n');
 }

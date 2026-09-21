@@ -51,7 +51,7 @@ function runCli(config) {
 }
 
 // tools/unity/unity-verify/src/abilities.ts
-import { join as join6 } from "node:path";
+import { join as join7 } from "node:path";
 
 // tools/shared/io.ts
 import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
@@ -518,14 +518,16 @@ var VERIFY_ABILITY_NAMES = [
   "compile-and-verify-project",
   "run-edit-mode-tests",
   "run-play-mode-tests",
-  "gate-review"
+  "gate-review",
+  "failing-test-first"
 ];
 var VERIFY_ABILITIES = [...VERIFY_ABILITY_NAMES];
 var VERIFY_MODES = {
   "compile-and-verify-project": "both",
   "run-edit-mode-tests": "both",
   "run-play-mode-tests": "both",
-  "gate-review": "offline"
+  "gate-review": "offline",
+  "failing-test-first": "both"
 };
 // tools/shared/json-helpers.ts
 function asRecord(value) {
@@ -776,6 +778,366 @@ function writeCheckpoint(options, snapshot) {
   return path;
 }
 
+// tools/unity/unity-verify/src/failing-test-first.ts
+import { join as join6, resolve } from "node:path";
+
+// tools/unity/studio-config/src/types.ts
+var STUDIO_MODES = ["lean", "full"];
+var REVIEW_INTENSITIES = ["full", "lean", "solo"];
+var MODEL_TIERS = ["router", "lead", "specialist"];
+var STUDIO_CONFIG_SCHEMA_VERSION = 1;
+var DEFAULT_STUDIO_CONFIG = {
+  schemaVersion: STUDIO_CONFIG_SCHEMA_VERSION,
+  studioMode: "lean",
+  reviewIntensity: "full",
+  toggles: { tdd: false, ftf: false },
+  patterns: [],
+  packages: [],
+  modelTiers: {}
+};
+
+// tools/unity/studio-config/src/config.ts
+var KNOWN_KEYS = new Set([
+  "$schema",
+  "schemaVersion",
+  "studioMode",
+  "reviewIntensity",
+  "toggles",
+  "patterns",
+  "packages",
+  "modelTiers"
+]);
+var KNOWN_TOGGLE_KEYS = new Set(["tdd", "ftf"]);
+function defaultStudioConfig() {
+  return {
+    ...DEFAULT_STUDIO_CONFIG,
+    toggles: { ...DEFAULT_STUDIO_CONFIG.toggles },
+    patterns: [],
+    packages: [],
+    modelTiers: { ...DEFAULT_STUDIO_CONFIG.modelTiers }
+  };
+}
+function parseStringArray(value, field, problems) {
+  if (value === undefined)
+    return [];
+  if (!Array.isArray(value)) {
+    problems.push({ field, message: "expected an array of strings" });
+    return [];
+  }
+  const out = [];
+  for (const item of value) {
+    if (typeof item === "string" && item.trim() !== "") {
+      const id = item.trim();
+      if (!out.includes(id))
+        out.push(id);
+    } else {
+      problems.push({ field, message: `ignored non-string entry ${JSON.stringify(item)}` });
+    }
+  }
+  return out;
+}
+function parseMode(value, problems) {
+  if (value === undefined)
+    return DEFAULT_STUDIO_CONFIG.studioMode;
+  if (typeof value === "string" && STUDIO_MODES.includes(value)) {
+    return value;
+  }
+  problems.push({ field: "studioMode", message: `expected one of ${STUDIO_MODES.join("|")}, got ${JSON.stringify(value)}` });
+  return DEFAULT_STUDIO_CONFIG.studioMode;
+}
+function parseIntensity(value, problems) {
+  if (value === undefined)
+    return DEFAULT_STUDIO_CONFIG.reviewIntensity;
+  if (typeof value === "string" && REVIEW_INTENSITIES.includes(value)) {
+    return value;
+  }
+  problems.push({
+    field: "reviewIntensity",
+    message: `expected one of ${REVIEW_INTENSITIES.join("|")}, got ${JSON.stringify(value)}`
+  });
+  return DEFAULT_STUDIO_CONFIG.reviewIntensity;
+}
+function parseToggles(value, problems) {
+  const toggles = { ...DEFAULT_STUDIO_CONFIG.toggles };
+  if (value === undefined)
+    return toggles;
+  const record = asRecord(value);
+  if (!record) {
+    problems.push({ field: "toggles", message: "expected an object with boolean tdd/ftf flags" });
+    return toggles;
+  }
+  for (const key of Object.keys(record)) {
+    if (!KNOWN_TOGGLE_KEYS.has(key))
+      problems.push({ field: `toggles.${key}`, message: "unknown toggle" });
+  }
+  for (const key of KNOWN_TOGGLE_KEYS) {
+    const flag = record[key];
+    if (flag === undefined)
+      continue;
+    if (typeof flag === "boolean")
+      toggles[key] = flag;
+    else
+      problems.push({ field: `toggles.${key}`, message: `expected a boolean, got ${JSON.stringify(flag)}` });
+  }
+  return toggles;
+}
+function parseModelTiers(value, problems) {
+  const tiers = {};
+  if (value === undefined)
+    return tiers;
+  const record = asRecord(value);
+  if (!record) {
+    problems.push({
+      field: "modelTiers",
+      message: `expected an object mapping ${MODEL_TIERS.join("|")} to a model id`
+    });
+    return tiers;
+  }
+  for (const key of Object.keys(record)) {
+    if (!MODEL_TIERS.includes(key)) {
+      problems.push({ field: `modelTiers.${key}`, message: `unknown tier; expected one of ${MODEL_TIERS.join("|")}` });
+      continue;
+    }
+    const model = record[key];
+    if (typeof model !== "string" || model.trim() === "") {
+      problems.push({
+        field: `modelTiers.${key}`,
+        message: `expected a non-empty model id string, got ${JSON.stringify(model)}`
+      });
+      continue;
+    }
+    tiers[key] = model.trim();
+  }
+  return tiers;
+}
+function parseStudioConfig(value) {
+  const problems = [];
+  const record = asRecord(value);
+  if (!record) {
+    problems.push({ field: "$", message: "config must be a JSON object" });
+    return { config: defaultStudioConfig(), problems };
+  }
+  for (const key of Object.keys(record)) {
+    if (!KNOWN_KEYS.has(key))
+      problems.push({ field: key, message: "unknown property" });
+  }
+  let schemaVersion = DEFAULT_STUDIO_CONFIG.schemaVersion;
+  if (record.schemaVersion !== undefined) {
+    if (typeof record.schemaVersion !== "number" || !Number.isFinite(record.schemaVersion)) {
+      problems.push({ field: "schemaVersion", message: `expected a number, got ${JSON.stringify(record.schemaVersion)}` });
+    } else if (record.schemaVersion !== STUDIO_CONFIG_SCHEMA_VERSION) {
+      problems.push({
+        field: "schemaVersion",
+        message: `unsupported schema version ${JSON.stringify(record.schemaVersion)}, expected ${STUDIO_CONFIG_SCHEMA_VERSION}`
+      });
+    } else {
+      schemaVersion = record.schemaVersion;
+    }
+  }
+  const config = {
+    schemaVersion,
+    studioMode: parseMode(record.studioMode, problems),
+    reviewIntensity: parseIntensity(record.reviewIntensity, problems),
+    toggles: parseToggles(record.toggles, problems),
+    patterns: parseStringArray(record.patterns, "patterns", problems),
+    packages: parseStringArray(record.packages, "packages", problems),
+    modelTiers: parseModelTiers(record.modelTiers, problems)
+  };
+  return { config, problems };
+}
+function loadStudioConfig(path) {
+  const text = readText(path);
+  if (text === null)
+    return { present: false, path, config: defaultStudioConfig(), problems: [] };
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch (error) {
+    return {
+      present: true,
+      path,
+      config: defaultStudioConfig(),
+      problems: [{ field: "$", message: `invalid JSON: ${error instanceof Error ? error.message : String(error)}` }]
+    };
+  }
+  const { config, problems } = parseStudioConfig(parsed);
+  return { present: true, path, config, problems };
+}
+
+// tools/unity/unity-verify/src/failing-test-first.ts
+function decodeXml(text) {
+  return text.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, "&");
+}
+function attribute(attrs, name) {
+  const match = new RegExp(`\\b${name}="([^"]*)"`).exec(attrs);
+  return match ? decodeXml(match[1]) : null;
+}
+function normalizeResult(value) {
+  const lower = (value ?? "").toLowerCase();
+  if (lower === "passed")
+    return "Passed";
+  if (lower === "failed" || lower === "error")
+    return "Failed";
+  if (lower === "skipped" || lower === "ignored")
+    return "Skipped";
+  if (lower === "inconclusive")
+    return "Inconclusive";
+  return "Unknown";
+}
+function firstMessage(body) {
+  const match = /<message>([\s\S]*?)<\/message>/.exec(body);
+  if (!match)
+    return null;
+  const text = decodeXml(match[1]).trim();
+  return text === "" ? null : text;
+}
+function parseTestCases(xml) {
+  const out = [];
+  const tag = /<test-case\b([^>]*?)(\/?)>/g;
+  let match;
+  while ((match = tag.exec(xml)) !== null) {
+    const name = attribute(match[1], "name") ?? "";
+    const result = normalizeResult(attribute(match[1], "result"));
+    let message = null;
+    if (match[2] !== "/") {
+      const close = xml.indexOf("</test-case>", tag.lastIndex);
+      if (close !== -1) {
+        message = firstMessage(xml.slice(tag.lastIndex, close));
+        tag.lastIndex = close + "</test-case>".length;
+      }
+    }
+    out.push({ name, result, message });
+  }
+  return out;
+}
+function findTestCase(cases, name) {
+  return cases.find((testCase) => testCase.name === name) ?? null;
+}
+function containsReason(message, expectedReason) {
+  return (message ?? "").toLowerCase().includes(expectedReason.toLowerCase());
+}
+function decideRedStep(input) {
+  const { test, expectedReason, observation } = input;
+  if (observation.result === null) {
+    return containsReason(observation.message, expectedReason) ? {
+      verdict: "OK",
+      reason: "expected-failure",
+      detail: `"${test}" failed for the expected reason ("${expectedReason}")`
+    } : {
+      verdict: "NG",
+      reason: "unrelated-failure",
+      detail: `"${test}" failed for a different reason than expected ("${expectedReason}"); abort`
+    };
+  }
+  if (observation.result === "Passed") {
+    return {
+      verdict: "NG",
+      reason: "unexpected-pass",
+      detail: `"${test}" passed unexpectedly; the red step requires a failing test — abort`
+    };
+  }
+  if (observation.result === "Failed") {
+    return containsReason(observation.message, expectedReason) ? {
+      verdict: "OK",
+      reason: "expected-failure",
+      detail: `"${test}" failed for the expected reason ("${expectedReason}")`
+    } : {
+      verdict: "NG",
+      reason: "unrelated-failure",
+      detail: `"${test}" failed for a different reason than expected ("${expectedReason}"); abort`
+    };
+  }
+  return {
+    verdict: "NG",
+    reason: "test-not-run",
+    detail: `"${test}" did not fail (result: ${observation.result}); the red step requires a failing test — abort`
+  };
+}
+function loadTddToggle(options) {
+  const load = loadStudioConfig(join6(options.opencodeDir, "unity-studio.json"));
+  return load.config.toggles.tdd === true;
+}
+function resolveTdd(options) {
+  const raw = (options.tdd ?? "").trim().toLowerCase();
+  if (raw === "")
+    return { enabled: loadTddToggle(options), error: null };
+  if (raw === "on")
+    return { enabled: true, error: null };
+  if (raw === "off")
+    return { enabled: false, error: null };
+  return { enabled: false, error: `invalid --tdd "${options.tdd}"; expected on|off` };
+}
+function runFailingTestFirst(options) {
+  const test = (options.test ?? "").trim() || null;
+  const expectedReason = (options.expectedReason ?? "").trim() || null;
+  const failureMessage = (options.failureMessage ?? "").trim() || null;
+  const resultsPath = (options.testResults ?? "").trim() || null;
+  const tdd = resolveTdd(options);
+  const refuse = (message) => {
+    const base = makeResult(options.ability, "refused", message, [message], "offline");
+    base.mode = VERIFY_MODES[options.ability];
+    base.delta = notComputedDelta("failing-test-first refused; no red-step verdict computed");
+    return {
+      ...base,
+      redStep: null,
+      test,
+      expectedReason,
+      observedResult: null,
+      observedMessage: null,
+      reason: null,
+      tddEnabled: tdd.enabled
+    };
+  };
+  if (tdd.error)
+    return refuse(tdd.error);
+  if (!tdd.enabled) {
+    return refuse("TDD is off (.opencode/unity-studio.json toggles.tdd=false); failing-test-first is TDD-gated. Enable the toggle to enforce the red step — TDD off still requires tests, just not first.");
+  }
+  if (!test)
+    return refuse("a --test <full name> is required");
+  if (!expectedReason)
+    return refuse("an --expected-reason <substring> is required");
+  let observation;
+  if (resultsPath) {
+    const xml = readText(resolve(options.projectRoot, resultsPath));
+    if (xml === null)
+      return refuse(`test results not found: ${resultsPath}`);
+    const testCase = findTestCase(parseTestCases(xml), test);
+    if (!testCase) {
+      const decision = {
+        verdict: "NG",
+        reason: "test-not-found",
+        detail: `"${test}" was not found in ${resultsPath}; the red step requires the named test to run and fail — abort`
+      };
+      return finalize(options, test, expectedReason, tdd.enabled, { result: null, message: null }, decision);
+    }
+    observation = { result: testCase.result, message: testCase.message ?? failureMessage };
+  } else if (failureMessage) {
+    observation = { result: null, message: failureMessage };
+  } else {
+    return refuse("an observed failure is required (--failure-message and/or --test-results)");
+  }
+  const decision = decideRedStep({ test, expectedReason, observation });
+  return finalize(options, test, expectedReason, tdd.enabled, observation, decision);
+}
+function finalize(options, test, expectedReason, tddEnabled, observation, decision) {
+  const ok = decision.verdict === "OK";
+  const summary = `STATUS: ${decision.verdict} — ${decision.detail}`;
+  const base = makeResult(options.ability, ok ? "passed" : "failed", summary, ok ? [] : [decision.detail], "offline");
+  base.mode = VERIFY_MODES[options.ability];
+  base.delta = notComputedDelta("failing-test-first reads test results; no mutation delta computed");
+  return {
+    ...base,
+    redStep: decision.verdict,
+    test,
+    expectedReason,
+    observedResult: observation.result,
+    observedMessage: observation.message,
+    reason: decision.reason,
+    tddEnabled
+  };
+}
+
 // tools/unity/unity-verify/src/gates.ts
 var EXTERNAL_VERDICTS = ["confirmed", "uncertain"];
 var GATE_ORDER = [
@@ -932,7 +1294,7 @@ function parseGateOverrides(json) {
 
 // tools/unity/unity-verify/src/abilities.ts
 function readData(options, file) {
-  return readJson(join6(projectDataDir(options), file));
+  return readJson(join7(projectDataDir(options), file));
 }
 function compileAndVerifyProject(options) {
   const changeScope = (options.changeScope ?? []).map((token) => token.trim()).filter((token) => token !== "");
@@ -982,7 +1344,7 @@ function runModeTests(options, mode) {
   }
   const testOptions = {
     projectRoot: options.projectRoot,
-    scratchDir: join6(options.opencodeDir, ".scratch", "unity"),
+    scratchDir: join7(options.opencodeDir, ".scratch", "unity"),
     cliCommand: options.cliCommand
   };
   const instance = findLiveInstance(options.projectRoot, options.cliCommand);
@@ -1048,6 +1410,8 @@ function runVerify(options) {
       return runModeTests(options, "playmode");
     case "gate-review":
       return gateReview(options);
+    case "failing-test-first":
+      return runFailingTestFirst(options);
     default: {
       const exhaustive = options.ability;
       throw new Error(`unsupported Verify ability: ${String(exhaustive)}`);
@@ -1056,7 +1420,7 @@ function runVerify(options) {
 }
 
 // tools/unity/unity-verify/src/cli.ts
-import { join as join7, resolve } from "node:path";
+import { join as join8, resolve as resolve2 } from "node:path";
 
 // tools/shared/cli-args.ts
 function isFlag(token) {
@@ -1114,8 +1478,8 @@ var INTENSITIES = ["full", "lean", "solo"];
 function resolveOptions(argv) {
   const { values: args, positional } = parseArgs(argv);
   rejectPositionals(positional);
-  const projectRoot = resolve(String(args["project-root"] || process.cwd()));
-  const opencodeDir = resolve(String(args["opencode-dir"] || join7(projectRoot, ".opencode")));
+  const projectRoot = resolve2(String(args["project-root"] || process.cwd()));
+  const opencodeDir = resolve2(String(args["opencode-dir"] || join8(projectRoot, ".opencode")));
   const requested = String(args.ability || "compile-and-verify-project");
   const ability = resolveAbility(requested, VERIFY_ABILITIES, "compile-and-verify-project");
   const phaseRaw = firstString(args, ["phase"]);
@@ -1132,7 +1496,12 @@ function resolveOptions(argv) {
     cliCommand: firstString(args, ["unity-cli", "unityCli"]) ?? "unity",
     reviewIntensity: intensityRaw && INTENSITIES.includes(intensityRaw) ? intensityRaw : "full",
     changeScope,
-    gatesJson: firstString(args, ["gates", "gates-json", "gatesJson"])
+    gatesJson: firstString(args, ["gates", "gates-json", "gatesJson"]),
+    test: firstString(args, ["test", "test-name", "testName"]),
+    expectedReason: firstString(args, ["expected-reason", "expectedReason"]),
+    failureMessage: firstString(args, ["failure-message", "failureMessage"]),
+    testResults: firstString(args, ["test-results", "testResults"]),
+    tdd: firstString(args, ["tdd"])
   };
 }
 
@@ -1150,6 +1519,8 @@ function render(result) {
   }
   if ("gates" in result)
     lines.push(`  gates: ${result.gates.status} (${result.gates.strictest ?? "none"})`);
+  if ("redStep" in result && result.redStep)
+    lines.push(`  STATUS: ${result.redStep}`);
   for (const error of result.errors)
     lines.push(`  error: ${error}`);
   return lines.join(`

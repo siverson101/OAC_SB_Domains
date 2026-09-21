@@ -15,6 +15,7 @@ const VERIFY_ABILITY_NAMES = [
   'run-edit-mode-tests',
   'run-play-mode-tests',
   'gate-review',
+  'failing-test-first',
 ] as const;
 
 export type VerifyAbility = (typeof VERIFY_ABILITY_NAMES)[number];
@@ -30,6 +31,7 @@ export const VERIFY_MODES: Record<VerifyAbility, VerifyMode> = {
   'run-edit-mode-tests': 'both',
   'run-play-mode-tests': 'both',
   'gate-review': 'offline',
+  'failing-test-first': 'both',
 };
 
 export type VerifyStatus =
@@ -84,6 +86,11 @@ export interface VerifyOptions {
   reviewIntensity: ReviewIntensity;
   changeScope?: string[];
   gatesJson?: string;
+  test?: string;
+  expectedReason?: string;
+  failureMessage?: string;
+  testResults?: string;
+  tdd?: string;
 }
 
 export type IssueKind = 'compile' | 'editMode' | 'playMode';
