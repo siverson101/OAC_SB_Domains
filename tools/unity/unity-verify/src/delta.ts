@@ -129,6 +129,7 @@ export function computeDelta(
       resolvedIssues: null,
       validateScanFailed,
       compilePending: pending,
+      scopeUnmatched: false,
       reasons,
     };
   }
@@ -141,13 +142,21 @@ export function computeDelta(
   const newIssues = scoped ? rawNew.filter((issue) => issueInScope(issue, changeScope)) : rawNew;
   const resolvedIssues = scoped ? rawResolved.filter((issue) => issueInScope(issue, changeScope)) : rawResolved;
   const excluded = rawNew.length - newIssues.length + (rawResolved.length - resolvedIssues.length);
+  // A declared scope that matches no issue at all is a warning: the substring
+  // match may simply have missed every real token, and the delta would then be
+  // silently empty. Report it alongside (not instead of) the excluded count.
+  const scopeUnmatched =
+    scoped && ![...before.issues, ...after.issues].some((issue) => issueInScope(issue, changeScope));
+  const deltaReasons = excluded > 0 ? [`${excluded} out-of-scope issue(s) excluded from the delta`] : [];
+  if (scopeUnmatched) deltaReasons.push('declared change scope matched no issues; the delta may under-report');
   return {
     computed: true,
     newIssues,
     resolvedIssues,
     validateScanFailed: false,
     compilePending: false,
-    reasons: excluded > 0 ? [`${excluded} out-of-scope issue(s) excluded from the delta`] : [],
+    scopeUnmatched,
+    reasons: deltaReasons,
   };
 }
 
@@ -159,6 +168,7 @@ export function notComputedDelta(reason: string): VerifyDelta {
     resolvedIssues: null,
     validateScanFailed: false,
     compilePending: false,
+    scopeUnmatched: false,
     reasons: [reason],
   };
 }

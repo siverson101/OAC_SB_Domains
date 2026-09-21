@@ -142,6 +142,10 @@ export interface VerifyDelta {
   resolvedIssues: VerifyIssue[] | null;
   validateScanFailed: boolean;
   compilePending: boolean;
+  // True when a change scope was declared but matched no issue at all, so the
+  // scope (a substring match over id/message) may be under-reporting the delta.
+  // Reported so a zero-match scope is never silent.
+  scopeUnmatched: boolean;
   reasons: string[];
 }
 

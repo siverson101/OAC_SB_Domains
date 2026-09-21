@@ -1,4 +1,4 @@
-// Dispatcher for the five Verify abilities (Phase 2 Step 2.5, Phase 5 Step 5.3, ADR-0015).
+// Dispatcher for the six Verify abilities (Phase 2 Step 2.5, Phase 5 Step 5.3, ADR-0015).
 //
 // None of these abilities mutate the project assets. They checkpoint, scan, run
 // tests, and fold gates; the delta is always reported with the honesty rules

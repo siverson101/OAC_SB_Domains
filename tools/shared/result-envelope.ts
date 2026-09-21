@@ -7,6 +7,21 @@
 import { nowIso } from './io';
 import type { Route } from './tool-routing';
 
+// The envelope core every family emits. A runtime result may add family base
+// fields and ability extras, but those must be declared in the command's
+// frontmatter `outputs`; `tests/output-contract.test.ts` enforces the subset.
+export const ENVELOPE_KEYS = [
+  'schemaVersion',
+  'generatedAt',
+  'ability',
+  'family',
+  'mode',
+  'route',
+  'status',
+  'summary',
+  'errors',
+] as const;
+
 export interface ResultEnvelope<
   Ability extends string,
   Family extends string,

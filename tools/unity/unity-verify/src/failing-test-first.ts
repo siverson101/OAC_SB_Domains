@@ -7,10 +7,12 @@
 //
 // Gated by `toggles.tdd` in `.opencode/unity-studio.json` (fail-soft: an absent
 // config means off). With TDD off the ability refuses clearly — TDD off still
-// requires tests, just not written first. Offline and read-only: the observed
-// failure comes from `--failure-message` and/or a `--test-results` XML path.
+// requires tests, just not written first. Offline and read-only. `STATUS: OK`
+// requires an observed result (`--test-results`); a bare self-reported
+// `--failure-message` yields `STATUS: UNKNOWN`, never a green red-step.
 import { join, resolve } from 'node:path';
 import { readText } from '../../../shared/io';
+import { decodeXmlEntities } from '../../../shared/xml';
 import { loadStudioConfig } from '../../studio-config/src/config';
 import { notComputedDelta } from './delta';
 import { makeResult } from './shared';
@@ -25,10 +27,11 @@ export interface TestCaseOutcome {
   message: string | null;
 }
 
-export type RedStepVerdict = 'OK' | 'NG';
+export type RedStepVerdict = 'OK' | 'NG' | 'UNKNOWN';
 
 export type RedStepReason =
   | 'expected-failure'
+  | 'unobserved-failure'
   | 'unexpected-pass'
   | 'unrelated-failure'
   | 'test-not-run'
@@ -58,13 +61,7 @@ export interface FailingTestFirstResult extends VerifyBase {
 }
 
 function decodeXml(text: string): string {
-  return text
-    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&apos;/g, "'")
-    .replace(/&amp;/g, '&');
+  return decodeXmlEntities(text.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1'));
 }
 
 function attribute(attrs: string, name: string): string | null {
@@ -125,24 +122,26 @@ export interface RedStepInput {
   observation: RedStepObservation;
 }
 
-// The pure decision. `OK` only when the named test failed and the failure
-// message contains the expected reason; every other outcome is `NG`, naming
-// whether the test passed unexpectedly, failed for a different reason, or did
-// not fail at all.
+// The pure decision. `OK` only when an observed test result shows the named test
+// failed and the failure message contains the expected reason. A bare
+// `--failure-message` is self-reported, not observed, so it can never yield
+// `OK`: a matching message is `UNKNOWN` (advisory) and a non-matching one is
+// `NG`. Every other outcome is `NG`, naming whether the test passed
+// unexpectedly, failed for a different reason, or did not fail at all.
 export function decideRedStep(input: RedStepInput): RedStepDecision {
   const { test, expectedReason, observation } = input;
 
   if (observation.result === null) {
     return containsReason(observation.message, expectedReason)
       ? {
-          verdict: 'OK',
-          reason: 'expected-failure',
-          detail: `"${test}" failed for the expected reason ("${expectedReason}")`,
+          verdict: 'UNKNOWN',
+          reason: 'unobserved-failure',
+          detail: `"${test}" was self-reported as failing for the expected reason ("${expectedReason}") but no test result was observed; provide --test-results to confirm`,
         }
       : {
           verdict: 'NG',
           reason: 'unrelated-failure',
-          detail: `"${test}" failed for a different reason than expected ("${expectedReason}"); abort`,
+          detail: `"${test}" was self-reported as failing for a different reason than expected ("${expectedReason}"); abort`,
         };
   }
 
@@ -259,9 +258,9 @@ function finalize(
   observation: RedStepObservation,
   decision: RedStepDecision
 ): FailingTestFirstResult {
-  const ok = decision.verdict === 'OK';
+  const status = decision.verdict === 'OK' ? 'passed' : decision.verdict === 'UNKNOWN' ? 'unknown' : 'failed';
   const summary = `STATUS: ${decision.verdict} — ${decision.detail}`;
-  const base = makeResult(options.ability, ok ? 'passed' : 'failed', summary, ok ? [] : [decision.detail], 'offline');
+  const base = makeResult(options.ability, status, summary, status === 'passed' ? [] : [decision.detail], 'offline');
   base.mode = VERIFY_MODES[options.ability];
   base.delta = notComputedDelta('failing-test-first reads test results; no mutation delta computed');
   return {

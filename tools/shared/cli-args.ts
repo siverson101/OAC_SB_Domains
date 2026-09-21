@@ -63,6 +63,17 @@ export function firstString(args: Record<string, string | boolean>, keys: string
   return undefined;
 }
 
+// Parse a comma-separated CLI list (e.g. `--change-scope a,b`,
+// `--abilities a,b,c`). Trims each entry and drops empty ones; an absent value
+// yields `undefined` so the caller can distinguish "not supplied" from "empty".
+export function parseCommaList(value: string | undefined): string[] | undefined {
+  if (value === undefined) return undefined;
+  return value
+    .split(',')
+    .map((token) => token.trim())
+    .filter((token) => token !== '');
+}
+
 export function resolveAbility<T extends string>(requested: string, abilities: readonly T[], fallback: T): T {
   return (abilities as readonly string[]).includes(requested) ? (requested as T) : fallback;
 }

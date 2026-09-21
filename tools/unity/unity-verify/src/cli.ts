@@ -1,5 +1,5 @@
 import { join, resolve } from 'node:path';
-import { firstString, parseArgs, rejectPositionals, resolveAbility } from '../../../shared/cli-args';
+import { firstString, parseArgs, parseCommaList, rejectPositionals, resolveAbility } from '../../../shared/cli-args';
 import {
   VERIFY_ABILITIES,
   type ReviewIntensity,
@@ -20,10 +20,7 @@ export function resolveOptions(argv: string[]): VerifyOptions {
 
   const phaseRaw = firstString(args, ['phase']);
   const intensityRaw = firstString(args, ['review-intensity', 'reviewIntensity']);
-  const changeScopeRaw = firstString(args, ['change-scope', 'changeScope']);
-  const changeScope = changeScopeRaw
-    ? changeScopeRaw.split(',').map((token) => token.trim()).filter((token) => token !== '')
-    : undefined;
+  const changeScope = parseCommaList(firstString(args, ['change-scope', 'changeScope']));
 
   return {
     projectRoot,

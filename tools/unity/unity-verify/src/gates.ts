@@ -21,10 +21,10 @@ export type GateStatus = 'passed' | 'failed' | 'warning' | 'not_run' | 'unavaila
 
 // An external reviewer's verdict on a gate, independent of the on-disk status.
 // `uncertain` folds at least as strict as `warning`; `confirmed` contributes a
-// `passed` verdict and so cannot override a harder on-disk status.
-export type ExternalVerdict = 'confirmed' | 'uncertain';
-
-export const EXTERNAL_VERDICTS: ExternalVerdict[] = ['confirmed', 'uncertain'];
+// `passed` verdict and so cannot override a harder on-disk status. The union is
+// derived from the array so the two can never drift.
+export const EXTERNAL_VERDICTS = ['confirmed', 'uncertain'] as const;
+export type ExternalVerdict = (typeof EXTERNAL_VERDICTS)[number];
 
 export interface GateEntry {
   gate: GateName;
@@ -140,10 +140,13 @@ function visualTestFailed(test: Json): boolean {
   return status.includes('fail') || status.includes('error');
 }
 
+// A visual test passes only when it recorded at least one screenshot and none of
+// its recorded screenshots is missing: a partially missing set is a failure, not
+// a pass on the strength of the ones that exist.
 function visualTestHasScreenshot(test: Json): boolean {
   const screenshots = stringArray(test, 'screenshots');
   const missing = stringArray(test, 'missingScreenshots');
-  return screenshots.length - missing.length > 0;
+  return screenshots.length > 0 && missing.length === 0;
 }
 
 function visualGate(testInventory: Json | null): GateEntry {
@@ -244,7 +247,7 @@ export function parseGateOverrides(json: string | undefined): ParsedGateOverride
       const externalRaw = str(entry, 'externalVerdict');
       let externalVerdict: ExternalVerdict | undefined;
       if (externalRaw !== null) {
-        if ((EXTERNAL_VERDICTS as string[]).includes(externalRaw)) {
+        if ((EXTERNAL_VERDICTS as readonly string[]).includes(externalRaw)) {
           externalVerdict = externalRaw as ExternalVerdict;
         } else {
           errors.push(`ignored --gates override "${gate}": unknown externalVerdict "${externalRaw}"`);

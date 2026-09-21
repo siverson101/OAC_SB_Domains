@@ -5,7 +5,7 @@ family: verify
 mode: both
 description: Checkpoint the offline compile state (Phase 2a compile-state producer) before a mutation, re-scan after it, and diff the issue set with the honesty rules (null = no delta computed, not clean). The validate phase requires a declared change scope.
 inputs: { projectRoot: "string", opencodeDir: "string", phase: "checkpoint|validate", changeScope: "string" }
-outputs: { status: "string", checkpoint: "object", delta: "object", compile: "object" }
+outputs: { status: "string", safetyGate: "object", changeScope: "string[]?", checkpoint: "object", delta: "object", phase: "checkpoint|validate", checkpointPath: "string?" }
 sideEffects: ["writes .opencode/project-data/verify/checkpoint.json on the checkpoint phase"]
 safetyGate: { mutates: false, requiresEditor: false, writesState: true }
 uses: [gather-unity-context]

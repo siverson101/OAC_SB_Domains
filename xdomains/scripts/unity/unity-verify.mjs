@@ -282,6 +282,17 @@ import { join as join5 } from "node:path";
 import { readdirSync, statSync as statSync2 } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname as dirname2, isAbsolute, join as join3, relative } from "node:path";
+
+// tools/shared/xml.ts
+function decodeXmlEntities(value) {
+  const codePoint = (match, digits, radix) => {
+    const code = Number.parseInt(digits, radix);
+    return Number.isFinite(code) && code >= 0 && code <= 1114111 ? String.fromCodePoint(code) : match;
+  };
+  return value.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&#x([0-9a-fA-F]+);/g, (match, digits) => codePoint(match, digits, 16)).replace(/&#(\d+);/g, (match, digits) => codePoint(match, digits, 10)).replace(/&amp;/g, "&");
+}
+
+// tools/unity/gather-unity-context/src/offline.ts
 var OFFLINE_ROUTE = selectRoute({ live: null, cliAvailable: false }).route;
 function makeBase(status, errors = []) {
   return { schemaVersion: 1, generatedAt: nowIso(), status, route: OFFLINE_ROUTE, errors };
@@ -585,6 +596,7 @@ function makeResult(ability, status, summary, errors, route, requiresEditor = fa
       resolvedIssues: null,
       validateScanFailed: false,
       compilePending: false,
+      scopeUnmatched: false,
       reasons: ["no delta computed"]
     }
   };
@@ -691,6 +703,7 @@ function computeDelta(before, after, scan = { ok: true }, changeScope = []) {
       resolvedIssues: null,
       validateScanFailed,
       compilePending: pending,
+      scopeUnmatched: false,
       reasons
     };
   }
@@ -702,13 +715,18 @@ function computeDelta(before, after, scan = { ok: true }, changeScope = []) {
   const newIssues = scoped ? rawNew.filter((issue) => issueInScope(issue, changeScope)) : rawNew;
   const resolvedIssues = scoped ? rawResolved.filter((issue) => issueInScope(issue, changeScope)) : rawResolved;
   const excluded = rawNew.length - newIssues.length + (rawResolved.length - resolvedIssues.length);
+  const scopeUnmatched = scoped && ![...before.issues, ...after.issues].some((issue) => issueInScope(issue, changeScope));
+  const deltaReasons = excluded > 0 ? [`${excluded} out-of-scope issue(s) excluded from the delta`] : [];
+  if (scopeUnmatched)
+    deltaReasons.push("declared change scope matched no issues; the delta may under-report");
   return {
     computed: true,
     newIssues,
     resolvedIssues,
     validateScanFailed: false,
     compilePending: false,
-    reasons: excluded > 0 ? [`${excluded} out-of-scope issue(s) excluded from the delta`] : []
+    scopeUnmatched,
+    reasons: deltaReasons
   };
 }
 function notComputedDelta(reason) {
@@ -718,6 +736,7 @@ function notComputedDelta(reason) {
     resolvedIssues: null,
     validateScanFailed: false,
     compilePending: false,
+    scopeUnmatched: false,
     reasons: [reason]
   };
 }
@@ -972,7 +991,7 @@ function loadStudioConfig(path) {
 
 // tools/unity/unity-verify/src/failing-test-first.ts
 function decodeXml(text) {
-  return text.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, "&");
+  return decodeXmlEntities(text.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1"));
 }
 function attribute(attrs, name) {
   const match = new RegExp(`\\b${name}="([^"]*)"`).exec(attrs);
@@ -1026,13 +1045,13 @@ function decideRedStep(input) {
   const { test, expectedReason, observation } = input;
   if (observation.result === null) {
     return containsReason(observation.message, expectedReason) ? {
-      verdict: "OK",
-      reason: "expected-failure",
-      detail: `"${test}" failed for the expected reason ("${expectedReason}")`
+      verdict: "UNKNOWN",
+      reason: "unobserved-failure",
+      detail: `"${test}" was self-reported as failing for the expected reason ("${expectedReason}") but no test result was observed; provide --test-results to confirm`
     } : {
       verdict: "NG",
       reason: "unrelated-failure",
-      detail: `"${test}" failed for a different reason than expected ("${expectedReason}"); abort`
+      detail: `"${test}" was self-reported as failing for a different reason than expected ("${expectedReason}"); abort`
     };
   }
   if (observation.result === "Passed") {
@@ -1127,9 +1146,9 @@ function runFailingTestFirst(options) {
   return finalize(options, test, expectedReason, tdd.enabled, observation, decision);
 }
 function finalize(options, test, expectedReason, tddEnabled, observation, decision) {
-  const ok = decision.verdict === "OK";
+  const status = decision.verdict === "OK" ? "passed" : decision.verdict === "UNKNOWN" ? "unknown" : "failed";
   const summary = `STATUS: ${decision.verdict} — ${decision.detail}`;
-  const base = makeResult(options.ability, ok ? "passed" : "failed", summary, ok ? [] : [decision.detail], "offline");
+  const base = makeResult(options.ability, status, summary, status === "passed" ? [] : [decision.detail], "offline");
   base.mode = VERIFY_MODES[options.ability];
   base.delta = notComputedDelta("failing-test-first reads test results; no mutation delta computed");
   return {
@@ -1154,20 +1173,22 @@ function isValidSlug(value) {
   return SLUG_PATTERN.test(value);
 }
 
+// tools/shared/text.ts
+function canonicalizeText(text) {
+  return text.replace(/\s+/g, " ").trim().toLowerCase();
+}
+
 // tools/unity/unity-verify/src/test-deduplication.ts
 var TEST_DEDUP_DIR = "test-dedup";
 var TEST_DEDUP_SCHEMA_VERSION = 1;
 function literalPattern() {
-  return /"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|-?\d+(?:\.\d+)?[fFmMdDlL]?|\btrue\b|\bfalse\b|\bnull\b/g;
-}
-function canonical(text) {
-  return text.replace(/\s+/g, " ").trim().toLowerCase();
+  return /"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|(?<![A-Za-z0-9_])\d+(?:\.\d+)?[fFmMdDlL]?(?![A-Za-z0-9_])|\btrue\b|\bfalse\b|\bnull\b/g;
 }
 function conditionTemplate(condition) {
-  return canonical(condition).replace(literalPattern(), "#");
+  return canonicalizeText(condition).replace(literalPattern(), "#");
 }
 function conditionLiterals(condition) {
-  return canonical(condition).match(literalPattern()) ?? [];
+  return canonicalizeText(condition).match(literalPattern()) ?? [];
 }
 function substituteLiterals(text, params) {
   let index = 0;
@@ -1255,12 +1276,12 @@ function renderParameterizedBody(keeper, group) {
 function planDeduplication(tests) {
   const removals = [];
   const merges = [];
-  for (const assertionGroup of groupBy(tests, (test) => canonical(test.assertion)).values()) {
+  for (const assertionGroup of groupBy(tests, (test) => canonicalizeText(test.assertion)).values()) {
     if (assertionGroup.length < 2)
       continue;
     for (const templateGroup of groupBy(assertionGroup, (test) => conditionTemplate(test.condition)).values()) {
       const representatives = [];
-      for (const exactGroup of groupBy(templateGroup, (test) => canonical(test.condition)).values()) {
+      for (const exactGroup of groupBy(templateGroup, (test) => canonicalizeText(test.condition)).values()) {
         const keeper = chooseKeeper(exactGroup);
         representatives.push(keeper);
         for (const test of exactGroup) {
@@ -1272,7 +1293,8 @@ function planDeduplication(tests) {
             file: test.file,
             condition: test.condition,
             assertion: test.assertion,
-            reason: "identical condition and identical assertion"
+            reason: "identical condition and identical assertion",
+            applied: false
           });
         }
       }
@@ -1418,7 +1440,9 @@ function scanCsTests(dir) {
   }
   return out;
 }
-function removeTestMethods(text, names) {
+function removeTestMethods(text, removals, file) {
+  const target = toPosix(file);
+  const names = new Set(removals.filter((removal) => removal.file !== null && toPosix(removal.file) === target).map((removal) => removal.name));
   const methods = extractTestMethods(text).filter((method) => names.has(method.name));
   const removed = [];
   let out = text;
@@ -1508,39 +1532,48 @@ function runTestDeduplication(options) {
   const plan = planDeduplication(descriptors);
   const clean = plan.removals.length === 0 && plan.merges.length === 0;
   const removedFromFiles = [];
+  const appliedKeys = new Set;
   if (apply && !clean && testsDir) {
-    const names = new Set(plan.removals.map((removal) => removal.name));
     for (const file of walkCsFiles(resolve2(options.projectRoot, testsDir))) {
       const text = readText(file);
       if (text === null)
         continue;
-      const result = removeTestMethods(text, names);
+      const result = removeTestMethods(text, plan.removals, file);
       if (result.removed.length > 0) {
         writeFileSync3(file, result.text);
         removedFromFiles.push(toPosix(file));
+        for (const name of result.removed)
+          appliedKeys.add(`${toPosix(file)}::${name}`);
       }
     }
   }
-  const verb = apply ? "removed" : "proposed";
-  const summary = clean ? "no duplicates found" : `${plan.removals.length} duplicate(s) ${verb}, ${plan.merges.length} parameterizable group(s) ${apply ? "merged" : "proposed for merge"}`;
-  if (apply) {
+  const removals = plan.removals.map((removal) => ({
+    ...removal,
+    applied: removal.file !== null && appliedKeys.has(`${toPosix(removal.file)}::${removal.name}`)
+  }));
+  const appliedCount = removals.filter((removal) => removal.applied).length;
+  const proposedCount = removals.length - appliedCount;
+  const mergePart = `${plan.merges.length} parameterizable group(s) proposed for merge`;
+  const summary = clean ? "no duplicates found" : appliedCount > 0 ? `${appliedCount} duplicate(s) removed${proposedCount > 0 ? `, ${proposedCount} proposed (not applied)` : ""}, ${mergePart}` : `${removals.length} duplicate(s) proposed, ${mergePart}`;
+  const shouldWriteArtifact = apply || !clean;
+  if (shouldWriteArtifact) {
     const artifact = {
       schemaVersion: TEST_DEDUP_SCHEMA_VERSION,
       generatedAt: nowIso(),
       feature: slug,
-      applied: !clean,
+      applied: appliedCount > 0,
       sources: source,
       totalTests: descriptors.length,
-      removals: plan.removals,
+      removals,
       merges: plan.merges,
       summary
     };
     writeJson(dedupArtifactPath(options, slug), artifact);
   }
   const base = makeResult(options.ability, clean ? "passed" : "observed_locally", summary, errors, "offline", false, {
-    mutates: apply && !clean,
+    mutates: appliedCount > 0,
     dryRunFirst: true,
-    writesState: apply
+    writesState: true
   });
   base.mode = VERIFY_MODES[options.ability];
   base.delta = notComputedDelta("test-deduplication reads test descriptors; no mutation delta computed");
@@ -1549,10 +1582,10 @@ function runTestDeduplication(options) {
     action: apply ? "apply" : "propose",
     feature: slug,
     artifactPath,
-    written: apply,
-    applied: apply && !clean,
+    written: shouldWriteArtifact,
+    applied: appliedCount > 0,
     totalTests: descriptors.length,
-    removals: plan.removals,
+    removals,
     merges: plan.merges,
     removedFromFiles
   };
@@ -1648,7 +1681,7 @@ function visualTestFailed(test) {
 function visualTestHasScreenshot(test) {
   const screenshots = stringArray(test, "screenshots");
   const missing = stringArray(test, "missingScreenshots");
-  return screenshots.length - missing.length > 0;
+  return screenshots.length > 0 && missing.length === 0;
 }
 function visualGate(testInventory) {
   const visual = asRecord(testInventory?.visualVerification);
@@ -1922,6 +1955,11 @@ function firstString(args, keys) {
   }
   return;
 }
+function parseCommaList(value) {
+  if (value === undefined)
+    return;
+  return value.split(",").map((token) => token.trim()).filter((token) => token !== "");
+}
 function resolveAbility(requested, abilities, fallback) {
   return abilities.includes(requested) ? requested : fallback;
 }
@@ -1938,8 +1976,7 @@ function resolveOptions(argv) {
   const ability = resolveAbility(requested, VERIFY_ABILITIES, "compile-and-verify-project");
   const phaseRaw = firstString(args, ["phase"]);
   const intensityRaw = firstString(args, ["review-intensity", "reviewIntensity"]);
-  const changeScopeRaw = firstString(args, ["change-scope", "changeScope"]);
-  const changeScope = changeScopeRaw ? changeScopeRaw.split(",").map((token) => token.trim()).filter((token) => token !== "") : undefined;
+  const changeScope = parseCommaList(firstString(args, ["change-scope", "changeScope"]));
   return {
     projectRoot,
     opencodeDir,
@@ -1964,6 +2001,12 @@ function resolveOptions(argv) {
 }
 
 // tools/unity/unity-verify/src/index.ts
+function run2(options) {
+  const result = runVerify(options);
+  if (result.ability === "failing-test-first" && result.status === "failed")
+    process.exitCode = 1;
+  return result;
+}
 function render(result) {
   const lines = [`[${result.ability}] ${result.status} — ${result.summary}`];
   lines.push(`  route: ${result.route} · mode: ${result.mode}`);
@@ -1991,4 +2034,4 @@ function render(result) {
   return lines.join(`
 `);
 }
-runCli({ abilities: VERIFY_ABILITIES, resolveOptions, run: runVerify, render });
+runCli({ abilities: VERIFY_ABILITIES, resolveOptions, run: run2, render });

@@ -5,7 +5,7 @@ family: compose
 mode: offline
 description: Parse the contract frontmatter of every capability markdown file and validate it against the unified capability contract schema (ADR-0012), reporting per-capability errors so a design can be checked without reading every file.
 inputs: { projectRoot: "string", capabilitiesDir: "string?", schema: "string?" }
-outputs: { status: "string", schemaPath: "string", capabilitiesDir: "string", checked: "number", valid: "number", invalid: "number", results: "array" }
+outputs: { status: "string", safetyGate: "object", schemaPath: "string", capabilitiesDir: "string", checked: "number", valid: "number", invalid: "number", results: "array" }
 sideEffects: []
 safetyGate: { mutates: false, requiresEditor: false }
 uses: []

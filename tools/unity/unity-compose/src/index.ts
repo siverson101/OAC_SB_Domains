@@ -1,4 +1,4 @@
-// unity-compose — CLI entry for the five Compose abilities (Phase 2 Step 2.7,
+// unity-compose — CLI entry for the six Compose abilities (Phase 2 Step 2.7,
 // Phase 5 Step 5.3).
 //
 // Usage:

@@ -5,7 +5,7 @@ family: compose
 mode: both
 description: Record or read .opencode/project-data/ci-status-baseline.json. Recording folds compile-state.json, log-digest.json and unity-verification-report.json into a single green/red/unknown verdict; reading returns the last baseline. Offline and fail-soft.
 inputs: { projectRoot: "string", opencodeDir: "string", verb: "read|record", source: "string?" }
-outputs: { status: "string", action: "string", baselinePath: "string", baseline: "object?" }
+outputs: { status: "string", safetyGate: "object", action: "string", baselinePath: "string", baseline: "object?" }
 sideEffects: ["record writes .opencode/project-data/ci-status-baseline.json"]
 safetyGate: { mutates: false, requiresEditor: false, writesState: true }
 uses: [gather-unity-context, compile-and-verify-project]

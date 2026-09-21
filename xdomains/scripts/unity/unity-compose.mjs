@@ -1674,9 +1674,15 @@ function runPrimitiveComposition(options) {
 // tools/unity/unity-compose/src/test-plan.ts
 import { mkdirSync as mkdirSync4, writeFileSync as writeFileSync4 } from "node:fs";
 import { join as join6 } from "node:path";
+
+// tools/shared/text.ts
+function canonicalizeText(text) {
+  return text.replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+// tools/unity/unity-compose/src/test-plan.ts
 var TEST_PLAN_DIR = "test-plans";
 var TEST_PLAN_SCHEMA_VERSION = 1;
-var FEATURES_FILE = "features.json";
 function testPlansDir(options) {
   return join6(options.opencodeDir, TEST_PLAN_DIR);
 }
@@ -1686,38 +1692,51 @@ function testPlanPath(options, slug) {
 function commandsDir(options) {
   return options.commandsDir ?? options.capabilitiesDir ?? defaultCapabilitiesDir(options);
 }
-function canonicalStep(step) {
-  return step.replace(/\s+/g, " ").trim().toLowerCase();
+function primitivesDir(options) {
+  return options.primitivesDir ?? defaultPrimitivesDir(options);
 }
-function resolveFeatureAbilities(options, feature) {
+function resolveFeatureAbilities(options) {
   if (options.planAbilities && options.planAbilities.length > 0) {
     return { abilities: options.planAbilities, error: null };
   }
-  const mapPath = options.featuresMap ?? join6(testPlansDir(options), FEATURES_FILE);
-  const map = readJson(mapPath);
-  if (!map) {
-    return { abilities: [], error: `no --abilities and no feature→abilities mapping at ${toPosix(mapPath)}` };
-  }
-  const entry = map[feature];
-  if (!Array.isArray(entry)) {
-    return { abilities: [], error: `no abilities mapped for feature "${feature}" in ${toPosix(mapPath)}` };
-  }
-  return { abilities: entry.filter((item) => typeof item === "string"), error: null };
+  return { abilities: [], error: "no --abilities supplied (comma-separated capability or primitive ids)" };
+}
+function yamlStringArray(value) {
+  return Array.isArray(value) ? value.filter((item) => typeof item === "string") : [];
 }
 function readCapabilitySection(options, ability) {
-  const path = join6(commandsDir(options), `${ability}.md`);
-  const text = readText(path);
-  if (text === null) {
-    return { ability, id: null, summary: null, steps: [], problems: [`capability not found at ${toPosix(path)}`] };
+  const commandPath = join6(commandsDir(options), `${ability}.md`);
+  const commandText = readText(commandPath);
+  if (commandText !== null) {
+    const frontmatter = parseFrontmatter(commandText);
+    const steps = frontmatterStringArray(frontmatter, "testPlan") ?? [];
+    return {
+      ability,
+      id: frontmatterString(frontmatter, "id") ?? ability,
+      summary: frontmatterString(frontmatter, "summary") ?? null,
+      steps: [...steps],
+      problems: steps.length === 0 ? ["no testPlan declared in the capability contract"] : []
+    };
   }
-  const frontmatter = parseFrontmatter(text);
-  const steps = frontmatterStringArray(frontmatter, "testPlan") ?? [];
+  const primitivePath = join6(primitivesDir(options), ability, "primitive.yaml");
+  const primitiveText = readText(primitivePath);
+  if (primitiveText !== null) {
+    const data = asRecord(parseYaml(primitiveText));
+    const steps = yamlStringArray(data?.testPlan ?? data?.test_plan);
+    return {
+      ability,
+      id: typeof data?.id === "string" ? data.id : ability,
+      summary: typeof data?.summary === "string" ? data.summary : null,
+      steps,
+      problems: steps.length === 0 ? ["no testPlan declared in the primitive contract"] : []
+    };
+  }
   return {
     ability,
-    id: frontmatterString(frontmatter, "id") ?? ability,
-    summary: frontmatterString(frontmatter, "summary") ?? null,
-    steps: [...steps],
-    problems: steps.length === 0 ? ["no testPlan declared in the capability contract"] : []
+    id: null,
+    summary: null,
+    steps: [],
+    problems: [`capability not found at ${toPosix(commandPath)} or ${toPosix(primitivePath)}`]
   };
 }
 function renderTestPlan(artifact) {
@@ -1761,7 +1780,7 @@ function runTestPlan(options) {
     return refuse("a --feature <slug> is required");
   if (!isValidSlug(slug))
     return refuse(`invalid feature slug "${slug}"; use kebab-case (a-z, 0-9, -)`);
-  const resolved = resolveFeatureAbilities(options, slug);
+  const resolved = resolveFeatureAbilities(options);
   if (resolved.error)
     return refuse(resolved.error);
   if (resolved.abilities.length === 0)
@@ -1773,7 +1792,7 @@ function runTestPlan(options) {
   for (const section of sections) {
     const kept = [];
     for (const step of section.steps) {
-      const key = canonicalStep(step);
+      const key = canonicalizeText(step);
       if (seen.has(key)) {
         duplicateSteps.push(step);
         continue;
@@ -1884,6 +1903,11 @@ function firstString(args, keys) {
   }
   return;
 }
+function parseCommaList(value) {
+  if (value === undefined)
+    return;
+  return value.split(",").map((token) => token.trim()).filter((token) => token !== "");
+}
 function resolveAbility(requested, abilities, fallback) {
   return abilities.includes(requested) ? requested : fallback;
 }
@@ -1906,8 +1930,7 @@ function resolveOptions(argv) {
   const ability = resolveAbility(requested, COMPOSE_ABILITIES, "coordination-board");
   const leaseRaw = args["lease-seconds"] ?? args.leaseSeconds;
   const waitRaw = args["wait-seconds"] ?? args.waitSeconds;
-  const abilitiesRaw = firstString(args, ["abilities", "plan-abilities", "planAbilities"]);
-  const planAbilities = abilitiesRaw ? abilitiesRaw.split(",").map((token) => token.trim()).filter((token) => token !== "") : undefined;
+  const planAbilities = parseCommaList(firstString(args, ["abilities", "plan-abilities", "planAbilities"]));
   return {
     projectRoot,
     opencodeDir,
@@ -1934,8 +1957,7 @@ function resolveOptions(argv) {
     testability: firstString(args, ["testability"]),
     tradeOffs: firstString(args, ["trade-offs", "tradeOffs"]),
     planAbilities,
-    commandsDir: firstString(args, ["commands-dir", "commandsDir"]),
-    featuresMap: firstString(args, ["features-map", "featuresMap", "map"])
+    commandsDir: firstString(args, ["commands-dir", "commandsDir"])
   };
 }
 

@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { dirExists, fileExists, nowIso, readJson, readText, toPosix, unique } from '../../../shared/io';
 import { activeInputHandler, editorVersionInfo } from '../../../shared/toolchain';
 import { selectRoute, type Route } from '../../../shared/tool-routing';
+import { decodeXmlEntities } from '../../../shared/xml';
 import { parseNUnit, type TestCounts } from './gate';
 
 export type OfflineStatus =
@@ -750,21 +751,6 @@ export interface TestInventory extends OfflineBase {
 }
 
 const VISUAL_CATEGORY = 'VisualVerification';
-
-function decodeXmlEntities(value: string): string {
-  const codePoint = (match: string, digits: string, radix: number): string => {
-    const code = Number.parseInt(digits, radix);
-    return Number.isFinite(code) && code >= 0 && code <= 0x10ffff ? String.fromCodePoint(code) : match;
-  };
-  return value
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&apos;/g, "'")
-    .replace(/&#x([0-9a-fA-F]+);/g, (match, digits: string) => codePoint(match, digits, 16))
-    .replace(/&#(\d+);/g, (match, digits: string) => codePoint(match, digits, 10))
-    .replace(/&amp;/g, '&');
-}
 
 interface XmlToken {
   name: string;

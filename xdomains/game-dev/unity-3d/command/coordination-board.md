@@ -5,7 +5,7 @@ family: compose
 mode: offline
 description: Keep the advisory coordination board (ADR-0011) for multi-agent work on one Unity project. Claims carry leases and fail fast naming the holder on conflict; the Editor hold admits one holder at a time. Persisted to .opencode/coordination/board.json + board.md so it survives a domain reload and works with the Editor closed.
 inputs: { projectRoot: "string", opencodeDir: "string", verb: "claim|release|hold|release-hold|status", resource: "string?", holder: "string?", note: "string?", leaseSeconds: "number?" }
-outputs: { status: "string", action: "string", holder: "string?", expiresAt: "string?", board: "object" }
+outputs: { status: "string", safetyGate: "object", action: "string", holder: "string?", expiresAt: "string?", board: "object" }
 sideEffects: ["writes .opencode/coordination/board.json", "writes .opencode/coordination/board.md"]
 safetyGate: { mutates: true, requiresEditor: false, advisory: true, writesState: true }
 uses: []
