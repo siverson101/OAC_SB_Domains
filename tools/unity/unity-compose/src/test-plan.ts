@@ -3,25 +3,28 @@
 //
 // The capability contract is the single source of truth: for each requested
 // capability this reads `command/<ability>.md` frontmatter (`id`, `summary`,
-// `testPlan`) and renders the declared steps as a deduplicated checklist under
-// `.opencode/test-plans/<slug>.md`. A missing capability or a capability with no
+// `testPlan`) or a primitive's `primitive.yaml` (`testPlan`/`test_plan`) and
+// renders the declared steps as a deduplicated checklist under
+// `.opencode/test-plans/<slug>.md`. A missing capability or one with no
 // `testPlan` is reported as a problem, never a crash. Offline and fail-soft: it
 // writes only under `.opencode/test-plans/` and never needs the Editor.
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { nowIso, readJson, readText, toPosix } from '../../../shared/io';
+import { nowIso, readText, toPosix } from '../../../shared/io';
 import {
   frontmatterString,
   frontmatterStringArray,
   parseFrontmatter,
 } from '../../../shared/registry/src/frontmatter';
 import { isValidSlug } from '../../../shared/slug';
+import { canonicalizeText } from '../../../shared/text';
+import { parseYaml } from '../../../shared/yaml';
 import { defaultCapabilitiesDir } from './contract-aware-design';
-import { makeResult, type ComposeBase, type ComposeOptions, type Json } from './shared';
+import { defaultPrimitivesDir } from './primitive-composition';
+import { asRecord, makeResult, type ComposeBase, type ComposeOptions } from './shared';
 
 export const TEST_PLAN_DIR = 'test-plans';
 export const TEST_PLAN_SCHEMA_VERSION = 1;
-export const FEATURES_FILE = 'features.json';
 
 export interface TestPlanSection {
   ability: string;
@@ -66,8 +69,8 @@ export function commandsDir(options: ComposeOptions): string {
   return options.commandsDir ?? options.capabilitiesDir ?? defaultCapabilitiesDir(options);
 }
 
-function canonicalStep(step: string): string {
-  return step.replace(/\s+/g, ' ').trim().toLowerCase();
+export function primitivesDir(options: ComposeOptions): string {
+  return options.primitivesDir ?? defaultPrimitivesDir(options);
 }
 
 export interface ResolvedAbilities {
@@ -75,36 +78,55 @@ export interface ResolvedAbilities {
   error: string | null;
 }
 
-export function resolveFeatureAbilities(options: ComposeOptions, feature: string): ResolvedAbilities {
+export function resolveFeatureAbilities(options: ComposeOptions): ResolvedAbilities {
   if (options.planAbilities && options.planAbilities.length > 0) {
     return { abilities: options.planAbilities, error: null };
   }
-  const mapPath = options.featuresMap ?? join(testPlansDir(options), FEATURES_FILE);
-  const map = readJson<Json>(mapPath);
-  if (!map) {
-    return { abilities: [], error: `no --abilities and no feature→abilities mapping at ${toPosix(mapPath)}` };
-  }
-  const entry = map[feature];
-  if (!Array.isArray(entry)) {
-    return { abilities: [], error: `no abilities mapped for feature "${feature}" in ${toPosix(mapPath)}` };
-  }
-  return { abilities: entry.filter((item): item is string => typeof item === 'string'), error: null };
+  return { abilities: [], error: 'no --abilities supplied (comma-separated capability or primitive ids)' };
 }
 
+function yamlStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+}
+
+// The contract is the single source of truth: a capability's `testPlan` lives in
+// its command frontmatter, a primitive's in `primitive.yaml` (`testPlan` or the
+// upstream `test_plan`). A missing plan is a problem, never a crash.
 export function readCapabilitySection(options: ComposeOptions, ability: string): TestPlanSection {
-  const path = join(commandsDir(options), `${ability}.md`);
-  const text = readText(path);
-  if (text === null) {
-    return { ability, id: null, summary: null, steps: [], problems: [`capability not found at ${toPosix(path)}`] };
+  const commandPath = join(commandsDir(options), `${ability}.md`);
+  const commandText = readText(commandPath);
+  if (commandText !== null) {
+    const frontmatter = parseFrontmatter(commandText);
+    const steps = frontmatterStringArray(frontmatter, 'testPlan') ?? [];
+    return {
+      ability,
+      id: frontmatterString(frontmatter, 'id') ?? ability,
+      summary: frontmatterString(frontmatter, 'summary') ?? null,
+      steps: [...steps],
+      problems: steps.length === 0 ? ['no testPlan declared in the capability contract'] : [],
+    };
   }
-  const frontmatter = parseFrontmatter(text);
-  const steps = frontmatterStringArray(frontmatter, 'testPlan') ?? [];
+
+  const primitivePath = join(primitivesDir(options), ability, 'primitive.yaml');
+  const primitiveText = readText(primitivePath);
+  if (primitiveText !== null) {
+    const data = asRecord(parseYaml(primitiveText));
+    const steps = yamlStringArray(data?.testPlan ?? data?.test_plan);
+    return {
+      ability,
+      id: typeof data?.id === 'string' ? data.id : ability,
+      summary: typeof data?.summary === 'string' ? data.summary : null,
+      steps,
+      problems: steps.length === 0 ? ['no testPlan declared in the primitive contract'] : [],
+    };
+  }
+
   return {
     ability,
-    id: frontmatterString(frontmatter, 'id') ?? ability,
-    summary: frontmatterString(frontmatter, 'summary') ?? null,
-    steps: [...steps],
-    problems: steps.length === 0 ? ['no testPlan declared in the capability contract'] : [],
+    id: null,
+    summary: null,
+    steps: [],
+    problems: [`capability not found at ${toPosix(commandPath)} or ${toPosix(primitivePath)}`],
   };
 }
 
@@ -148,7 +170,7 @@ export function runTestPlan(options: ComposeOptions): TestPlanResult {
   if (!slug) return refuse('a --feature <slug> is required');
   if (!isValidSlug(slug)) return refuse(`invalid feature slug "${slug}"; use kebab-case (a-z, 0-9, -)`);
 
-  const resolved = resolveFeatureAbilities(options, slug);
+  const resolved = resolveFeatureAbilities(options);
   if (resolved.error) return refuse(resolved.error);
   if (resolved.abilities.length === 0) return refuse(`no abilities resolved for feature "${slug}"`);
 
@@ -159,7 +181,7 @@ export function runTestPlan(options: ComposeOptions): TestPlanResult {
   for (const section of sections) {
     const kept: string[] = [];
     for (const step of section.steps) {
-      const key = canonicalStep(step);
+      const key = canonicalizeText(step);
       if (seen.has(key)) {
         duplicateSteps.push(step);
         continue;

@@ -1,5 +1,12 @@
 import { join, resolve } from 'node:path';
-import { firstString, parseArgs, parseOptionalPositiveInt, rejectPositionals, resolveAbility } from '../../../shared/cli-args';
+import {
+  firstString,
+  parseArgs,
+  parseCommaList,
+  parseOptionalPositiveInt,
+  rejectPositionals,
+  resolveAbility,
+} from '../../../shared/cli-args';
 import { COMPOSE_ABILITIES, type ComposeOptions } from './types';
 
 export function resolveOptions(argv: string[]): ComposeOptions {
@@ -12,10 +19,7 @@ export function resolveOptions(argv: string[]): ComposeOptions {
 
   const leaseRaw = args['lease-seconds'] ?? args.leaseSeconds;
   const waitRaw = args['wait-seconds'] ?? args.waitSeconds;
-  const abilitiesRaw = firstString(args, ['abilities', 'plan-abilities', 'planAbilities']);
-  const planAbilities = abilitiesRaw
-    ? abilitiesRaw.split(',').map((token) => token.trim()).filter((token) => token !== '')
-    : undefined;
+  const planAbilities = parseCommaList(firstString(args, ['abilities', 'plan-abilities', 'planAbilities']));
 
   return {
     projectRoot,
@@ -44,6 +48,5 @@ export function resolveOptions(argv: string[]): ComposeOptions {
     tradeOffs: firstString(args, ['trade-offs', 'tradeOffs']),
     planAbilities,
     commandsDir: firstString(args, ['commands-dir', 'commandsDir']),
-    featuresMap: firstString(args, ['features-map', 'featuresMap', 'map']),
   };
 }

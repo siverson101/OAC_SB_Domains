@@ -5,7 +5,7 @@ family: compose
 mode: offline
 description: OAC has no plan mode, so this ability does the job the plan-feature skill's plan file does. It assembles Context, Implementation Design, Test Cases (verbatim from test-designer), Testing Decisions, the Testability Assessment, Known Trade-offs and the Development Workflow into .opencode/plans/<slug>.md. Gated by toggles.tdd; a PASS/WARN writes the artifact, a FAIL returns a loopback instruction (one retry, then abort) instead of writing a final plan.
 inputs: { projectRoot: "string", opencodeDir: "string", feature: "string", context: "string?", design: "string?", testCases: "string", testingDecisions: "string?", testability: "PASS|WARN|FAIL", tradeOffs: "string?" }
-outputs: { status: "string", action: "string", feature: "string?", planPath: "string", testability: "string?", attempt: "number", written: "boolean", instruction: "string?" }
+outputs: { status: "string", safetyGate: "object", action: "string", feature: "string?", planPath: "string", testability: "string?", attempt: "number", written: "boolean", instruction: "string?" }
 sideEffects: ["writes .opencode/plans/<slug>.md", "writes .opencode/plans/<slug>.loopback.json on a Testability FAIL"]
 safetyGate: { mutates: false, requiresEditor: false, writesState: true }
 uses: []
@@ -46,7 +46,8 @@ belongs to review; reject implementation-coupled, tautological and horizontally-
 - `PASS` — write the artifact.
 - `WARN` — write the artifact and record the testability warning under Known Trade-offs.
 - `FAIL` — do **not** write the plan; return a loopback instruction to revise the design and re-run.
-  A second consecutive `FAIL` (tracked in `.opencode/plans/<slug>.loopback.json`) aborts.
+  The `.opencode/plans/<slug>.loopback.json` marker is the one-retry enforcement point: the first
+  `FAIL` writes it and returns a loopback, a second consecutive `FAIL` aborts.
 
 ## Gating
 

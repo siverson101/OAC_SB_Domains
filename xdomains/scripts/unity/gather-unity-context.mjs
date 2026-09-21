@@ -549,6 +549,17 @@ import { readdirSync, statSync as statSync2 } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname as dirname3, isAbsolute, join as join7, relative } from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
+
+// tools/shared/xml.ts
+function decodeXmlEntities(value) {
+  const codePoint = (match, digits, radix) => {
+    const code = Number.parseInt(digits, radix);
+    return Number.isFinite(code) && code >= 0 && code <= 1114111 ? String.fromCodePoint(code) : match;
+  };
+  return value.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&#x([0-9a-fA-F]+);/g, (match, digits) => codePoint(match, digits, 16)).replace(/&#(\d+);/g, (match, digits) => codePoint(match, digits, 10)).replace(/&amp;/g, "&");
+}
+
+// tools/unity/gather-unity-context/src/offline.ts
 var OFFLINE_ROUTE = selectRoute({ live: null, cliAvailable: false }).route;
 function makeBase(status, errors = []) {
   return { schemaVersion: 1, generatedAt: nowIso(), status, route: OFFLINE_ROUTE, errors };
@@ -1046,13 +1057,6 @@ function produceAsmdefMap(input) {
   };
 }
 var VISUAL_CATEGORY = "VisualVerification";
-function decodeXmlEntities(value) {
-  const codePoint = (match, digits, radix) => {
-    const code = Number.parseInt(digits, radix);
-    return Number.isFinite(code) && code >= 0 && code <= 1114111 ? String.fromCodePoint(code) : match;
-  };
-  return value.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&#x([0-9a-fA-F]+);/g, (match, digits) => codePoint(match, digits, 16)).replace(/&#(\d+);/g, (match, digits) => codePoint(match, digits, 10)).replace(/&amp;/g, "&");
-}
 function tokenizeXml(xml) {
   const tokens = [];
   let cursor = 0;

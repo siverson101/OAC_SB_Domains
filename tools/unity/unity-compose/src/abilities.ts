@@ -1,4 +1,4 @@
-// Dispatcher for the five Compose abilities (Phase 2 Step 2.7, Phase 5 Step 5.3).
+// Dispatcher for the six Compose abilities (Phase 2 Step 2.7, Phase 5 Step 5.3).
 import { runCiStatusBaseline, type CiStatusBaselineResult } from './ci-status-baseline';
 import { runContractAwareDesign, type ContractAwareResult } from './contract-aware-design';
 import { runCoordinationBoard, type CoordinationBoardResult } from './coordination-board';

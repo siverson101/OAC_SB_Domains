@@ -18,8 +18,10 @@ import {
   chooseKeeper,
   parseDescriptors,
   planDeduplication,
+  removeTestMethods,
   runTestDeduplication,
   scanCsTests,
+  type Removal,
   type TestDescriptor,
 } from '../tools/unity/unity-verify/src/test-deduplication';
 import { makeSnapshot } from '../tools/unity/unity-verify/src/shared';
@@ -249,6 +251,18 @@ describe('change-scope bounded delta', () => {
     });
     const delta = computeDelta(makeSnapshot({ issues: [] }), after);
     expect(delta.newIssues?.length).toBe(2);
+    expect(delta.scopeUnmatched).toBe(false);
+  });
+
+  test('a declared scope that matches no issue is reported, never silent', () => {
+    const after = makeSnapshot({
+      issues: [{ kind: 'compile', id: 'Assets/Enemy.cs: error CS9999', message: 'Assets/Enemy.cs: error CS9999' }],
+    });
+    const delta = computeDelta(makeSnapshot({ issues: [] }), after, { ok: true }, ['PlayerController']);
+    expect(delta.computed).toBe(true);
+    expect(delta.scopeUnmatched).toBe(true);
+    expect(delta.newIssues).toEqual([]);
+    expect(delta.reasons.join(' ')).toContain('scope matched no issues');
   });
 });
 
@@ -334,6 +348,14 @@ describe('visual gate', () => {
     ]);
     expect(entry?.status).toBe('failed');
     expect(entry?.detail).toContain('VisualTests.Gone');
+  });
+
+  test('fails naming a test when only some of its screenshots exist', () => {
+    const entry = visualEntry([
+      { fullname: 'VisualTests.Partial', status: 'Passed', screenshots: ['kept.png', 'gone.png'], missingScreenshots: ['gone.png'] },
+    ]);
+    expect(entry?.status).toBe('failed');
+    expect(entry?.detail).toContain('VisualTests.Partial');
   });
 
   test('fails naming a visual test that did not pass', () => {
@@ -602,7 +624,7 @@ describe('failing-test-first', () => {
     if ('redStep' in result) expect(result.redStep).toBeNull();
   });
 
-  test('returns STATUS: OK when the test failed for the expected reason', () => {
+  test('a bare --failure-message is advisory UNKNOWN, never a green red-step', () => {
     const result = runVerify({
       ...options,
       ability: 'failing-test-first',
@@ -611,12 +633,33 @@ describe('failing-test-first', () => {
       expectedReason: 'NullReferenceException',
       failureMessage: 'System.NullReferenceException: Object reference not set',
     });
+    expect(result.status).toBe('unknown');
+    expect(result.summary).toContain('STATUS: UNKNOWN');
+    if ('redStep' in result) {
+      expect(result.redStep).toBe('UNKNOWN');
+      expect(result.reason).toBe('unobserved-failure');
+      expect(result.observedResult).toBeNull();
+      expect(result.tddEnabled).toBe(true);
+    }
+  });
+
+  test('an observed failing result yields STATUS: OK', () => {
+    const resultsPath = join(fixture, 'ok-results.xml');
+    write(resultsPath, failedXml);
+    const result = runVerify({
+      ...options,
+      ability: 'failing-test-first',
+      tdd: 'on',
+      test: 'PlayerTests.JumpTest',
+      expectedReason: 'NullReferenceException',
+      testResults: resultsPath,
+    });
     expect(result.status).toBe('passed');
     expect(result.summary).toContain('STATUS: OK');
     if ('redStep' in result) {
       expect(result.redStep).toBe('OK');
       expect(result.reason).toBe('expected-failure');
-      expect(result.tddEnabled).toBe(true);
+      expect(result.observedResult).toBe('Failed');
     }
   });
 
@@ -722,8 +765,8 @@ describe('failing-test-first', () => {
       expectedReason: 'NullReferenceException',
       failureMessage: 'System.NullReferenceException: boom',
     });
-    expect(result.status).toBe('passed');
-    if ('redStep' in result) expect(result.redStep).toBe('OK');
+    expect(result.status).toBe('unknown');
+    if ('redStep' in result) expect(result.redStep).toBe('UNKNOWN');
   });
 });
 
@@ -775,6 +818,16 @@ describe('test-deduplication planning', () => {
     expect(/\bswitch\b/.test(merge.body)).toBe(false);
   });
 
+  test('does not merge conditions whose non-literal structure differs', () => {
+    const plan = planDeduplication([
+      descriptor('Vector3_zero_is_up', 'var v = Vector3.zero;', 'Assert.AreEqual(0f, v.x);'),
+      descriptor('Vector2_zero_is_up', 'var v = Vector2.zero;', 'Assert.AreEqual(0f, v.x);'),
+      descriptor('Speed_over_five', 'var ok = speed > 5;', 'Assert.IsTrue(ok);'),
+      descriptor('Health_over_ten', 'var ok = health > 10;', 'Assert.IsTrue(ok);'),
+    ]);
+    expect(plan.merges).toHaveLength(0);
+  });
+
   test('chooseKeeper keeps the more accurately named test', () => {
     const keeper = chooseKeeper([
       descriptor('Test1', 'player.Jump();', 'Assert.AreEqual(2f, player.Height);'),
@@ -806,7 +859,7 @@ describe('test-deduplication run', () => {
     { name: 'Test1', condition: 'player.Jump();', assertion: 'Assert.AreEqual(2f, player.Height);' },
   ];
 
-  test('dry-run proposes a removal and writes nothing', () => {
+  test('dry-run records the proposal artifact and edits no test file', () => {
     const root = join(fixture, 'dedup-dry');
     const oc = join(root, '.opencode');
     const jsonPath = join(root, 'tests.json');
@@ -814,13 +867,19 @@ describe('test-deduplication run', () => {
 
     const result = runTestDeduplication(dedupOptions(oc, { feature: 'player-jump', testsJson: jsonPath }));
     expect(result.status).toBe('observed_locally');
-    expect(result.written).toBe(false);
+    expect(result.written).toBe(true);
     expect(result.applied).toBe(false);
     expect(result.removals).toHaveLength(1);
-    expect(existsSync(join(oc, 'test-dedup'))).toBe(false);
+    expect(result.removals[0].applied).toBe(false);
+
+    const artifactPath = join(oc, 'test-dedup', 'player-jump.json');
+    expect(existsSync(artifactPath)).toBe(true);
+    const artifact = JSON.parse(readFileSync(artifactPath, 'utf8'));
+    expect(artifact.applied).toBe(false);
+    expect(artifact.removals[0].applied).toBe(false);
   });
 
-  test('--apply records the removal in .opencode/test-dedup/<feature>.json', () => {
+  test('--apply with --tests-json proposes removals, never reports them removed', () => {
     const root = join(fixture, 'dedup-apply-json');
     const oc = join(root, '.opencode');
     const jsonPath = join(root, 'tests.json');
@@ -828,14 +887,19 @@ describe('test-deduplication run', () => {
 
     const result = runTestDeduplication(dedupOptions(oc, { feature: 'player-jump', testsJson: jsonPath, apply: true }));
     expect(result.written).toBe(true);
-    expect(result.applied).toBe(true);
+    expect(result.applied).toBe(false);
+    expect(result.removedFromFiles).toEqual([]);
+    expect(result.summary).toContain('proposed');
+    expect(result.summary).not.toContain('removed');
 
     const artifactPath = join(oc, 'test-dedup', 'player-jump.json');
     expect(existsSync(artifactPath)).toBe(true);
     const artifact = JSON.parse(readFileSync(artifactPath, 'utf8'));
+    expect(artifact.applied).toBe(false);
     expect(artifact.removals).toHaveLength(1);
     expect(artifact.removals[0].name).toBe('Test1');
     expect(artifact.removals[0].keptName).toBe('Jump_raises_the_player');
+    expect(artifact.removals[0].applied).toBe(false);
   });
 
   test('--apply removes a true duplicate from a *.cs suite and records it', () => {
@@ -896,6 +960,8 @@ describe('test-deduplication run', () => {
     expect(result.removals).toHaveLength(1);
     expect(result.removals[0].name).toBe('Jump_increases_height');
     expect(result.removals[0].keptName).toBe('Jump_raises_the_player');
+    expect(result.removals[0].applied).toBe(true);
+    expect(result.applied).toBe(true);
     expect(result.merges).toHaveLength(1);
     expect(result.removedFromFiles).toHaveLength(1);
 
@@ -905,6 +971,36 @@ describe('test-deduplication run', () => {
     expect(updated).toContain('Jump_uses_a_different_height');
     expect(updated).toContain('Add_positive_numbers');
     expect(existsSync(join(oc, 'test-dedup', 'player-jump.json'))).toBe(true);
+  });
+
+  test('removeTestMethods removes only from the recorded file, never by bare name', () => {
+    const source = [
+      'public class A',
+      '{',
+      '    [Test]',
+      '    public void Duplicate()',
+      '    {',
+      '        Assert.IsTrue(true);',
+      '    }',
+      '}',
+      '',
+    ].join('\n');
+    const removal: Removal = {
+      name: 'Duplicate',
+      keptName: 'Keeper',
+      file: 'Assets/Tests/Other.cs',
+      condition: '',
+      assertion: '',
+      reason: 'identical condition and identical assertion',
+      applied: false,
+    };
+    const other = removeTestMethods(source, [removal], 'Assets/Tests/A.cs');
+    expect(other.removed).toEqual([]);
+    expect(other.text).toBe(source);
+
+    const own = removeTestMethods(source, [removal], 'Assets/Tests/Other.cs');
+    expect(own.removed).toEqual(['Duplicate']);
+    expect(own.text).not.toContain('Duplicate');
   });
 
   test('reports "no duplicates found" for a clean suite and writes nothing in dry-run', () => {
@@ -1023,5 +1119,69 @@ describe('unity-verify bundle', () => {
     );
     expect(scoped.status).toBe(0);
     expect(JSON.parse(scoped.stdout).changeScope).toEqual(['Player.cs', 'Enemy.cs']);
+  });
+
+  test('failing-test-first exits non-zero on NG but zero on refused and UNKNOWN', () => {
+    const passingXml = [
+      '<?xml version="1.0" encoding="utf-8"?>',
+      '<test-run id="2" testcasecount="1" result="Passed" total="1" passed="1" failed="0">',
+      '  <test-case id="1" name="PlayerTests.JumpTest" fullname="PlayerTests.JumpTest" result="Passed" />',
+      '</test-run>',
+    ].join('\n');
+    const resultsPath = join(fixture, 'bundle-passed-results.xml');
+    write(resultsPath, passingXml);
+
+    const ng = spawnSync(
+      process.execPath,
+      [
+        bundle,
+        '--project-root', projectRoot,
+        '--opencode-dir', opencodeDir,
+        '--ability', 'failing-test-first',
+        '--tdd', 'on',
+        '--test', 'PlayerTests.JumpTest',
+        '--expected-reason', 'NullReferenceException',
+        '--test-results', resultsPath,
+        '--json',
+      ],
+      { encoding: 'utf8' }
+    );
+    expect(ng.status).toBe(1);
+    expect(JSON.parse(ng.stdout).redStep).toBe('NG');
+
+    const refused = spawnSync(
+      process.execPath,
+      [
+        bundle,
+        '--project-root', projectRoot,
+        '--opencode-dir', opencodeDir,
+        '--ability', 'failing-test-first',
+        '--test', 'PlayerTests.JumpTest',
+        '--expected-reason', 'NullReferenceException',
+        '--failure-message', 'System.NullReferenceException: boom',
+        '--json',
+      ],
+      { encoding: 'utf8' }
+    );
+    expect(refused.status).toBe(0);
+    expect(JSON.parse(refused.stdout).status).toBe('refused');
+
+    const unknown = spawnSync(
+      process.execPath,
+      [
+        bundle,
+        '--project-root', projectRoot,
+        '--opencode-dir', opencodeDir,
+        '--ability', 'failing-test-first',
+        '--tdd', 'on',
+        '--test', 'PlayerTests.JumpTest',
+        '--expected-reason', 'NullReferenceException',
+        '--failure-message', 'System.NullReferenceException: boom',
+        '--json',
+      ],
+      { encoding: 'utf8' }
+    );
+    expect(unknown.status).toBe(0);
+    expect(JSON.parse(unknown.stdout).redStep).toBe('UNKNOWN');
   });
 });

@@ -58,6 +58,7 @@ export function makeResult(
       resolvedIssues: null,
       validateScanFailed: false,
       compilePending: false,
+      scopeUnmatched: false,
       reasons: ['no delta computed'],
     },
   };

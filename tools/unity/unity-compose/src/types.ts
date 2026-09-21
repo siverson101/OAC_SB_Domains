@@ -22,7 +22,7 @@ export const COMPOSE_ABILITIES: ComposeAbility[] = [...COMPOSE_ABILITY_NAMES];
 
 export type ComposeMode = 'offline' | 'live' | 'both';
 
-// All five abilities are offline-first. The CI baseline can additionally be
+// All six abilities are offline-first. The CI baseline can additionally be
 // recorded from a live CI run, hence `both`.
 export const COMPOSE_MODES: Record<ComposeAbility, ComposeMode> = {
   'coordination-board': 'offline',
@@ -95,5 +95,4 @@ export interface ComposeOptions {
   tradeOffs?: string;
   planAbilities?: string[];
   commandsDir?: string;
-  featuresMap?: string;
 }

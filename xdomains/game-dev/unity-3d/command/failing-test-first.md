@@ -3,9 +3,9 @@ id: failing-test-first
 summary: Enforce the red step — confirm the named test fails for the expected reason before implementation; TDD-gated, read-only.
 family: verify
 mode: both
-description: Read the observed failure from --failure-message and/or a --test-results TestResults.xml path, then return STATUS OK only when the named test failed and the failure message contains --expected-reason; otherwise STATUS NG and abort, naming an unexpected pass or an unrelated failure. Gated by toggles.tdd in .opencode/unity-studio.json (fail-soft absent means off); TDD off refuses clearly. It never mutates project assets.
+description: Read the observed failure from a --test-results TestResults.xml path (a --failure-message may fill in a missing message), then return STATUS OK only when the named test failed and the failure message contains --expected-reason; a bare --failure-message is self-reported and yields STATUS UNKNOWN, never a green red-step. An observed pass or an unrelated failure is STATUS NG and aborts. Gated by toggles.tdd in .opencode/unity-studio.json (fail-soft absent means off); TDD off refuses clearly. It never mutates project assets.
 inputs: { projectRoot: "string", opencodeDir: "string", test: "string", expectedReason: "string", failureMessage: "string?", testResults: "string?", tdd: "on|off?" }
-outputs: { status: "string", redStep: "OK|NG", reason: "string", observedResult: "string", observedMessage: "string" }
+outputs: { status: "string", safetyGate: "object", changeScope: "string[]?", checkpoint: "object", delta: "object", redStep: "OK|NG|UNKNOWN|null", test: "string?", expectedReason: "string?", observedResult: "string?", observedMessage: "string?", reason: "string?", tddEnabled: "boolean" }
 sideEffects: []
 safetyGate: { mutates: false, requiresEditor: false }
 uses: [run-edit-mode-tests, run-play-mode-tests]
@@ -33,13 +33,16 @@ node .opencode/xdomains/scripts/unity/unity-verify.mjs \
 
 - **TDD gate:** read from `.opencode/unity-studio.json` `toggles.tdd`. With TDD off the ability
   returns `refused` — TDD off still requires tests, just not written first. An explicit `--tdd on|off`
-  overrides the config; an unknown value refuses.
-- **Observed failure:** pass `--failure-message "<text>"` and/or `--test-results <TestResults.xml>`.
-  When a results file is supplied it is authoritative: the named test must be present, and its
-  pass/fail outcome decides the verdict (a `--failure-message` fills in a missing failure message).
-- **Verdict:** `STATUS: OK` only when the named test failed and the failure message contains
-  `--expected-reason` (case-insensitive substring). Otherwise `STATUS: NG` with the reason recorded —
-  `unexpected-pass`, `unrelated-failure`, `test-not-run`, or `test-not-found` — and the caller aborts.
+  overrides the config (a test/override affordance); an unknown value refuses.
+- **Observed failure:** pass `--test-results <TestResults.xml>`; a `--failure-message "<text>"` may
+  fill in a missing failure message. A results file is authoritative: the named test must be present,
+  and its pass/fail outcome decides the verdict. A bare `--failure-message` is self-reported, not
+  observed, so it can never produce `STATUS: OK`.
+- **Verdict:** `STATUS: OK` only when an observed result shows the named test failed and the failure
+  message contains `--expected-reason` (case-insensitive substring). A bare self-reported message that
+  matches is `STATUS: UNKNOWN` (advisory). Otherwise `STATUS: NG` with the reason recorded —
+  `unexpected-pass`, `unrelated-failure`, `test-not-run`, or `test-not-found` — and the caller aborts
+  with a non-zero exit code.
 - **Inputs:** `--test` and `--expected-reason` are required; with neither observation flag the ability
   refuses. A missing results file refuses loudly.
 

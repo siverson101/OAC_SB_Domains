@@ -1,4 +1,4 @@
-// unity-verify — CLI entry for the five Verify abilities (Phase 2 Step 2.5).
+// unity-verify — CLI entry for the six Verify abilities (Phase 2 Step 2.5).
 //
 // Usage:
 //   unity-verify --project-root . --opencode-dir .opencode \
@@ -19,7 +19,15 @@
 import { runCli } from '../../../shared/cli-bootstrap';
 import { runVerify, type VerifyResult } from './abilities';
 import { resolveOptions } from './cli';
-import { VERIFY_ABILITIES } from './types';
+import { VERIFY_ABILITIES, type VerifyOptions } from './types';
+
+// failing-test-first is a gate: `STATUS: NG` aborts with a non-zero exit code.
+// A refusal (TDD off, bad input) and an advisory `UNKNOWN` stay at exit 0.
+function run(options: VerifyOptions): VerifyResult {
+  const result = runVerify(options);
+  if (result.ability === 'failing-test-first' && result.status === 'failed') process.exitCode = 1;
+  return result;
+}
 
 function render(result: VerifyResult): string {
   const lines = [`[${result.ability}] ${result.status} — ${result.summary}`];
@@ -47,4 +55,4 @@ function render(result: VerifyResult): string {
   return lines.join('\n');
 }
 
-runCli({ abilities: VERIFY_ABILITIES, resolveOptions, run: runVerify, render });
+runCli({ abilities: VERIFY_ABILITIES, resolveOptions, run, render });

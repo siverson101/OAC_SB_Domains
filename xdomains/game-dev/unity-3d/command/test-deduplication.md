@@ -3,10 +3,10 @@ id: test-deduplication
 summary: Detect true duplicate tests (same condition and same assertion) and parameterizable groups, propose or apply removals, and record a removals/merges artifact.
 family: verify
 mode: offline
-description: Scan *.cs test files (--tests) and/or structured descriptors (--tests-json) and compare canonicalised conditions and assertions. A true duplicate shares both; a parameterizable group shares the assertion with conditions differing only by literal arguments in the same equivalence partition. Default dry-run proposes only; --apply removes true duplicates from source files and writes .opencode/test-dedup/<feature>.json. Never trades coverage for tidiness.
+description: Scan *.cs test files (--tests) and/or structured descriptors (--tests-json) and compare canonicalised conditions and assertions. A true duplicate shares both; a parameterizable group shares the assertion with conditions differing only by literal arguments in the same equivalence partition. Both dry-run and --apply record .opencode/test-dedup/<feature>.json; only --apply edits source files, and only source-file removals are marked applied (JSON-sourced removals stay proposed). Never trades coverage for tidiness.
 inputs: { projectRoot: "string", opencodeDir: "string", feature: "string", tests: "string?", testsJson: "string?", apply: "boolean?" }
-outputs: { status: "string", action: "string", feature: "string?", artifactPath: "string", totalTests: "number", removals: "object[]", merges: "object[]" }
-sideEffects: ["writes .opencode/test-dedup/<feature>.json on --apply", "removes true-duplicate test methods from *.cs on --apply"]
+outputs: { status: "string", safetyGate: "object", changeScope: "string[]?", checkpoint: "object", delta: "object", action: "string", feature: "string?", artifactPath: "string", written: "boolean", applied: "boolean", totalTests: "number", removals: "object[]", merges: "object[]", removedFromFiles: "string[]" }
+sideEffects: ["writes .opencode/test-dedup/<feature>.json (proposals in dry-run, applied removals on --apply)", "removes true-duplicate test methods from *.cs on --apply"]
 safetyGate: { mutates: true, requiresEditor: false, dryRunFirst: true, writesState: true }
 uses: []
 provides: [test-deduplication, test-dedup-artifact]
@@ -55,9 +55,13 @@ node .opencode/xdomains/scripts/unity/unity-verify.mjs \
 
 ## Apply
 
-- Default is a **dry-run**: it proposes removals/merges and writes nothing.
+- Default is a **dry-run**: it proposes removals/merges and never edits a test
+  file. It still records the proposals artifact at
+  `.opencode/test-dedup/<feature>.json` (a clean suite writes nothing).
 - `--apply` removes true-duplicate methods from `--tests <dir>` source files and
-  writes the removals/merges artifact to `.opencode/test-dedup/<feature>.json`.
+  records the same artifact. Only a removal applied to a source file is marked
+  `applied: true`; a `--tests-json` descriptor has no source to edit, so its
+  removals stay **proposed** even under `--apply`.
 - Parameterizable merges are recorded as proposals only — rewriting a source
   method into a parameterized one without a C# parser risks dropping coverage, so
   the merge is handed off with its proposed body rather than applied blindly.

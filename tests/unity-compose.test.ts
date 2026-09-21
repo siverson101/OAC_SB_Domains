@@ -589,16 +589,35 @@ describe('test-plan', () => {
     expect(markdown).toContain('> Problem:');
   });
 
-  test('reads a feature→abilities mapping when --abilities is absent', () => {
+  test('refuses without --abilities (no hand-maintained feature mapping)', () => {
     const oc = join(fixture, 'test-plan-map', '.opencode');
     const commands = join(fixture, 'test-plan-map', 'command');
     writeCapability(commands, 'alpha', ['alpha step']);
-    mkdirSync(join(oc, 'test-plans'), { recursive: true });
-    writeFileSync(join(oc, 'test-plans', 'features.json'), JSON.stringify({ 'player-jump': ['alpha'] }));
 
     const result = runTestPlan(planOptions(oc, { feature: 'player-jump', commandsDir: commands }));
+    expect(result.status).toBe('refused');
+    expect(result.errors.join(' ')).toContain('--abilities');
+  });
+
+  test("reads a primitive's test_plan when the id is not a command", () => {
+    const oc = join(fixture, 'test-plan-primitive', '.opencode');
+    const commands = join(fixture, 'test-plan-primitive', 'command');
+    const primitives = join(fixture, 'test-plan-primitive', 'primitives');
+    mkdirSync(join(primitives, 'arch.movement.2d'), { recursive: true });
+    writeFileSync(
+      join(primitives, 'arch.movement.2d', 'primitive.yaml'),
+      ['id: arch.movement.2d', 'summary: A movement system', 'test_plan:', '- Spawn an entity', '- Observe movement', ''].join('\n')
+    );
+
+    const result = runTestPlan(
+      planOptions(oc, { feature: 'player-jump', planAbilities: ['arch.movement.2d'], commandsDir: commands, primitivesDir: primitives })
+    );
     expect(result.status).toBe('ok');
     expect(result.sections).toBe(1);
+    expect(result.checklist).toBe(2);
+
+    const markdown = readFileSync(join(oc, 'test-plans', 'player-jump.md'), 'utf8');
+    expect(markdown).toContain('- [ ] Spawn an entity');
   });
 
   test('refuses a non-kebab slug and writes nothing outside .opencode/test-plans/', () => {

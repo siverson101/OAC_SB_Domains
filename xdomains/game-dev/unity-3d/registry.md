@@ -129,6 +129,14 @@ matching command is reported as a warning, never silently invented.
 | `unity-read-project` | command `unity-read-project` (not yet authored) | Project scan (ProjectSettings, Packages/manifest.json) |
 | `unity-build` | command `unity-build` (shipped) | Unity CLI batch build |
 | `unity-run-tests` | command `unity-test` (shipped) | Unity Test Runner (EditMode/PlayMode) |
+| `failing-test-first` | command `failing-test-first` (shipped, Phase 5) | Test results (`--test-results`); red-step decision; `unity-coding-skills` design reference |
+| `plan-feature` | command `plan-feature` (shipped, Phase 5) | Plan artifact + Testability verdict; `MattSkills/skills/engineering` design reference |
+| `test-plan` | command `test-plan` (shipped, Phase 5) | Capability/primitive `testPlan` data |
+| `test-deduplication` | command `test-deduplication` (shipped, Phase 5) | Test descriptors / `*.cs` test scan; `unity-coding-skills` design reference |
+
+Phase 5 also modified two existing abilities without changing their source: `gate-review` gained an
+`externalVerdict` (`confirmed`/`uncertain`) fold, and `compile-and-verify-project` now requires a
+declared change scope on validate. Both remain `oac-build`.
 
 External sources
 ----------------
@@ -144,5 +152,6 @@ the gated-out copyleft set, and the required license texts are all recorded in t
 | `UnityCLI.AgenticExtensions` | Thomas Moore | MIT | Coordination board, profiling, UI Toolkit (design reference) |
 | `Unity-Open-MCP` | Alexey Perov | MIT | Verify family, offline reads; `unity-open-mcp-missing-tools.md` (design reference) |
 | `AIBridge` | liyingsong | MIT | Prefab/scene automation, runtime workflows (design reference) |
-| `unity-coding-skills` | Koji Hasegawa | Unlicense | TDD workflow and test subagents (design reference) |
+| `unity-coding-skills` | Koji Hasegawa | Unlicense | TDD workflow and test subagents; `failing-test-first`/`test-deduplication`/test-designer design (design reference) |
+| `MattSkills/skills/engineering` | Matt Pocock | MIT | Plan-artifact and TDD-loop workflow (`to-spec`, `tdd`, `to-tickets`, `wayfinder`) (design reference) |
 | `Unity-Developer-Tools` | TM Hospitality Strategies | CC-BY-NC-ND-4.0 | Design reference only — no verbatim copy |

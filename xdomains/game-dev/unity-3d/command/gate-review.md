@@ -5,7 +5,7 @@ family: verify
 mode: offline
 description: Read gate-state.json, unity-verification-report.json, compile-state.json and test-inventory.json and fold the applicable named gates strictest-wins; no Editor required.
 inputs: { projectRoot: "string", opencodeDir: "string", reviewIntensity: "full|lean|solo", gates: "array", externalVerdict: "confirmed|uncertain" }
-outputs: { status: "string", gates: "object" }
+outputs: { status: "string", safetyGate: "object", changeScope: "string[]?", checkpoint: "object", delta: "object", gates: "object" }
 sideEffects: []
 safetyGate: { mutates: false, requiresEditor: false }
 uses: [compile-and-verify-project, run-edit-mode-tests, run-play-mode-tests]

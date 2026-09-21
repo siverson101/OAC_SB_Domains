@@ -19,6 +19,7 @@ import { readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { dirExists, nowIso, readJson, readText, toPosix, writeJson } from '../../../shared/io';
 import { isValidSlug } from '../../../shared/slug';
+import { canonicalizeText } from '../../../shared/text';
 import { notComputedDelta } from './delta';
 import { asRecord, makeResult, str, type VerifyBase, type VerifyOptions } from './shared';
 import { VERIFY_MODES } from './types';
@@ -40,6 +41,10 @@ export interface Removal {
   condition: string;
   assertion: string;
   reason: string;
+  // True only when this removal was actually applied to a source file. A
+  // `--tests-json` descriptor has no source to edit, so its removals stay
+  // proposed even under `--apply`.
+  applied: boolean;
 }
 
 export interface MergeCase {
@@ -86,20 +91,20 @@ export interface TestDeduplicationResult extends VerifyBase {
 }
 
 // A fresh global regex per call keeps `lastIndex` from leaking between uses.
+// A numeric literal is bounded by non-identifier characters so a digit inside an
+// identifier (`Vector3`, `p1`) is preserved: blanking it would collapse distinct
+// subjects into the same equivalence partition. A leading `-` is left as an
+// operator, so `-1` and `-2` blank to `-#`.
 function literalPattern(): RegExp {
-  return /"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|-?\d+(?:\.\d+)?[fFmMdDlL]?|\btrue\b|\bfalse\b|\bnull\b/g;
-}
-
-export function canonical(text: string): string {
-  return text.replace(/\s+/g, ' ').trim().toLowerCase();
+  return /"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|(?<![A-Za-z0-9_])\d+(?:\.\d+)?[fFmMdDlL]?(?![A-Za-z0-9_])|\btrue\b|\bfalse\b|\bnull\b/g;
 }
 
 export function conditionTemplate(condition: string): string {
-  return canonical(condition).replace(literalPattern(), '#');
+  return canonicalizeText(condition).replace(literalPattern(), '#');
 }
 
 export function conditionLiterals(condition: string): string[] {
-  return canonical(condition).match(literalPattern()) ?? [];
+  return canonicalizeText(condition).match(literalPattern()) ?? [];
 }
 
 function substituteLiterals(text: string, params: string[]): string {
@@ -173,12 +178,12 @@ export function planDeduplication(tests: TestDescriptor[]): DedupPlan {
   const removals: Removal[] = [];
   const merges: Merge[] = [];
 
-  for (const assertionGroup of groupBy(tests, (test) => canonical(test.assertion)).values()) {
+  for (const assertionGroup of groupBy(tests, (test) => canonicalizeText(test.assertion)).values()) {
     if (assertionGroup.length < 2) continue;
 
     for (const templateGroup of groupBy(assertionGroup, (test) => conditionTemplate(test.condition)).values()) {
       const representatives: TestDescriptor[] = [];
-      for (const exactGroup of groupBy(templateGroup, (test) => canonical(test.condition)).values()) {
+      for (const exactGroup of groupBy(templateGroup, (test) => canonicalizeText(test.condition)).values()) {
         const keeper = chooseKeeper(exactGroup);
         representatives.push(keeper);
         for (const test of exactGroup) {
@@ -190,6 +195,7 @@ export function planDeduplication(tests: TestDescriptor[]): DedupPlan {
             condition: test.condition,
             assertion: test.assertion,
             reason: 'identical condition and identical assertion',
+            applied: false,
           });
         }
       }
@@ -347,7 +353,14 @@ export function scanCsTests(dir: string): TestDescriptor[] {
   return out;
 }
 
-export function removeTestMethods(text: string, names: Set<string>): { text: string; removed: string[] } {
+// Remove only the removals whose recorded file is this file: a bare method name
+// is never removed across every file, so a same-named test in another suite is
+// untouched.
+export function removeTestMethods(text: string, removals: Removal[], file: string): { text: string; removed: string[] } {
+  const target = toPosix(file);
+  const names = new Set(
+    removals.filter((removal) => removal.file !== null && toPosix(removal.file) === target).map((removal) => removal.name)
+  );
   const methods = extractTestMethods(text).filter((method) => names.has(method.name));
   const removed: string[] = [];
   let out = text;
@@ -446,35 +459,49 @@ export function runTestDeduplication(options: VerifyOptions): TestDeduplicationR
   const clean = plan.removals.length === 0 && plan.merges.length === 0;
 
   const removedFromFiles: string[] = [];
+  const appliedKeys = new Set<string>();
   if (apply && !clean && testsDir) {
-    const names = new Set(plan.removals.map((removal) => removal.name));
     for (const file of walkCsFiles(resolve(options.projectRoot, testsDir))) {
       const text = readText(file);
       if (text === null) continue;
-      const result = removeTestMethods(text, names);
+      const result = removeTestMethods(text, plan.removals, file);
       if (result.removed.length > 0) {
         writeFileSync(file, result.text);
         removedFromFiles.push(toPosix(file));
+        for (const name of result.removed) appliedKeys.add(`${toPosix(file)}::${name}`);
       }
     }
   }
 
-  const verb = apply ? 'removed' : 'proposed';
+  const removals: Removal[] = plan.removals.map((removal) => ({
+    ...removal,
+    applied: removal.file !== null && appliedKeys.has(`${toPosix(removal.file)}::${removal.name}`),
+  }));
+  const appliedCount = removals.filter((removal) => removal.applied).length;
+  const proposedCount = removals.length - appliedCount;
+
+  const mergePart = `${plan.merges.length} parameterizable group(s) proposed for merge`;
   const summary = clean
     ? 'no duplicates found'
-    : `${plan.removals.length} duplicate(s) ${verb}, ${plan.merges.length} parameterizable group(s) ${
-        apply ? 'merged' : 'proposed for merge'
-      }`;
+    : appliedCount > 0
+      ? `${appliedCount} duplicate(s) removed${
+          proposedCount > 0 ? `, ${proposedCount} proposed (not applied)` : ''
+        }, ${mergePart}`
+      : `${removals.length} duplicate(s) proposed, ${mergePart}`;
 
-  if (apply) {
+  // Record the artifact in dry-run too: proposals are the output of a dry-run.
+  // Only `--apply` ever edits test files, and only source-file removals are
+  // marked applied.
+  const shouldWriteArtifact = apply || !clean;
+  if (shouldWriteArtifact) {
     const artifact: DedupArtifact = {
       schemaVersion: TEST_DEDUP_SCHEMA_VERSION,
       generatedAt: nowIso(),
       feature: slug,
-      applied: !clean,
+      applied: appliedCount > 0,
       sources: source,
       totalTests: descriptors.length,
-      removals: plan.removals,
+      removals,
       merges: plan.merges,
       summary,
     };
@@ -482,9 +509,9 @@ export function runTestDeduplication(options: VerifyOptions): TestDeduplicationR
   }
 
   const base = makeResult(options.ability, clean ? 'passed' : 'observed_locally', summary, errors, 'offline', false, {
-    mutates: apply && !clean,
+    mutates: appliedCount > 0,
     dryRunFirst: true,
-    writesState: apply,
+    writesState: true,
   });
   base.mode = VERIFY_MODES[options.ability];
   base.delta = notComputedDelta('test-deduplication reads test descriptors; no mutation delta computed');
@@ -493,10 +520,10 @@ export function runTestDeduplication(options: VerifyOptions): TestDeduplicationR
     action: apply ? 'apply' : 'propose',
     feature: slug,
     artifactPath,
-    written: apply,
-    applied: apply && !clean,
+    written: shouldWriteArtifact,
+    applied: appliedCount > 0,
     totalTests: descriptors.length,
-    removals: plan.removals,
+    removals,
     merges: plan.merges,
     removedFromFiles,
   };
