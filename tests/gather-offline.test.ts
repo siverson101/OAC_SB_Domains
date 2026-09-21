@@ -300,6 +300,106 @@ describe('test-inventory producer', () => {
     expect(result.visualVerification.results[0].status).toBe('passed');
     expect(result.visualVerification.results[0].cases.length).toBe(1);
     expect(result.visualVerification.results[0].screenshots).toContain('screenshots/step-1.png');
+    expect(result.visualVerification.tests.length).toBe(1);
+    expect(result.visualVerification.tests[0].fullname).toBe('shows the menu');
+    expect(result.visualVerification.tests[0].source).toBe('visual-verification-json');
+    expect(result.visualVerification.tests[0].missingScreenshots).toEqual([]);
+  });
+
+  test('extracts suite-scoped VisualVerification tests with multiple screenshots', () => {
+    const root = join(fixture, 'visual-suite');
+    write(join(root, 'Assets', 'Tests', 'VisualTests.asmdef'), JSON.stringify({ name: 'VisualTests', testAssemblies: true }));
+    write(join(root, 'Assets', 'Screenshots', 'menu-a.png'), 'png');
+    write(join(root, 'Assets', 'Screenshots', 'menu-b.png'), 'png');
+    write(
+      join(root, 'TestResults.xml'),
+      [
+        '<?xml version="1.0" encoding="utf-8"?>',
+        '<test-run id="2" total="2" passed="2" failed="0" skipped="0" inconclusive="0" result="Passed">',
+        '  <test-suite type="TestFixture" name="VisualTests" fullname="VisualTests">',
+        '    <properties>',
+        '      <property name="Category" value="VisualVerification" />',
+        '    </properties>',
+        '    <test-case name="ShowsMenu" fullname="VisualTests.ShowsMenu" result="Passed">',
+        '      <properties>',
+        '        <property name="Description" value="menu &amp; hud" />',
+        '        <property name="Screenshot" value="Assets/Screenshots/menu-a.png" />',
+        '        <property name="Screenshot" value="Assets/Screenshots/menu-b.png" />',
+        '      </properties>',
+        '    </test-case>',
+        '  </test-suite>',
+        '  <test-suite type="TestFixture" name="OtherTests" fullname="OtherTests">',
+        '    <test-case name="NotVisual" fullname="OtherTests.NotVisual" result="Passed" />',
+        '  </test-suite>',
+        '</test-run>',
+      ].join('\n')
+    );
+
+    const result = produceTestInventory({ projectRoot: root, assetFolder: join(root, 'Assets') });
+    expect(result.visualVerification.tests.length).toBe(1);
+    const test = result.visualVerification.tests[0];
+    expect(test.fullname).toBe('VisualTests.ShowsMenu');
+    expect(test.status).toBe('Passed');
+    expect(test.description).toBe('menu & hud');
+    expect(test.source).toBe('test-results');
+    expect(test.screenshots).toEqual(['Assets/Screenshots/menu-a.png', 'Assets/Screenshots/menu-b.png']);
+    expect(test.missingScreenshots).toEqual([]);
+  });
+
+  test('attributes a test-case-scoped VisualVerification category', () => {
+    const root = join(fixture, 'visual-case');
+    write(join(root, 'Assets', 'Screenshots', 'shot.png'), 'png');
+    write(
+      join(root, 'TestResults.xml'),
+      [
+        '<test-run id="2" total="1" passed="1" failed="0" result="Passed">',
+        '  <test-suite type="TestFixture" name="Mixed" fullname="Mixed">',
+        '    <test-case name="Inline" fullname="Mixed.Inline" result="Passed">',
+        '      <properties>',
+        '        <property name="Category" value="VisualVerification" />',
+        '        <property name="Screenshot" value="Assets/Screenshots/shot.png" />',
+        '      </properties>',
+        '    </test-case>',
+        '  </test-suite>',
+        '</test-run>',
+      ].join('\n')
+    );
+
+    const result = produceTestInventory({ projectRoot: root, assetFolder: join(root, 'Assets') });
+    expect(result.visualVerification.tests.length).toBe(1);
+    expect(result.visualVerification.tests[0].fullname).toBe('Mixed.Inline');
+    expect(result.visualVerification.tests[0].screenshots).toEqual(['Assets/Screenshots/shot.png']);
+  });
+
+  test('reports a missing screenshot without throwing', () => {
+    const root = join(fixture, 'visual-missing');
+    write(
+      join(root, 'TestResults.xml'),
+      [
+        '<test-run id="2" total="1" passed="1" failed="0" result="Passed">',
+        '  <test-suite type="TestFixture" name="VisualTests" fullname="VisualTests">',
+        '    <properties><property name="Category" value="VisualVerification" /></properties>',
+        '    <test-case name="Gone" fullname="VisualTests.Gone" result="Passed">',
+        '      <properties><property name="Screenshot" value="Assets/Screenshots/gone.png" /></properties>',
+        '    </test-case>',
+        '  </test-suite>',
+        '</test-run>',
+      ].join('\n')
+    );
+
+    const result = produceTestInventory({ projectRoot: root, assetFolder: join(root, 'Assets') });
+    expect(result.visualVerification.tests.length).toBe(1);
+    expect(result.visualVerification.tests[0].screenshots).toEqual(['Assets/Screenshots/gone.png']);
+    expect(result.visualVerification.tests[0].missingScreenshots).toEqual(['Assets/Screenshots/gone.png']);
+  });
+
+  test('fails soft on a malformed TestResults.xml', () => {
+    const root = join(fixture, 'visual-malformed');
+    write(join(root, 'TestResults.xml'), '<test-run><test-suite type="TestFixture"><test-case fullname="Broken"');
+
+    const produce = () => produceTestInventory({ projectRoot: root, assetFolder: join(root, 'Assets') });
+    expect(produce).not.toThrow();
+    expect(produce().visualVerification.tests).toEqual([]);
   });
 });
 

@@ -295,6 +295,54 @@ describe('gate folding', () => {
   });
 });
 
+describe('visual gate', () => {
+  function visualStatus(tests: unknown[]): string | undefined {
+    const entries = gateEntriesFromState({ testInventory: { visualVerification: { found: true, tests } } });
+    return entries.find((entry) => entry.gate === 'visual')?.status;
+  }
+
+  function visualEntry(tests: unknown[]) {
+    const entries = gateEntriesFromState({ testInventory: { visualVerification: { found: true, tests } } });
+    return entries.find((entry) => entry.gate === 'visual');
+  }
+
+  test('passes when every visual test has an existing screenshot', () => {
+    expect(
+      visualStatus([
+        { fullname: 'VisualTests.A', status: 'Passed', screenshots: ['a.png'], missingScreenshots: [] },
+        { fullname: 'VisualTests.B', status: 'Passed', screenshots: ['b.png', 'c.png'], missingScreenshots: [] },
+      ])
+    ).toBe('passed');
+  });
+
+  test('is not_run when there are no visual tests', () => {
+    expect(visualStatus([])).toBe('not_run');
+  });
+
+  test('fails naming a visual test whose screenshot is missing', () => {
+    const entry = visualEntry([
+      { fullname: 'VisualTests.Gone', status: 'Passed', screenshots: ['gone.png'], missingScreenshots: ['gone.png'] },
+    ]);
+    expect(entry?.status).toBe('failed');
+    expect(entry?.detail).toContain('VisualTests.Gone');
+  });
+
+  test('fails naming a visual test that did not pass', () => {
+    const entry = visualEntry([
+      { fullname: 'VisualTests.Broken', status: 'Failed', screenshots: ['a.png'], missingScreenshots: [] },
+    ]);
+    expect(entry?.status).toBe('failed');
+    expect(entry?.detail).toContain('VisualTests.Broken');
+  });
+
+  test('falls back to the aggregate result shape for an older inventory', () => {
+    const entries = gateEntriesFromState({
+      testInventory: { visualVerification: { found: true, results: [{ status: 'passed' }] } },
+    });
+    expect(entries.find((entry) => entry.gate === 'visual')?.status).toBe('passed');
+  });
+});
+
 describe('external verdict folding', () => {
   test('uncertain folds at least as strict as warning', () => {
     const folded = foldGates([{ gate: 'scene', status: 'passed', externalVerdict: 'uncertain' }], 'full');
