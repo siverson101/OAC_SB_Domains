@@ -407,6 +407,25 @@ describe('version-drift: CLI drift', () => {
     expect(result.errors.length).toBeGreaterThan(0);
     expect(result.cli.action).toBeDefined();
   });
+
+  test('a present-but-empty CLI version baseline reports unknown and leaves it untouched', () => {
+    const fixture = makeFixture();
+    unchangedBaselines(fixture);
+    const baselinePath = join(fixture.baselineDir, 'unity-cli-version.txt');
+    writeText(baselinePath, '   \n');
+    const before = readFileSync(baselinePath, 'utf8');
+
+    const probe: CliProbe = {
+      version: () => ({ available: true, version: '0.1.0-beta.4' }),
+      commands: () => ['compile'],
+    };
+    const result = runVersionDrift(options(fixture, { cliCommand: 'unity', cliProbe: probe }));
+
+    expect(result.cli.status).toBe('unknown');
+    expect(result.errors.some((error) => error.includes('unity-cli-version.txt'))).toBe(true);
+    // The malformed baseline is not overwritten by a fresh read.
+    expect(readFileSync(baselinePath, 'utf8')).toBe(before);
+  });
 });
 
 describe('version-drift: output contract', () => {
