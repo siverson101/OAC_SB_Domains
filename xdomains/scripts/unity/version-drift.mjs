@@ -208,8 +208,17 @@ function baselineRelPath(file) {
   return `${BASELINE_DIR}/${file}`;
 }
 function makeResult(ability, status, summary, errors, route = "offline") {
-  return makeEnvelope({ ability, family: "sense", mode: "both", route, status, summary, errors });
+  return {
+    ...makeEnvelope({ ability, family: "sense", mode: "both", route, status, summary, errors }),
+    safetyGate: { ...VERSION_DRIFT_SAFETY_GATE }
+  };
 }
+var VERSION_DRIFT_SAFETY_GATE = {
+  mutates: false,
+  requiresEditor: false,
+  requiresApproval: false,
+  writesState: true
+};
 
 // tools/unity/unity-version-drift/src/cli.ts
 function resolveOptions(argv) {
@@ -234,7 +243,7 @@ function resolveOptions(argv) {
 
 // tools/unity/unity-version-drift/src/abilities.ts
 import { mkdirSync as mkdirSync2, readdirSync, writeFileSync as writeFileSync2 } from "node:fs";
-import { dirname as dirname2, join as join4, relative } from "node:path";
+import { basename, dirname as dirname2, join as join4, relative } from "node:path";
 
 // tools/shared/toolchain.ts
 import { spawnSync } from "node:child_process";
@@ -311,16 +320,20 @@ function commandNamesFrom(parsed) {
 }
 var defaultCliProbe = {
   version(command) {
-    if (!findExecutable(command))
+    const resolved = findExecutable(command);
+    if (!resolved)
       return { available: false, version: null };
-    const res = run(command, ["--version"], { timeout: 1e4 });
+    const res = run(resolved, ["--version"], { timeout: 1e4 });
     if (!res.ok)
       return { available: true, version: null };
     const text = stripAnsi(res.stdout || res.stderr).split(/\r?\n/)[0]?.trim() ?? "";
     return { available: true, version: text || null };
   },
   commands(command) {
-    const res = run(command, ["command", "--format", "json", "--no-banner", "--quiet", "--non-interactive"], { timeout: 30000 });
+    const resolved = findExecutable(command);
+    if (!resolved)
+      return null;
+    const res = run(resolved, ["command", "--format", "json", "--no-banner", "--quiet", "--non-interactive"], { timeout: 30000 });
     if (!res.ok || !res.stdout)
       return null;
     let parsed;
@@ -344,6 +357,15 @@ function writeBaselineText(path, value) {
   writeFileSync2(path, value.endsWith(`
 `) ? value : `${value}
 `);
+}
+function writeBaseline(errors, path, write) {
+  try {
+    write();
+    return true;
+  } catch (error) {
+    errors.push(`could not write version-baselines/${basename(path)}: ${messageOf(error)}`);
+    return false;
+  }
 }
 function readLastRun(path) {
   return str(asRecord(readJson(path)), "lastRunUtc");
@@ -420,18 +442,28 @@ function detectEditor(options, errors) {
   }
   const path = join4(baselineDir(options), EDITOR_BASELINE);
   const baseline = readBaselineText(path);
+  const current = info.version;
   section.baseline = baseline;
   if (baseline === null) {
-    writeBaselineText(path, info.version);
+    if (fileExists(path)) {
+      section.status = "unknown";
+      errors.push(`version-baselines/${EDITOR_BASELINE} is present but empty; baseline left untouched`);
+      return section;
+    }
+    if (!writeBaseline(errors, path, () => writeBaselineText(path, current))) {
+      section.status = "unknown";
+      return section;
+    }
     section.status = "baseline_created";
     section.updated.push(baselineRelPath(EDITOR_BASELINE));
-  } else if (baseline === info.version) {
+  } else if (baseline === current) {
     section.status = "unchanged";
   } else {
-    writeBaselineText(path, info.version);
     section.status = "changed";
-    section.updated.push(baselineRelPath(EDITOR_BASELINE));
-    section.action = `Review the Unity ${info.version} upgrade guide for breaking changes (deprecations, API removals, behaviour changes) and the project's deprecation checks.`;
+    section.action = `Review the Unity ${current} upgrade guide for breaking changes (deprecations, API removals, behaviour changes) and the project's deprecation checks.`;
+    if (writeBaseline(errors, path, () => writeBaselineText(path, current))) {
+      section.updated.push(baselineRelPath(EDITOR_BASELINE));
+    }
   }
   return section;
 }
@@ -460,7 +492,10 @@ function detectPackages(options, errors) {
   section.count = Object.keys(current).length;
   const path = join4(baselineDir(options), PACKAGE_BASELINE);
   if (!fileExists(path)) {
-    writeJson(path, { schemaVersion: 1, generatedAt: options.now, packages: current });
+    if (!writeBaseline(errors, path, () => writeJson(path, { schemaVersion: 1, generatedAt: options.now, packages: current }))) {
+      section.status = "unknown";
+      return section;
+    }
     section.status = "baseline_created";
     section.updated.push(baselineRelPath(PACKAGE_BASELINE));
     return section;
@@ -479,9 +514,10 @@ function detectPackages(options, errors) {
     section.status = "unchanged";
     return section;
   }
-  writeJson(path, { schemaVersion: 1, generatedAt: options.now, packages: current });
   section.status = "changed";
-  section.updated.push(baselineRelPath(PACKAGE_BASELINE));
+  if (writeBaseline(errors, path, () => writeJson(path, { schemaVersion: 1, generatedAt: options.now, packages: current }))) {
+    section.updated.push(baselineRelPath(PACKAGE_BASELINE));
+  }
   const pipelineChanged = [...section.added, ...section.removed, ...section.bumped.map((b) => b.name)].includes("com.unity.pipeline");
   if (pipelineChanged) {
     section.action = "Review the com.unity.pipeline changelog for breaking changes (detached jobs, eval timeout, /api/exec concurrency) before updating code that uses the Pipeline API.";
@@ -499,7 +535,9 @@ function captureCommands(options, probe, section, errors, cliVersion, failureMes
     errors.push(failureMessage);
     return false;
   }
-  writeCommandsBaseline(options, commands, cliVersion);
+  const path = join4(baselineDir(options), CLI_COMMANDS_BASELINE);
+  if (!writeBaseline(errors, path, () => writeCommandsBaseline(options, commands, cliVersion)))
+    return false;
   section.commandCount = commands.length;
   section.updated.push(baselineRelPath(CLI_COMMANDS_BASELINE));
   return true;
@@ -519,41 +557,51 @@ function detectCli(options, errors) {
   };
   const probe = options.cliProbe ?? defaultCliProbe;
   const probeResult = probe.version(options.cliCommand);
+  const cliVersion = probeResult.version;
   section.available = probeResult.available;
   if (!probeResult.available) {
     section.status = "unavailable";
     return section;
   }
-  if (!probeResult.version) {
+  if (!cliVersion) {
     section.status = "unknown";
     errors.push(`could not read \`${options.cliCommand} --version\``);
     return section;
   }
-  section.current = probeResult.version;
+  section.current = cliVersion;
   const versionPath = join4(baselineDir(options), CLI_VERSION_BASELINE);
   const baseline = readBaselineText(versionPath);
   section.baseline = baseline;
   if (baseline === null) {
-    writeBaselineText(versionPath, probeResult.version);
+    if (fileExists(versionPath)) {
+      section.status = "unknown";
+      errors.push(`version-baselines/${CLI_VERSION_BASELINE} is present but empty; baseline left untouched`);
+      return section;
+    }
+    if (!writeBaseline(errors, versionPath, () => writeBaselineText(versionPath, cliVersion))) {
+      section.status = "unknown";
+      return section;
+    }
     section.status = "baseline_created";
     section.updated.push(baselineRelPath(CLI_VERSION_BASELINE));
-    captureCommands(options, probe, section, errors, probeResult.version, "could not capture the Unity command catalog; version baseline recorded");
+    captureCommands(options, probe, section, errors, cliVersion, "could not capture the Unity command catalog; version baseline recorded");
     return section;
   }
-  if (baseline === probeResult.version) {
+  if (baseline === cliVersion) {
     section.status = "unchanged";
     if (!fileExists(join4(baselineDir(options), CLI_COMMANDS_BASELINE))) {
-      captureCommands(options, probe, section, errors, probeResult.version, "Unity CLI version unchanged but the command catalog could not be captured");
+      captureCommands(options, probe, section, errors, cliVersion, "Unity CLI version unchanged but the command catalog could not be captured");
     }
     return section;
   }
-  writeBaselineText(versionPath, probeResult.version);
   section.status = "changed";
-  section.updated.push(baselineRelPath(CLI_VERSION_BASELINE));
+  if (writeBaseline(errors, versionPath, () => writeBaselineText(versionPath, cliVersion))) {
+    section.updated.push(baselineRelPath(CLI_VERSION_BASELINE));
+  }
   const commands = probe.commands(options.cliCommand);
   if (!commands) {
     errors.push("Unity CLI version changed but the command catalog could not be captured; review the CLI release notes manually");
-    section.action = `Review CLI command catalog changes for ${baseline} → ${probeResult.version} and update context files/docs that enumerate Unity CLI commands.`;
+    section.action = `Review CLI command catalog changes for ${baseline} → ${cliVersion} and update context files/docs that enumerate Unity CLI commands.`;
     return section;
   }
   const base = readCommandsBaseline(join4(baselineDir(options), CLI_COMMANDS_BASELINE));
@@ -563,16 +611,18 @@ function detectCli(options, errors) {
   section.commandsAdded = commands.filter((command) => !baseSet.has(command)).sort();
   section.commandsRemoved = baselineCommands.filter((command) => !currentSet.has(command)).sort();
   section.commandCount = commands.length;
-  writeCommandsBaseline(options, commands, probeResult.version);
-  section.updated.push(baselineRelPath(CLI_COMMANDS_BASELINE));
+  if (writeBaseline(errors, join4(baselineDir(options), CLI_COMMANDS_BASELINE), () => writeCommandsBaseline(options, commands, cliVersion))) {
+    section.updated.push(baselineRelPath(CLI_COMMANDS_BASELINE));
+  }
   section.actionFiles = findCliCommandDocs(options.opencodeDir);
-  section.action = cliActionText(section, baseline, probeResult.version);
+  section.action = cliActionText(section, baseline, cliVersion);
   return section;
 }
 function findCliCommandDocs(root, limit = 25) {
   const found = [];
+  let extra = 0;
   const walk = (dir, depth) => {
-    if (found.length >= limit || depth > 6)
+    if (depth > 6)
       return;
     let entries;
     try {
@@ -581,8 +631,6 @@ function findCliCommandDocs(root, limit = 25) {
       return;
     }
     for (const entry of entries) {
-      if (found.length >= limit)
-        return;
       if (entry.isDirectory()) {
         if (!CLI_DOC_SKIP_DIRS.has(entry.name))
           walk(join4(dir, entry.name), depth + 1);
@@ -592,12 +640,19 @@ function findCliCommandDocs(root, limit = 25) {
         continue;
       const full = join4(dir, entry.name);
       const text = readText(full);
-      if (text && CLI_COMMAND_DOC_PATTERN.test(text))
+      if (!text || !CLI_COMMAND_DOC_PATTERN.test(text))
+        continue;
+      if (found.length < limit)
         found.push(toPosix(relative(root, full)));
+      else
+        extra += 1;
     }
   };
   walk(root, 0);
-  return found.sort();
+  found.sort();
+  if (extra > 0)
+    found.push(`(+${extra} more)`);
+  return found;
 }
 function emptyEditor() {
   return { status: "not_checked", current: null, baseline: null, revision: null, updated: [], action: null };
@@ -639,11 +694,26 @@ function unknownReasons(editor, packages, cli) {
     reasons.push("the Unity CLI is present but its version could not be read");
   return reasons;
 }
+function missingReasons(editor, packages, cli) {
+  const reasons = [];
+  if (editor.status === "unavailable")
+    reasons.push("ProjectSettings/ProjectVersion.txt");
+  if (packages.status === "unavailable")
+    reasons.push("Packages/manifest.json");
+  if (cli.status === "unavailable")
+    reasons.push("the Unity CLI");
+  return reasons;
+}
 function summarize(status, editor, packages, cli) {
   if (status === "unavailable")
     return "No Unity project files found under the project root";
-  if (status === "unknown")
-    return `Version state unknown: ${unknownReasons(editor, packages, cli).join("; ")}`;
+  if (status === "unknown") {
+    const parts = [...unknownReasons(editor, packages, cli)];
+    const missing = missingReasons(editor, packages, cli);
+    if (missing.length > 0)
+      parts.push(`not found: ${missing.join(", ")}`);
+    return `Version state unknown: ${parts.join("; ")}`;
+  }
   const changes = [];
   if (editor.status === "changed")
     changes.push(`Editor ${editor.baseline} → ${editor.current}`);
@@ -658,23 +728,25 @@ function summarize(status, editor, packages, cli) {
 }
 function renderEditor(section) {
   const lines = [];
+  let head;
   switch (section.status) {
     case "unchanged":
-      lines.push(`[Editor] No change (${section.current})`);
+      head = `[Editor] No change (${section.current})`;
       break;
     case "baseline_created":
-      lines.push(`[Editor] Baseline created: ${section.current}`);
+      head = `[Editor] Baseline created: ${section.current}`;
       break;
     case "changed":
-      lines.push(`[Editor] Version changed: ${section.baseline} → ${section.current}`);
+      head = `[Editor] Version changed: ${section.baseline} → ${section.current}`;
       break;
     case "unavailable":
-      lines.push("[Editor] unavailable — no ProjectSettings/ProjectVersion.txt");
+      head = "[Editor] unavailable — no ProjectSettings/ProjectVersion.txt";
       break;
     default:
-      lines.push("[Editor] unknown — ProjectVersion.txt present but unreadable");
+      head = "[Editor] unknown — ProjectVersion.txt present but unreadable";
       break;
   }
+  lines.push(section.revision ? `${head} [revision ${section.revision}]` : head);
   for (const file of section.updated)
     lines.push(`  → Updated ${file}`);
   if (section.action)
@@ -785,7 +857,7 @@ function runVersionDrift(options) {
   const actions = [editor.action, packages.action, cli.action].filter((action) => action !== null);
   const baselinesUpdated = [...editor.updated, ...packages.updated, ...cli.updated];
   const status = overallStatus(editor, packages, cli);
-  const route = cli.available ? "batch" : "offline";
+  const route = cli.available && cli.current !== null ? "batch" : "offline";
   const result = {
     ...makeResult(options.ability, status, summarize(status, editor, packages, cli), errors, route),
     cadence,

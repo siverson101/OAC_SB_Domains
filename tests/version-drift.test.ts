@@ -111,6 +111,7 @@ describe('version-drift: offline detection', () => {
     expect(result.baselinesUpdated).toEqual([]);
     expect(result.report).toContain('=== Session-Start Version Check ===');
     expect(result.report).toContain('[Editor] No change (6000.1.2f1)');
+    expect(result.report).toContain('[revision abc123]');
     expect(result.report).toContain('[CLI] unavailable');
     expect(existsSync(join(fixture.baselineDir, 'last-run.json'))).toBe(true);
   });
@@ -188,6 +189,48 @@ describe('version-drift: offline detection', () => {
     expect(snapshot.packages).toEqual(CURRENT_PACKAGES);
   });
 
+  test('a malformed package baseline reports unknown and leaves it untouched', () => {
+    const fixture = makeFixture();
+    writeBaselines(fixture, { editor: '6000.1.2f1' });
+    const baselinePath = join(fixture.baselineDir, 'package-versions.json');
+    writeFileSync(baselinePath, '{ not json');
+    const before = readFileSync(baselinePath, 'utf8');
+
+    const result = runVersionDrift(options(fixture));
+
+    expect(result.packages.status).toBe('unknown');
+    expect(result.errors.some((error) => error.includes('package-versions.json') && error.includes('malformed'))).toBe(
+      true
+    );
+    // The malformed baseline is not overwritten by a fresh snapshot.
+    expect(readFileSync(baselinePath, 'utf8')).toBe(before);
+  });
+
+  test('a present-but-empty editor baseline reports unknown and leaves it untouched', () => {
+    const fixture = makeFixture();
+    const baselinePath = join(fixture.baselineDir, 'unity-editor-version.txt');
+    writeText(baselinePath, '   \n');
+    const before = readFileSync(baselinePath, 'utf8');
+
+    const result = runVersionDrift(options(fixture));
+
+    expect(result.editor.status).toBe('unknown');
+    expect(result.errors.some((error) => error.includes('unity-editor-version.txt'))).toBe(true);
+    expect(readFileSync(baselinePath, 'utf8')).toBe(before);
+  });
+
+  test('a failing baseline write is reported, never thrown', () => {
+    const fixture = makeFixture();
+    rmSync(join(fixture.opencodeDir, 'project-data'), { recursive: true, force: true });
+    writeFileSync(join(fixture.opencodeDir, 'project-data'), 'not a directory');
+
+    const result = runVersionDrift(options(fixture));
+
+    expect(result.status).toBe('unknown');
+    expect(result.errors.some((error) => error.includes('could not write'))).toBe(true);
+    expect(result.baselinesUpdated).toEqual([]);
+  });
+
   test('present-but-malformed project files report unknown, not "no project files"', () => {
     const fixture = makeFixture();
     writeFileSync(join(fixture.projectRoot, 'ProjectSettings', 'ProjectVersion.txt'), 'not a version file\n');
@@ -201,6 +244,21 @@ describe('version-drift: offline detection', () => {
     expect(result.errors.length).toBeGreaterThan(0);
     expect(result.report).toContain('[Editor] unknown');
     expect(result.report).toContain('[Packages] unknown');
+  });
+
+  test('an absent Editor file plus a malformed package baseline names both', () => {
+    const fixture = makeFixture();
+    rmSync(join(fixture.projectRoot, 'ProjectSettings', 'ProjectVersion.txt'));
+    writeFileSync(join(fixture.projectRoot, 'Packages', 'manifest.json'), '{ not json');
+
+    const result = runVersionDrift(options(fixture));
+
+    expect(result.status).toBe('unknown');
+    expect(result.summary).toContain('Version state unknown');
+    expect(result.summary).toContain('malformed');
+    expect(result.summary).toContain('not found');
+    expect(result.summary).toContain('ProjectSettings/ProjectVersion.txt');
+    expect(result.summary).not.toContain('No Unity project files found');
   });
 
   test('genuinely absent project files report the no-project-files wording', () => {
@@ -228,6 +286,29 @@ describe('version-drift: CLI drift', () => {
     expect(result.route).toBe('offline');
   });
 
+  test('route is batch only once the CLI probe answered', () => {
+    const fixture = makeFixture();
+    unchangedBaselines(fixture);
+    writeBaselines(fixture, { cliVersion: '0.1.0-beta.4', cliCommands: ['compile'] });
+
+    const answered: CliProbe = {
+      version: () => ({ available: true, version: '0.1.0-beta.4' }),
+      commands: () => ['compile'],
+    };
+    const answeredResult = runVersionDrift(options(fixture, { cliCommand: 'unity', cliProbe: answered }));
+    expect(answeredResult.cli.current).toBe('0.1.0-beta.4');
+    expect(answeredResult.route).toBe('batch');
+
+    const failed: CliProbe = {
+      version: () => ({ available: true, version: null }),
+      commands: () => null,
+    };
+    const failedResult = runVersionDrift(options(fixture, { cliCommand: 'unity', cliProbe: failed }));
+    expect(failedResult.cli.available).toBe(true);
+    expect(failedResult.cli.current).toBeNull();
+    expect(failedResult.route).toBe('offline');
+  });
+
   test('a CLI version change diffs the command catalog and surfaces docs', () => {
     const fixture = makeFixture();
     unchangedBaselines(fixture);
@@ -253,6 +334,25 @@ describe('version-drift: CLI drift', () => {
     expect(readFileSync(join(fixture.baselineDir, 'unity-cli-version.txt'), 'utf8').trim()).toBe('0.1.0-beta.4');
     const catalog = JSON.parse(readFileSync(join(fixture.baselineDir, 'unity-cli-commands.json'), 'utf8'));
     expect(catalog.commands).toEqual(['compile', 'doctor', 'run']);
+  });
+
+  test('the CLI doc scan carries a truncation note past its cap', () => {
+    const fixture = makeFixture();
+    unchangedBaselines(fixture);
+    writeBaselines(fixture, { cliVersion: '0.1.0-beta.3', cliCommands: ['compile'] });
+    for (let i = 0; i < 30; i += 1) {
+      writeText(join(fixture.opencodeDir, `doc-${String(i).padStart(2, '0')}.md`), 'run `unity command` here\n');
+    }
+
+    const probe: CliProbe = {
+      version: () => ({ available: true, version: '0.1.0-beta.4' }),
+      commands: () => ['compile', 'doctor'],
+    };
+    const result = runVersionDrift(options(fixture, { cliCommand: 'unity', cliProbe: probe }));
+
+    expect(result.cli.actionFiles.length).toBe(26);
+    expect(result.cli.actionFiles).toContain('(+5 more)');
+    expect(result.report).toContain('(+5 more)');
   });
 
   test('an unchanged CLI captures a missing command catalog', () => {
@@ -320,6 +420,8 @@ describe('version-drift: output contract', () => {
 
     const result = runVersionDrift(options(fixture));
     for (const key of Object.keys(result)) expect(allowed.has(key)).toBe(true);
+    expect(allowed.has('safetyGate')).toBe(true);
+    expect(result.safetyGate as unknown).toEqual(fm.safetyGate);
     expect(fm.family).toBe('sense');
     expect(fm.mode).toBe('both');
   });
