@@ -76,6 +76,7 @@ function asRecord(value) {
 // tools/unity/studio-config/src/types.ts
 var STUDIO_MODES = ["lean", "full"];
 var REVIEW_INTENSITIES = ["full", "lean", "solo"];
+var MODEL_TIERS = ["router", "lead", "specialist"];
 var STUDIO_CONFIG_SCHEMA_VERSION = 1;
 var DEFAULT_STUDIO_CONFIG = {
   schemaVersion: STUDIO_CONFIG_SCHEMA_VERSION,
@@ -83,7 +84,8 @@ var DEFAULT_STUDIO_CONFIG = {
   reviewIntensity: "full",
   toggles: { tdd: false, ftf: false },
   patterns: [],
-  packages: []
+  packages: [],
+  modelTiers: {}
 };
 
 // tools/unity/studio-config/src/config.ts
@@ -94,7 +96,8 @@ var KNOWN_KEYS = new Set([
   "reviewIntensity",
   "toggles",
   "patterns",
-  "packages"
+  "packages",
+  "modelTiers"
 ]);
 var KNOWN_TOGGLE_KEYS = new Set(["tdd", "ftf"]);
 function defaultStudioConfig() {
@@ -102,7 +105,8 @@ function defaultStudioConfig() {
     ...DEFAULT_STUDIO_CONFIG,
     toggles: { ...DEFAULT_STUDIO_CONFIG.toggles },
     patterns: [],
-    packages: []
+    packages: [],
+    modelTiers: { ...DEFAULT_STUDIO_CONFIG.modelTiers }
   };
 }
 function parseStringArray(value, field, problems) {
@@ -169,6 +173,35 @@ function parseToggles(value, problems) {
   }
   return toggles;
 }
+function parseModelTiers(value, problems) {
+  const tiers = {};
+  if (value === undefined)
+    return tiers;
+  const record = asRecord(value);
+  if (!record) {
+    problems.push({
+      field: "modelTiers",
+      message: `expected an object mapping ${MODEL_TIERS.join("|")} to a model id`
+    });
+    return tiers;
+  }
+  for (const key of Object.keys(record)) {
+    if (!MODEL_TIERS.includes(key)) {
+      problems.push({ field: `modelTiers.${key}`, message: `unknown tier; expected one of ${MODEL_TIERS.join("|")}` });
+      continue;
+    }
+    const model = record[key];
+    if (typeof model !== "string" || model.trim() === "") {
+      problems.push({
+        field: `modelTiers.${key}`,
+        message: `expected a non-empty model id string, got ${JSON.stringify(model)}`
+      });
+      continue;
+    }
+    tiers[key] = model.trim();
+  }
+  return tiers;
+}
 function parseStudioConfig(value) {
   const problems = [];
   const record = asRecord(value);
@@ -199,7 +232,8 @@ function parseStudioConfig(value) {
     reviewIntensity: parseIntensity(record.reviewIntensity, problems),
     toggles: parseToggles(record.toggles, problems),
     patterns: parseStringArray(record.patterns, "patterns", problems),
-    packages: parseStringArray(record.packages, "packages", problems)
+    packages: parseStringArray(record.packages, "packages", problems),
+    modelTiers: parseModelTiers(record.modelTiers, problems)
   };
   return { config, problems };
 }
@@ -323,6 +357,33 @@ function renderStudioConfigLines(view) {
       lines.push(`- \`${problem.field}\`: ${escapeCell(problem.message)}`);
   }
   return lines;
+}
+// tools/unity/studio-config/src/roster.ts
+function optionalPaths(optional) {
+  const out = [];
+  for (const entry of optional ?? []) {
+    const rel = typeof entry === "string" ? entry : entry?.path;
+    if (rel)
+      out.push(rel);
+  }
+  return out;
+}
+function isGateEnabled(enabledBy, gates) {
+  if (enabledBy === undefined)
+    return true;
+  return gates[enabledBy] === true;
+}
+function selectActiveRoster(source, gates, enabledByFor) {
+  const agents = [...source.agents];
+  const subagents = [...source.subagents];
+  const seen = new Set(subagents);
+  for (const path of source.optional) {
+    if (!seen.has(path) && isGateEnabled(enabledByFor(path), gates)) {
+      seen.add(path);
+      subagents.push(path);
+    }
+  }
+  return { agents, subagents };
 }
 
 // tools/unity/studio-config/src/resolve.ts
@@ -548,6 +609,31 @@ function frontmatterStringArray(fm, key) {
 function toPosix(path) {
   return path.split(sep).join("/");
 }
+function selectStudioRoster(manifest, studioMode, gates, domainDir) {
+  const mode = manifest.studioModes?.[studioMode];
+  if (!mode)
+    return { agents: manifest.agents ?? [], subagents: manifest.subagents ?? [] };
+  return selectActiveRoster({
+    agents: mode.agents ?? [],
+    subagents: mode.subagents ?? [],
+    optional: optionalPaths(mode.optional)
+  }, gates, (rel) => frontmatterString(readFrontmatter(join2(domainDir, rel)), "enabledBy"));
+}
+function allStudioAgents(manifest) {
+  if (!manifest.studioModes)
+    return [...manifest.agents ?? [], ...manifest.subagents ?? []];
+  const out = [];
+  for (const mode of Object.values(manifest.studioModes)) {
+    out.push(...mode.agents ?? [], ...mode.subagents ?? [], ...optionalPaths(mode.optional));
+  }
+  return out;
+}
+function nativeSubprojectPresent(opencodeDir) {
+  if (!opencodeDir)
+    return false;
+  const artifact = readJson(join2(opencodeDir, "project-data", "native-project-state.json"));
+  return artifact?.state?.solutionExists === true;
+}
 function isDir(path) {
   try {
     return statSync2(path).isDirectory();
@@ -571,15 +657,21 @@ function walkFiles(dir, base, out = []) {
   }
   return out;
 }
-function entry(domainDir, relPath, id, consumes, layer) {
+function asModelTier(value) {
+  return value && MODEL_TIERS.includes(value) ? value : undefined;
+}
+function entry(domainDir, relPath, id, consumes, layer, modelTiers) {
   const fm = readFrontmatter(join2(domainDir, relPath));
+  const tier = modelTiers ? asModelTier(frontmatterString(fm, "tier")) : undefined;
   return {
     id,
     name: frontmatterString(fm, "name") || id,
     path: relPath,
     description: frontmatterString(fm, "description"),
     consumes: consumes.length > 0 ? consumes : undefined,
-    layer
+    layer,
+    tier,
+    model: tier ? modelTiers?.[tier] : undefined
   };
 }
 function candidateKeys(path, id) {
@@ -620,6 +712,7 @@ function absentStudioConfig() {
     toggles: { ...defaults.toggles },
     patterns: [],
     packages: [],
+    modelTiers: { ...defaults.modelTiers },
     conflicts: [],
     problems: [],
     valid: true
@@ -643,6 +736,7 @@ function buildStudioConfig(domainDir, opencodeDir) {
     toggles: resolved.resolution.config.toggles,
     patterns: resolved.resolution.enabledPatterns,
     packages: resolved.resolution.enabledPackages,
+    modelTiers: resolved.resolution.config.modelTiers,
     conflicts: resolved.resolution.conflicts,
     problems: resolved.resolution.problems,
     valid: resolved.resolution.valid
@@ -653,9 +747,14 @@ function buildRegistry(domainDir, generatedAt, opencodeDir) {
   const projections = readJson(join2(domainDir, "context-projections.json")) ?? {};
   const consumers = projections.consumers ?? {};
   const studioConfig = buildStudioConfig(domainDir, opencodeDir);
-  const mapEntries = (paths, layer) => (paths ?? []).map((rel) => entry(domainDir, rel, basename(rel, ".md"), consumedOutputs(rel, basename(rel, ".md"), consumers), layer));
-  const agents = mapEntries(manifest.agents);
-  const subagents = mapEntries(manifest.subagents);
+  const mapEntries = (paths, layer, modelTiers) => (paths ?? []).map((rel) => entry(domainDir, rel, basename(rel, ".md"), consumedOutputs(rel, basename(rel, ".md"), consumers), layer, modelTiers));
+  const gates = {
+    tdd: studioConfig.toggles.tdd === true,
+    "native-subproject": nativeSubprojectPresent(opencodeDir)
+  };
+  const roster = selectStudioRoster(manifest, studioConfig.studioMode, gates, domainDir);
+  const agents = mapEntries(roster.agents, undefined, studioConfig.modelTiers);
+  const subagents = mapEntries(roster.subagents, undefined, studioConfig.modelTiers);
   const commands = mapEntries(manifest.commands, "command");
   const abilities = (manifest.abilities ?? []).map((ability) => {
     const rel = `command/${ability}.md`;
@@ -702,7 +801,7 @@ function buildRegistry(domainDir, generatedAt, opencodeDir) {
     return { file: output.file, title: output.title ?? output.file, consumedBy };
   });
   const knownAbilities = new Set(manifest.abilities ?? []);
-  const knownAgents = new Set([...manifest.agents ?? [], ...manifest.subagents ?? []].map((rel) => basename(rel, ".md")));
+  const knownAgents = new Set(allStudioAgents(manifest).map((rel) => basename(rel, ".md")));
   const warnings = [];
   const edges = [];
   const seenEdges = new Set;
@@ -723,7 +822,7 @@ function buildRegistry(domainDir, generatedAt, opencodeDir) {
       edges.push({ type, from, to });
     }
   };
-  for (const rel of [...manifest.agents ?? [], ...manifest.subagents ?? []]) {
+  for (const rel of [...roster.agents, ...roster.subagents]) {
     const fm = readFrontmatter(join2(domainDir, rel));
     addEdges("agent-ability", basename(rel, ".md"), frontmatterStringArray(fm, "abilities") ?? []);
   }
@@ -788,6 +887,10 @@ function escapeCell2(value) {
 function entriesTable(entries, options = {}) {
   const lines = [];
   const header = ["Id", "Name", "Path", "Description"];
+  if (options.tier)
+    header.push("Tier");
+  if (options.model)
+    header.push("Model");
   if (options.layer)
     header.push("Layer");
   if (options.realised)
@@ -800,6 +903,10 @@ function entriesTable(entries, options = {}) {
   lines.push(`|${header.map(() => "---").join("|")}|`);
   for (const entry of entries) {
     const row = [entry.id, entry.name, `\`${entry.path}\``, escapeCell2(entry.description)];
+    if (options.tier)
+      row.push(entry.tier ?? "");
+    if (options.model)
+      row.push(entry.model ?? "");
     if (options.layer)
       row.push(entry.layer ?? "");
     if (options.realised)
@@ -882,8 +989,8 @@ function renderRegistry(registry) {
   lines.push("> Layering: **tool** = thin typed adapter (no workflow logic); **ability** = named capability composing tools; **command** = user-invocable entry realising an ability (ADR-0004 / ADR-0012).");
   lines.push("");
   studioConfigSection(lines, registry.studioConfig);
-  section(lines, "Agents", registry.agents, { consumes: true });
-  section(lines, "SubAgents", registry.subagents, { consumes: true });
+  section(lines, "Agents", registry.agents, { consumes: true, tier: true, model: true });
+  section(lines, "SubAgents", registry.subagents, { consumes: true, tier: true, model: true });
   section(lines, "Commands", registry.commands, { consumes: true, layer: true });
   section(lines, "Abilities", registry.abilities, { realised: true, layer: true });
   section(lines, "Context", registry.context, { consumes: true });

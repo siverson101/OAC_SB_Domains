@@ -11,7 +11,6 @@ safetyGate: { mutates: false, requiresEditor: false }
 uses: []
 provides: [primitive-composition, composition-graph]
 requires: [primitives-dir]
-usedBy: [unity-3d-orchestrator]
 versionCompatibility: { unity: ["6.0", "6.3", "6.5", "LTS+"] }
 ---
 

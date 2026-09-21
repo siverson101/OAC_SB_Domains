@@ -2,8 +2,9 @@ import { describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { buildRegistry } from '../tools/shared/registry/src/build';
+import { frontmatterStringArray, parseFrontmatter } from '../tools/shared/registry/src/frontmatter';
 import { renderRegistry } from '../tools/shared/registry/src/render';
 
 const repoRoot = resolve(import.meta.dir, '..');
@@ -13,13 +14,63 @@ const bundle = join(repoRoot, 'xdomains', 'scripts', 'shared', 'build-registry.m
 describe('registry build', () => {
   const registry = buildRegistry(unity3dDir, '2026-09-19T00:00:00.000Z');
 
-  test('counts the declared assets', () => {
+  test('counts the declared assets for the default Lean config', () => {
     expect(registry.domain).toBe('game-dev');
     expect(registry.subdomain).toBe('unity-3d');
     expect(registry.counts.agents).toBe(1);
     expect(registry.counts.subagents).toBe(7);
     expect(registry.counts.abilities).toBe(29);
     expect(registry.counts.workflows).toBe(3);
+  });
+
+  test('includes a gated specialist only when its gate holds', () => {
+    const tddDir = mkdtempSync(join(tmpdir(), 'oac-registry-tdd-'));
+    const nativeDir = mkdtempSync(join(tmpdir(), 'oac-registry-native-'));
+    try {
+      writeFileSync(
+        join(tddDir, 'unity-studio.json'),
+        JSON.stringify({ schemaVersion: 1, studioMode: 'lean', toggles: { tdd: true, ftf: false } })
+      );
+      const tdd = buildRegistry(unity3dDir, '2026-09-20T00:00:00.000Z', tddDir);
+      expect(tdd.counts.agents).toBe(1);
+      expect(tdd.counts.subagents).toBe(8);
+      expect(tdd.subagents.some((entry) => entry.id === 'tdd-specialist')).toBe(true);
+      expect(tdd.subagents.some((entry) => entry.id === 'native-plugin')).toBe(false);
+
+      mkdirSync(join(nativeDir, 'project-data'), { recursive: true });
+      writeFileSync(
+        join(nativeDir, 'unity-studio.json'),
+        JSON.stringify({ schemaVersion: 1, studioMode: 'lean' })
+      );
+      writeFileSync(
+        join(nativeDir, 'project-data', 'native-project-state.json'),
+        JSON.stringify({ schemaVersion: 1, state: { status: 'declared', solutionExists: true } })
+      );
+      const native = buildRegistry(unity3dDir, '2026-09-20T00:00:00.000Z', nativeDir);
+      expect(native.counts.subagents).toBe(8);
+      expect(native.subagents.some((entry) => entry.id === 'native-plugin')).toBe(true);
+      expect(native.subagents.some((entry) => entry.id === 'tdd-specialist')).toBe(false);
+    } finally {
+      rmSync(tddDir, { recursive: true, force: true });
+      rmSync(nativeDir, { recursive: true, force: true });
+    }
+  });
+
+  test('enumerates the full-studio hierarchy when the config selects it', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'oac-registry-full-'));
+    try {
+      writeFileSync(join(dir, 'unity-studio.json'), JSON.stringify({ schemaVersion: 1, studioMode: 'full' }));
+      const full = buildRegistry(unity3dDir, '2026-09-20T00:00:00.000Z', dir);
+
+      expect(full.studioConfig.studioMode).toBe('full');
+      expect(full.counts.agents).toBe(1);
+      expect(full.counts.subagents).toBe(17);
+      expect(full.agents.map((entry) => entry.path)).toEqual(['agent/full-studio/full-studio-orchestrator.md']);
+      expect(full.subagents.every((entry) => entry.path.startsWith('agent/full-studio/'))).toBe(true);
+      expect(full.agents.some((entry) => entry.path.startsWith('agent/subagents/'))).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   test('includes the version-gated knowledge files in context', () => {
@@ -115,6 +166,39 @@ describe('registry edge hygiene', () => {
       expect(registry.warnings.some((warning) => warning.includes('unknown ability'))).toBe(true);
     } finally {
       rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('command usedBy is for capability consumers', () => {
+  interface StudioModeRoster {
+    agents?: string[];
+    subagents?: string[];
+    optional?: (string | { path?: string })[];
+  }
+
+  // `usedBy` is still a supported capability-contract field (capability ids
+  // that consume this command); only agent-id values were removed from the
+  // shipped commands, so this guards against an agent id creeping back in.
+  test('command usedBy values are capability ids, not agent ids', () => {
+    const manifest = JSON.parse(readFileSync(join(unity3dDir, 'sb-domain.json'), 'utf8')) as {
+      studioModes?: Record<string, StudioModeRoster>;
+      commands?: string[];
+    };
+    const agentIds = new Set<string>();
+    for (const mode of Object.values(manifest.studioModes ?? {})) {
+      const optional = (mode.optional ?? []).map((entry) => (typeof entry === 'string' ? entry : entry.path));
+      const rels = [...(mode.agents ?? []), ...(mode.subagents ?? []), ...optional];
+      for (const rel of rels) if (rel) agentIds.add(basename(rel, '.md'));
+    }
+    expect(agentIds.size).toBeGreaterThan(0);
+
+    for (const rel of manifest.commands ?? []) {
+      const fm = parseFrontmatter(readFileSync(join(unity3dDir, rel), 'utf8'));
+      for (const usedBy of frontmatterStringArray(fm, 'usedBy') ?? []) {
+        expect(usedBy.startsWith('subagents/'), `${rel} usedBy '${usedBy}' is an agent path`).toBe(false);
+        expect(agentIds.has(usedBy), `${rel} usedBy '${usedBy}' is an agent id`).toBe(false);
+      }
     }
   });
 });

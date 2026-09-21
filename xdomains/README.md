@@ -24,7 +24,11 @@ Required fields
 
 Recommended fields
 - `sharedContext` (array) — context files shared by the whole domain
-- `agents` / `subagents` / `commands` / `context` / `skills` / `scripts` (array) — declared assets
+- `studioModes` (object) — the single source of truth for agent membership: a `lean` and `full`
+  key, each with `agents` + `subagents` arrays and an optional Lean `optional` list of agent paths;
+  the gating condition lives once, in each optional agent's frontmatter `enabledBy`
+  (`tdd` | `native-subproject`)
+- `commands` / `context` / `skills` / `scripts` (array) — declared shared assets
 - `abilities` (array) — declared ability names; realised as commands (ADR-0004)
 - `tools` (array) — declared tool names
 - `description` (string)
@@ -54,12 +58,16 @@ Known stage slugs: `stage-3-identify-use-cases`, `stage-4-assess-complexity`,
 node .opencode/xdomains/merge-domains.js \
   --domain-dir .opencode/xdomains/<domain>/<sub-domain> \
   --opencode-dir .opencode \
-  --mode extend
+  --mode extend \
+  --studio-mode lean
 ```
 
-The engine reads `sb-domain.json` and copies only declared assets, registers agents in
-`.opencode/config/agent-metadata.json`, and rewrites `.opencode/context` references for
-global/custom installs. Deliberate LLM edits are recorded in the sub-domain's `ADAPTATIONS.md`;
+`--studio-mode` selects the `lean` or `full` hierarchy from `studioModes`; without it the engine
+prompts when interactive and otherwise defaults to `lean`. It installs exactly one hierarchy, gates
+the optional Lean extras on the TDD toggle / native detection, and writes the choice to
+`.opencode/unity-studio.json`. The engine reads `sb-domain.json` and copies only declared assets,
+registers agents in `.opencode/config/agent-metadata.json`, and rewrites `.opencode/context`
+references for global/custom installs. Deliberate LLM edits are recorded in the sub-domain's `ADAPTATIONS.md`;
 re-applying warns before overwriting a listed file (`--force` to override).
 
 ## Project data and context projection

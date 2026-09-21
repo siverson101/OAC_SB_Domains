@@ -20,18 +20,50 @@
       "tools": "tools/",
       "scripts": "scripts/"
     },
-    "agents": [
-      "agent/unity-3d-orchestrator.md"
-    ],
-    "subagents": [
-      "agent/subagents/unity/implementer.md",
-      "agent/subagents/unity/scene.md",
-      "agent/subagents/unity/uitk.md",
-      "agent/subagents/unity/animator.md",
-      "agent/subagents/unity/shadervfx.md",
-      "agent/subagents/unity/artasset.md",
-      "agent/subagents/unity/qa.md"
-    ],
+    "studioModes": {
+      "lean": {
+        "agents": [
+          "agent/unity-3d-orchestrator.md"
+        ],
+        "subagents": [
+          "agent/subagents/unity/implementer.md",
+          "agent/subagents/unity/scene.md",
+          "agent/subagents/unity/uitk.md",
+          "agent/subagents/unity/animator.md",
+          "agent/subagents/unity/shadervfx.md",
+          "agent/subagents/unity/artasset.md",
+          "agent/subagents/unity/qa.md"
+        ],
+        "optional": [
+          "agent/subagents/unity/tdd-specialist.md",
+          "agent/subagents/unity/native-plugin.md"
+        ]
+      },
+      "full": {
+        "agents": [
+          "agent/full-studio/full-studio-orchestrator.md"
+        ],
+        "subagents": [
+          "agent/full-studio/art-director.md",
+          "agent/full-studio/art-lead.md",
+          "agent/full-studio/audio-specialist.md",
+          "agent/full-studio/creative-director.md",
+          "agent/full-studio/game-designer.md",
+          "agent/full-studio/gameplay-programmer.md",
+          "agent/full-studio/lead-programmer.md",
+          "agent/full-studio/level-designer.md",
+          "agent/full-studio/native-plugin.md",
+          "agent/full-studio/performance-analyst.md",
+          "agent/full-studio/producer.md",
+          "agent/full-studio/qa-lead.md",
+          "agent/full-studio/shader-specialist.md",
+          "agent/full-studio/tdd-specialist.md",
+          "agent/full-studio/technical-artist.md",
+          "agent/full-studio/technical-director.md",
+          "agent/full-studio/ui-programmer.md"
+        ]
+      }
+    },
     "commands": [
       "command/unity-feature.md",
       "command/unity-scene.md",

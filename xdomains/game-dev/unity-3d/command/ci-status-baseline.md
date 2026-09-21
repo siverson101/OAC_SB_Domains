@@ -11,7 +11,6 @@ safetyGate: { mutates: false, requiresEditor: false, writesState: true }
 uses: [gather-unity-context, compile-and-verify-project]
 provides: [ci-status-baseline]
 requires: [compile-state, log-digest, unity-verification-report]
-usedBy: [unity-3d-orchestrator, subagents/unity/qa]
 versionCompatibility: { unity: ["6.0", "6.3", "6.5", "LTS+"] }
 ---
 

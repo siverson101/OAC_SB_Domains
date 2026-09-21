@@ -166,6 +166,10 @@ no text, code, rule, snippet, or template was copied, so the material is not red
 
 ## Update log
 
+- **2026-09-20 — Phase 4 Step 4.2 (ticket 02):** reauthored the Full Studio agent hierarchy
+  (`xdomains/game-dev/unity-3d/agent/full-studio/`, 18 agents) from `claude-unity-game-studio` (MIT).
+  No source text was copied; only the director→lead→specialist structure, role missions, and
+  coordination rules informed the OAC frontmatter and Delegation Maps.
 - **2026-09-20 — Phase 3 Step 3.5 (ticket 05):** created this file; recorded the seven analysed
   repositories, the 12 imported primitives, the gated-out copyleft set, and the required license
   texts. Added `tests/attribution.test.ts` for completeness/parity.

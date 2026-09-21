@@ -10,10 +10,13 @@ import { readText } from '../../../shared/io';
 import { asRecord } from '../../../shared/json-helpers';
 import {
   DEFAULT_STUDIO_CONFIG,
+  MODEL_TIERS,
   REVIEW_INTENSITIES,
   STUDIO_CONFIG_SCHEMA_VERSION,
   STUDIO_MODES,
   type ConfigProblem,
+  type ModelTier,
+  type ModelTiers,
   type ReviewIntensity,
   type StudioConfig,
   type StudioMode,
@@ -28,6 +31,7 @@ const KNOWN_KEYS = new Set([
   'toggles',
   'patterns',
   'packages',
+  'modelTiers',
 ]);
 
 const KNOWN_TOGGLE_KEYS = new Set(['tdd', 'ftf']);
@@ -47,6 +51,7 @@ export function defaultStudioConfig(): StudioConfig {
     toggles: { ...DEFAULT_STUDIO_CONFIG.toggles },
     patterns: [],
     packages: [],
+    modelTiers: { ...DEFAULT_STUDIO_CONFIG.modelTiers },
   };
 }
 
@@ -109,6 +114,35 @@ function parseToggles(value: unknown, problems: ConfigProblem[]): StudioToggles 
   return toggles;
 }
 
+function parseModelTiers(value: unknown, problems: ConfigProblem[]): ModelTiers {
+  const tiers: ModelTiers = {};
+  if (value === undefined) return tiers;
+  const record = asRecord(value);
+  if (!record) {
+    problems.push({
+      field: 'modelTiers',
+      message: `expected an object mapping ${MODEL_TIERS.join('|')} to a model id`,
+    });
+    return tiers;
+  }
+  for (const key of Object.keys(record)) {
+    if (!(MODEL_TIERS as readonly string[]).includes(key)) {
+      problems.push({ field: `modelTiers.${key}`, message: `unknown tier; expected one of ${MODEL_TIERS.join('|')}` });
+      continue;
+    }
+    const model = record[key];
+    if (typeof model !== 'string' || model.trim() === '') {
+      problems.push({
+        field: `modelTiers.${key}`,
+        message: `expected a non-empty model id string, got ${JSON.stringify(model)}`,
+      });
+      continue;
+    }
+    tiers[key as ModelTier] = model.trim();
+  }
+  return tiers;
+}
+
 export function parseStudioConfig(value: unknown): { config: StudioConfig; problems: ConfigProblem[] } {
   const problems: ConfigProblem[] = [];
   const record = asRecord(value);
@@ -142,6 +176,7 @@ export function parseStudioConfig(value: unknown): { config: StudioConfig; probl
     toggles: parseToggles(record.toggles, problems),
     patterns: parseStringArray(record.patterns, 'patterns', problems),
     packages: parseStringArray(record.packages, 'packages', problems),
+    modelTiers: parseModelTiers(record.modelTiers, problems),
   };
 
   return { config, problems };

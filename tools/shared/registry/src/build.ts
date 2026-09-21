@@ -4,10 +4,16 @@ import { findPatternCatalog } from '../../../shared/context-files';
 import { readJson } from '../../../shared/io';
 import {
   defaultStudioConfig,
+  MODEL_TIERS,
+  optionalPaths,
   resolveStudioConfigProject,
+  selectActiveRoster,
   type ConfigProblem,
+  type ModelTier,
+  type ModelTiers,
   type PatternConflict,
   type ReviewIntensity,
+  type StudioGates,
   type StudioMode,
   type StudioToggles,
 } from '../../../unity/studio-config/src/resolve';
@@ -22,6 +28,10 @@ export interface RegistryEntry {
   consumes?: string[];
   layer?: 'tool' | 'ability' | 'command';
   standardsVersion?: string;
+  // Agents and subagents only: the abstract tier from frontmatter and, when the
+  // studio config maps that tier, the resolved concrete model id.
+  tier?: ModelTier;
+  model?: string;
 }
 
 export type RegistryEdgeType = 'agent-ability' | 'workflow-ability' | 'workflow-agent';
@@ -43,6 +53,7 @@ export interface RegistryStudioConfig {
   toggles: StudioToggles;
   patterns: string[];
   packages: string[];
+  modelTiers: ModelTiers;
   conflicts: PatternConflict[];
   problems: ConfigProblem[];
   valid: boolean;
@@ -72,6 +83,12 @@ export interface Registry {
   projections: { outputDir: string | null; outputs: { file: string; title: string; consumedBy: string[] }[] };
 }
 
+interface StudioModeRoster {
+  agents?: string[];
+  subagents?: string[];
+  optional?: (string | { path?: string })[];
+}
+
 interface Manifest {
   name?: string;
   displayName?: string;
@@ -80,6 +97,7 @@ interface Manifest {
   subdomain?: string;
   agents?: string[];
   subagents?: string[];
+  studioModes?: Record<string, StudioModeRoster>;
   commands?: string[];
   context?: string[];
   abilities?: string[];
@@ -127,6 +145,55 @@ function toPosix(path: string): string {
   return path.split(sep).join('/');
 }
 
+// Membership lives only in `studioModes`; a manifest without it falls back to
+// the legacy flat arrays (fail-soft for domains that predate studio modes).
+// The gating condition is read once, from each optional agent's frontmatter
+// `enabledBy`, through the shared `selectActiveRoster` semantics the apply
+// engine also uses.
+function selectStudioRoster(
+  manifest: Manifest,
+  studioMode: StudioMode,
+  gates: StudioGates,
+  domainDir: string
+): { agents: string[]; subagents: string[] } {
+  const mode = manifest.studioModes?.[studioMode];
+  if (!mode) return { agents: manifest.agents ?? [], subagents: manifest.subagents ?? [] };
+  return selectActiveRoster(
+    {
+      agents: mode.agents ?? [],
+      subagents: mode.subagents ?? [],
+      optional: optionalPaths(mode.optional),
+    },
+    gates,
+    (rel) => frontmatterString(readFrontmatter(join(domainDir, rel)), 'enabledBy')
+  );
+}
+
+// Every agent any mode can install, for validating cross-hierarchy workflow
+// edges without depending on the active mode.
+function allStudioAgents(manifest: Manifest): string[] {
+  if (!manifest.studioModes) return [...(manifest.agents ?? []), ...(manifest.subagents ?? [])];
+  const out: string[] = [];
+  for (const mode of Object.values(manifest.studioModes)) {
+    out.push(...(mode.agents ?? []), ...(mode.subagents ?? []), ...optionalPaths(mode.optional));
+  }
+  return out;
+}
+
+// Native detection reads the standard project-data artifact (written by
+// project-scan); a missing file or a merely declared solution is "not
+// detected". Affirmative means the solution file exists.
+//
+// Keep in sync with detectNativeSubproject in xdomains/merge-domains.js;
+// pinned by tests/gating-agreement.test.ts.
+export function nativeSubprojectPresent(opencodeDir?: string): boolean {
+  if (!opencodeDir) return false;
+  const artifact = readJson<{ state?: { solutionExists?: boolean } }>(
+    join(opencodeDir, 'project-data', 'native-project-state.json')
+  );
+  return artifact?.state?.solutionExists === true;
+}
+
 function isDir(path: string): boolean {
   try {
     return statSync(path).isDirectory();
@@ -150,14 +217,23 @@ function walkFiles(dir: string, base: string, out: string[] = []): string[] {
   return out;
 }
 
+function asModelTier(value: string | undefined): ModelTier | undefined {
+  return value && (MODEL_TIERS as readonly string[]).includes(value) ? (value as ModelTier) : undefined;
+}
+
 function entry(
   domainDir: string,
   relPath: string,
   id: string,
   consumes: string[],
-  layer?: RegistryEntry['layer']
+  layer?: RegistryEntry['layer'],
+  modelTiers?: ModelTiers
 ): RegistryEntry {
   const fm = readFrontmatter(join(domainDir, relPath));
+  // `modelTiers` is passed for agents/subagents (which carry a `tier`) and
+  // omitted for every other entry kind, so tier resolution is intentionally
+  // conditional. Do not resolve a tier for entries that have no such concept.
+  const tier = modelTiers ? asModelTier(frontmatterString(fm, 'tier')) : undefined;
   return {
     id,
     name: frontmatterString(fm, 'name') || id,
@@ -165,6 +241,8 @@ function entry(
     description: frontmatterString(fm, 'description'),
     consumes: consumes.length > 0 ? consumes : undefined,
     layer,
+    tier,
+    model: tier ? modelTiers?.[tier] : undefined,
   };
 }
 
@@ -209,6 +287,7 @@ function absentStudioConfig(): RegistryStudioConfig {
     toggles: { ...defaults.toggles },
     patterns: [],
     packages: [],
+    modelTiers: { ...defaults.modelTiers },
     conflicts: [],
     problems: [],
     valid: true,
@@ -236,6 +315,7 @@ function buildStudioConfig(domainDir: string, opencodeDir?: string): RegistryStu
     toggles: resolved.resolution.config.toggles,
     patterns: resolved.resolution.enabledPatterns,
     packages: resolved.resolution.enabledPackages,
+    modelTiers: resolved.resolution.config.modelTiers,
     conflicts: resolved.resolution.conflicts,
     problems: resolved.resolution.problems,
     valid: resolved.resolution.valid,
@@ -248,11 +328,22 @@ export function buildRegistry(domainDir: string, generatedAt: string, opencodeDi
   const consumers = projections.consumers ?? {};
   const studioConfig = buildStudioConfig(domainDir, opencodeDir);
 
-  const mapEntries = (paths: string[] | undefined, layer?: RegistryEntry['layer']): RegistryEntry[] =>
-    (paths ?? []).map((rel) => entry(domainDir, rel, basename(rel, '.md'), consumedOutputs(rel, basename(rel, '.md'), consumers), layer));
+  const mapEntries = (
+    paths: string[] | undefined,
+    layer?: RegistryEntry['layer'],
+    modelTiers?: ModelTiers
+  ): RegistryEntry[] =>
+    (paths ?? []).map((rel) =>
+      entry(domainDir, rel, basename(rel, '.md'), consumedOutputs(rel, basename(rel, '.md'), consumers), layer, modelTiers)
+    );
 
-  const agents = mapEntries(manifest.agents);
-  const subagents = mapEntries(manifest.subagents);
+  const gates: StudioGates = {
+    tdd: studioConfig.toggles.tdd === true,
+    'native-subproject': nativeSubprojectPresent(opencodeDir),
+  };
+  const roster = selectStudioRoster(manifest, studioConfig.studioMode, gates, domainDir);
+  const agents = mapEntries(roster.agents, undefined, studioConfig.modelTiers);
+  const subagents = mapEntries(roster.subagents, undefined, studioConfig.modelTiers);
   const commands = mapEntries(manifest.commands, 'command');
 
   const abilities: RegistryEntry[] = (manifest.abilities ?? []).map((ability) => {
@@ -324,9 +415,7 @@ export function buildRegistry(domainDir: string, generatedAt: string, opencodeDi
   });
 
   const knownAbilities = new Set(manifest.abilities ?? []);
-  const knownAgents = new Set(
-    [...(manifest.agents ?? []), ...(manifest.subagents ?? [])].map((rel) => basename(rel, '.md'))
-  );
+  const knownAgents = new Set(allStudioAgents(manifest).map((rel) => basename(rel, '.md')));
 
   const warnings: string[] = [];
   const edges: RegistryEdge[] = [];
@@ -348,7 +437,7 @@ export function buildRegistry(domainDir: string, generatedAt: string, opencodeDi
     }
   };
 
-  for (const rel of [...(manifest.agents ?? []), ...(manifest.subagents ?? [])]) {
+  for (const rel of [...roster.agents, ...roster.subagents]) {
     const fm = readFrontmatter(join(domainDir, rel));
     addEdges('agent-ability', basename(rel, '.md'), frontmatterStringArray(fm, 'abilities') ?? []);
   }

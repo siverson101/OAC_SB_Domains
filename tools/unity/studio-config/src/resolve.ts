@@ -35,8 +35,21 @@ export function resolveStudioConfigProject(options: {
 export { defaultStudioConfig, loadStudioConfig } from './config';
 export { renderStudioConfigLines, type StudioConfigView } from './render';
 export { resolveStudioConfig } from './resolver';
+export {
+  emptyStudioGates,
+  isGateEnabled,
+  optionalPaths,
+  selectActiveRoster,
+  STUDIO_GATES,
+  type StudioGate,
+  type StudioGates,
+  type StudioModeRoster,
+} from './roster';
+export { MODEL_TIERS, STUDIO_MODES } from './types';
 export type {
   ConfigProblem,
+  ModelTier,
+  ModelTiers,
   PatternCatalog,
   PatternConflict,
   ResolvedStudioConfig,

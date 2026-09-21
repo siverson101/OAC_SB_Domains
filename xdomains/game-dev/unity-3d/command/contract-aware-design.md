@@ -11,7 +11,6 @@ safetyGate: { mutates: false, requiresEditor: false }
 uses: []
 provides: [contract-aware-design, contract-validation]
 requires: [capability-contract-schema]
-usedBy: [unity-3d-orchestrator]
 versionCompatibility: { unity: ["6.0", "6.3", "6.5", "LTS+"] }
 ---
 

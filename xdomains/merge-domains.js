@@ -11,7 +11,7 @@
 // Usage:
 //   node merge-domains.js --domain-dir .opencode/xdomains/game-dev/unity-3d \
 //        --opencode-dir <dir> [--subdomain unity-3d] \
-//        [--mode extend|separate|replace] [--dry-run] \
+//        [--mode extend|separate|replace] [--studio-mode lean|full] [--dry-run] \
 //        [--no-register-metadata] [--no-rewrite-paths] [--force]
 //
 // The domain and sub-domain are read from sb-domain.json; --subdomain is an
@@ -27,6 +27,185 @@ const fs = require('fs');
 const path = require('path');
 
 const DEFAULT_MANIFEST = 'sb-domain.json';
+const STUDIO_MODES = ['lean', 'full'];
+
+// ---------------------------------------------------------------------------
+// Studio-mode selection
+// ---------------------------------------------------------------------------
+
+function normalizeStudioMode(value) {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'lean') return 'lean';
+  if (normalized === 'full') return 'full';
+  return null;
+}
+
+// Non-spinning prompt: node:readline/promises reads a line without the EAGAIN
+// spin the previous byte-loop had, and the interface is always closed.
+async function promptStudioMode(question) {
+  const readline = require('node:readline/promises');
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    return await rl.question(question);
+  } finally {
+    rl.close();
+  }
+}
+
+// Canonical source of truth: tools/unity/studio-config/src/roster.ts. This
+// shipped engine cannot import the TS, so the duplication is deliberate; the
+// two implementations are pinned together by tests/gating-agreement.test.ts.
+function optionalPaths(optional) {
+  const out = [];
+  for (const entry of optional || []) {
+    const rel = typeof entry === 'string' ? entry : entry && entry.path;
+    if (rel) out.push(rel);
+  }
+  return out;
+}
+
+// Mirrors isGateEnabled in tools/unity/studio-config/src/roster.ts; pinned by
+// tests/gating-agreement.test.ts. An absent `enabledBy` is always active; an
+// unknown gate id is not (a typo must not silently enable an optional path).
+function isGateEnabled(enabledBy, gates) {
+  if (enabledBy === undefined) return true;
+  return gates[enabledBy] === true;
+}
+
+function readStudioConfig(opencodeDir) {
+  const file = path.join(opencodeDir, 'unity-studio.json');
+  if (!isFile(file)) return null;
+  try {
+    const config = readJson(file);
+    return config && typeof config === 'object' && !Array.isArray(config) ? config : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function readExistingStudioMode(opencodeDir) {
+  if (!opencodeDir) return null;
+  const config = readStudioConfig(opencodeDir);
+  return config ? normalizeStudioMode(config.studioMode) : null;
+}
+
+// The CLI only ever produces the kebab key `--studio-mode`; the camelCase
+// `studioMode` alias is not an accepted input.
+function hasStudioModeFlag(argv) {
+  return argv['studio-mode'] !== undefined;
+}
+
+// A bare `--studio-mode` (present, no value) or an unknown value errors rather
+// than silently falling through to the prompt or the default. The only accepted
+// values are `lean` and `full`.
+async function resolveStudioMode(argv, options) {
+  const opts = options || {};
+
+  if (hasStudioModeFlag(argv)) {
+    const flag = argv['studio-mode'];
+    if (flag === true) throw new Error('--studio-mode requires a value: lean or full');
+    const mode = normalizeStudioMode(String(flag));
+    if (!mode) throw new Error(`Unknown studio mode: ${flag} (expected lean or full)`);
+    return mode;
+  }
+
+  const existing = opts.existingMode !== undefined ? opts.existingMode : readExistingStudioMode(opts.opencodeDir);
+  const dryRun = opts.dryRun === true;
+  const interactive = opts.interactive !== undefined ? opts.interactive : Boolean(process.stdin.isTTY);
+
+  // A dry run is read-only and must never block on stdin.
+  if (dryRun || !interactive) return existing || 'lean';
+
+  const prompt = opts.prompt || promptStudioMode;
+  const fallback = existing || 'lean';
+  const answer = await prompt(`Studio mode: Lean | Full Studio [${fallback}]: `);
+  return normalizeStudioMode(String(answer === null || answer === undefined ? '' : answer).trim()) || fallback;
+}
+
+function readAgentEnabledBy(domainDir, relPath) {
+  if (!domainDir || !relPath) return undefined;
+  try {
+    return parseFrontmatter(fs.readFileSync(path.join(domainDir, relPath), 'utf8')).enabledBy;
+  } catch (_) {
+    return undefined;
+  }
+}
+
+// Canonical source of truth: selectActiveRoster in
+// tools/unity/studio-config/src/roster.ts; pinned by
+// tests/gating-agreement.test.ts.
+//
+// Membership lives only in `studioModes`; a manifest without it falls back to
+// the legacy flat `agents`/`subagents` arrays (fail-soft for older domains).
+// The gating condition lives once, in each optional agent's frontmatter
+// `enabledBy`; an optional path with no `enabledBy` is always installed.
+function selectHierarchy(manifest, studioMode, gating, options) {
+  const opts = options || {};
+  const gates = gating || {};
+  const modes = manifest.studioModes;
+  if (!modes || typeof modes !== 'object') {
+    return { agents: manifest.agents || [], subagents: manifest.subagents || [] };
+  }
+  const mode = modes[studioMode] || {};
+  const agents = [...(mode.agents || [])];
+  const subagents = [...(mode.subagents || [])];
+  const seen = new Set(subagents);
+  for (const rel of optionalPaths(mode.optional)) {
+    if (seen.has(rel)) continue;
+    const enabledBy = opts.readEnabledBy ? opts.readEnabledBy(rel) : readAgentEnabledBy(opts.domainDir, rel);
+    if (isGateEnabled(enabledBy, gates)) {
+      seen.add(rel);
+      subagents.push(rel);
+    }
+  }
+  return { agents, subagents };
+}
+
+// Optional Lean extras gate on the installed `.opencode/unity-studio.json`
+// toggle and on a detected native sub-project. Detection reads the standard
+// persisted `native-project-state.json` artifact (written by project-scan) at
+// `<opencode-dir>/project-data/`. A missing artifact, or a merely declared
+// solution whose file is missing, means "not detected" — the conservative
+// default. Only an affirmative `solutionExists === true` enables the gate.
+//
+// Keep in sync with nativeSubprojectPresent in
+// tools/shared/registry/src/build.ts; pinned by tests/gating-agreement.test.ts.
+function detectNativeSubproject(opencodeDir) {
+  if (!opencodeDir) return false;
+  const file = path.join(opencodeDir, 'project-data', 'native-project-state.json');
+  if (!isFile(file)) return false;
+  try {
+    const state = readJson(file);
+    const native = state && state.state;
+    return Boolean(native) && native.solutionExists === true;
+  } catch (_) {
+    return false;
+  }
+}
+
+function resolveGating(opencodeDir) {
+  const config = readStudioConfig(opencodeDir);
+  const toggles = config && config.toggles && typeof config.toggles === 'object' ? config.toggles : {};
+  return {
+    tdd: toggles.tdd === true,
+    'native-subproject': detectNativeSubproject(opencodeDir),
+  };
+}
+
+function persistStudioMode(opencodeDir, studioMode, warnings) {
+  const file = path.join(opencodeDir, 'unity-studio.json');
+  let config = readStudioConfig(opencodeDir);
+  if (!config) {
+    if (isFile(file)) {
+      warnings.push(`unity-studio.json is not a JSON object; dropping prior content and rewriting with studioMode only`);
+    }
+    config = {};
+  }
+  config.studioMode = studioMode;
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify(config, null, 2) + '\n');
+}
 
 // ---------------------------------------------------------------------------
 // Argument parsing
@@ -144,7 +323,8 @@ function computeDestination(rootDest, relPath, subdomain, mergeMode) {
 // Manifest-driven asset selection
 // ---------------------------------------------------------------------------
 
-function collectAssets(domainDir, manifest, warnings) {
+function collectAssets(domainDir, manifest, warnings, options) {
+  const opts = options || {};
   const assets = [];
   const seen = new Set();
 
@@ -176,8 +356,14 @@ function collectAssets(domainDir, manifest, warnings) {
     }
   };
 
+  // The selected hierarchy (mode membership + optional gating) then the
+  // always-installed shared assets.
+  const hierarchy = selectHierarchy(manifest, opts.studioMode || 'lean', opts.gating, { domainDir });
+  for (const rel of hierarchy.agents) addFile(rel);
+  for (const rel of hierarchy.subagents) addFile(rel);
+
   // Explicit file lists.
-  for (const key of ['agents', 'subagents', 'commands', 'skills', 'sharedContext', 'scripts', 'config']) {
+  for (const key of ['commands', 'skills', 'sharedContext', 'scripts', 'config']) {
     for (const rel of manifest[key] || []) addFile(rel);
   }
 
@@ -313,7 +499,7 @@ function readAdaptations(domainDir) {
 // Main
 // ---------------------------------------------------------------------------
 
-function main() {
+async function main() {
   const argv = parseArgs(process.argv.slice(2));
 
   const domainDirArg = argv['domain-dir'] || argv['plugin-dir'];
@@ -324,7 +510,7 @@ function main() {
   const force = argv.force === true;
 
   if (!domainDirArg) {
-    console.error('Usage: merge-domains.js --domain-dir .opencode/xdomains/<domain>/<subdomain> --opencode-dir <dir> [--mode extend|separate|replace] [--dry-run]');
+    console.error('Usage: merge-domains.js --domain-dir .opencode/xdomains/<domain>/<subdomain> --opencode-dir <dir> [--mode extend|separate|replace] [--studio-mode lean|full] [--dry-run]');
     process.exit(2);
   }
 
@@ -333,6 +519,15 @@ function main() {
 
   if (!['extend', 'separate', 'replace'].includes(mode)) {
     console.error(`Unknown merge mode: ${mode}`);
+    process.exit(2);
+  }
+
+  const existingMode = readExistingStudioMode(opencodeDir);
+  let studioMode;
+  try {
+    studioMode = await resolveStudioMode(argv, { opencodeDir, existingMode, dryRun });
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
     process.exit(2);
   }
 
@@ -346,8 +541,12 @@ function main() {
   const domain = manifest.domain || path.basename(path.dirname(domainDir));
   const subdomain = argv.subdomain || manifest.subdomain || path.basename(domainDir);
   const warnings = [];
+  if (hasStudioModeFlag(argv) && existingMode && existingMode !== studioMode) {
+    console.error(`  warning: overwriting existing studioMode '${existingMode}' with '${studioMode}'`);
+  }
+  const gating = resolveGating(opencodeDir);
 
-  const assets = collectAssets(domainDir, manifest, warnings);
+  const assets = collectAssets(domainDir, manifest, warnings, { studioMode, gating });
 
   const adaptations = readAdaptations(domainDir);
   const copied = new Set();
@@ -375,7 +574,7 @@ function main() {
   }
 
   if (dryRun) {
-    console.log(`Dry-run merge plan (${domain}/${subdomain}, mode=${mode}):`);
+    console.log(`Dry-run merge plan (${domain}/${subdomain}, mode=${mode}, studioMode=${studioMode}):`);
     for (const p of planned) {
       console.log(`  ${p.rel}  ->  ${path.relative(process.cwd(), p.dest)}`);
     }
@@ -383,12 +582,14 @@ function main() {
     return;
   }
 
+  persistStudioMode(opencodeDir, studioMode, warnings);
+
   let metadataAdded = 0;
   if (doRegister) {
     metadataAdded = registerMetadata(opencodeDir, domain, subdomain, assets, copied, warnings);
   }
 
-  console.log(`Applied domain ${domain}/${subdomain} (mode=${mode})`);
+  console.log(`Applied domain ${domain}/${subdomain} (mode=${mode}, studioMode=${studioMode})`);
   console.log(`  Files copied: ${copied.size}`);
   if (doRegister) console.log(`  Agents registered: ${metadataAdded}`);
   if (adaptations.paths.size > 0) {
@@ -398,12 +599,26 @@ function main() {
 }
 
 if (require.main === module) {
-  main();
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  });
 }
 
 module.exports = {
+  STUDIO_MODES,
   parseArgs,
   parseFrontmatter,
+  normalizeStudioMode,
+  resolveStudioMode,
+  selectHierarchy,
+  optionalPaths,
+  isGateEnabled,
+  readStudioConfig,
+  readExistingStudioMode,
+  detectNativeSubproject,
+  resolveGating,
+  persistStudioMode,
   computeDestination,
   collectAssets,
   registerMetadata,
