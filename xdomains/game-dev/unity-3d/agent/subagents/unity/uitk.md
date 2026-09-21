@@ -1,7 +1,7 @@
 ---
 name: UnityUITK
 description: Unity UI Toolkit specialist - UI Toolkit panels, UXML/USS authoring, runtime UI screens, editor UI
-abilities: [unity-read-project, uitk-interaction, runtime-ui-validation, script-scaffolding]
+abilities: [unity-read-project, uitk-interaction, runtime-ui-validation, script-scaffolding, coordination-board]
 tier: specialist
 mode: subagent
 temperature: 0.2
@@ -29,6 +29,9 @@ permission:
   </rule>
   <rule id="controller_separation">
     Keep layout in UXML, style in USS, logic in a C# UI controller (UIBuilder / bindings).
+  </rule>
+  <rule id="claim_before_write">
+    Before writing any project file, claim it on the advisory coordination board (ability: coordination-board, verb claim, with a lease); release when done. A live claim held by another holder fails fast naming the holder — stop and report, never overwrite.
   </rule>
   <rule id="subagent_mode">
     Receive tasks from the orchestrator; don't initiate independently.

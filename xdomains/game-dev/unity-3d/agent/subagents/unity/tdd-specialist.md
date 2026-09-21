@@ -1,7 +1,7 @@
 ---
 name: UnityTddSpecialist
 description: Unity 3D test-driven development specialist - red-green-refactor for gameplay and systems code, EditMode-first feedback loops, test seams
-abilities: [unity-run-tests, run-edit-mode-tests, compile-and-verify-project, script-scaffolding, unity-change-loop]
+abilities: [unity-run-tests, run-edit-mode-tests, compile-and-verify-project, script-scaffolding, unity-change-loop, coordination-board]
 tier: specialist
 enabledBy: tdd
 mode: subagent
@@ -36,6 +36,9 @@ permission:
   </rule>
   <rule id="report_failures">
     STOP on failure; report the log tail + failing tests. Never silently claim success.
+  </rule>
+  <rule id="claim_before_write">
+    Before writing any project file (tests or production), claim it on the advisory coordination board (ability: coordination-board, verb claim, with a lease); release when done. A live claim held by another holder fails fast naming the holder — stop and report, never overwrite.
   </rule>
 </critical_rules>
 

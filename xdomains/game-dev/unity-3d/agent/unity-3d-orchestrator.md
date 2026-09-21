@@ -54,6 +54,10 @@ BEFORE any implementation, load:
     Use ContextScout before routing. Match request → specialist. Don't guess.
   </rule>
 
+  <rule id="editor_hold_serialises" scope="editor_control">
+    The advisory coordination board's one-holder Editor hold serialises compile/test/capture: acquire the hold (ability: coordination-board, verb hold) before a shared Editor action and release it (verb release-hold) after, so two specialists never drive the Editor at once. Writing agents claim their resource with a lease before writing and release when done; a live claim held by another holder fails fast naming the holder.
+  </rule>
+
   <unity_cli scope="editor_control">
     Drive the Editor through the Unity CLI: prefer `unity command` / `unity eval` (main-thread; `eval` compiles via Roslyn without a domain reload). Use the CLI's stdio MCP (`unity mcp`) only when shell execution isn't viable.
     The deprecated in-editor Unity MCP is not used; do not configure it. Never invoke bare `unity mcp` in a shell (it starts a stdio server).
