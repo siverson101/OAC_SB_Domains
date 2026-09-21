@@ -166,6 +166,22 @@ describe('Full Studio hierarchy', () => {
     }
   });
 
+  test('the router orchestrator does not deny code/asset globs while directors do', () => {
+    // Intentional asymmetry: directors own the implementation gates and deny
+    // code/asset writes outright; the router relies on the delegate-don't-do
+    // rule instead, exactly as the Lean orchestrator does.
+    const orchestrator = permissionRules(readAgent('full-studio-orchestrator'));
+    for (const glob of CODE_ASSET_GLOBS) {
+      expect(orchestrator.write?.[glob], `orchestrator write ${glob}`).not.toBe('deny');
+      expect(orchestrator.edit?.[glob], `orchestrator edit ${glob}`).not.toBe('deny');
+    }
+    for (const id of DIRECTORS) {
+      const rules = permissionRules(readAgent(id));
+      expect(rules.write?.['**/*.cs'], `${id} write cs`).toBe('deny');
+      expect(rules.edit?.['Assets/**'], `${id} edit assets`).toBe('deny');
+    }
+  });
+
   test('leads and specialists may write code and assets', () => {
     for (const id of [...LEADS, ...SPECIALISTS]) {
       const rules = permissionRules(readAgent(id));

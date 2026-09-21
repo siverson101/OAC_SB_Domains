@@ -53,6 +53,9 @@ async function promptStudioMode(question) {
   }
 }
 
+// Canonical source of truth: tools/unity/studio-config/src/roster.ts. This
+// shipped engine cannot import the TS, so the duplication is deliberate; the
+// two implementations are pinned together by tests/gating-agreement.test.ts.
 function optionalPaths(optional) {
   const out = [];
   for (const entry of optional || []) {
@@ -60,6 +63,14 @@ function optionalPaths(optional) {
     if (rel) out.push(rel);
   }
   return out;
+}
+
+// Mirrors isGateEnabled in tools/unity/studio-config/src/roster.ts; pinned by
+// tests/gating-agreement.test.ts. An absent `enabledBy` is always active; an
+// unknown gate id is not (a typo must not silently enable an optional path).
+function isGateEnabled(enabledBy, gates) {
+  if (enabledBy === undefined) return true;
+  return gates[enabledBy] === true;
 }
 
 function readStudioConfig(opencodeDir) {
@@ -79,8 +90,10 @@ function readExistingStudioMode(opencodeDir) {
   return config ? normalizeStudioMode(config.studioMode) : null;
 }
 
+// The CLI only ever produces the kebab key `--studio-mode`; the camelCase
+// `studioMode` alias is not an accepted input.
 function hasStudioModeFlag(argv) {
-  return argv['studio-mode'] !== undefined || argv.studioMode !== undefined;
+  return argv['studio-mode'] !== undefined;
 }
 
 // A bare `--studio-mode` (present, no value) or an unknown value errors rather
@@ -90,7 +103,7 @@ async function resolveStudioMode(argv, options) {
   const opts = options || {};
 
   if (hasStudioModeFlag(argv)) {
-    const flag = argv['studio-mode'] !== undefined ? argv['studio-mode'] : argv.studioMode;
+    const flag = argv['studio-mode'];
     if (flag === true) throw new Error('--studio-mode requires a value: lean or full');
     const mode = normalizeStudioMode(String(flag));
     if (!mode) throw new Error(`Unknown studio mode: ${flag} (expected lean or full)`);
@@ -119,6 +132,10 @@ function readAgentEnabledBy(domainDir, relPath) {
   }
 }
 
+// Canonical source of truth: selectActiveRoster in
+// tools/unity/studio-config/src/roster.ts; pinned by
+// tests/gating-agreement.test.ts.
+//
 // Membership lives only in `studioModes`; a manifest without it falls back to
 // the legacy flat `agents`/`subagents` arrays (fail-soft for older domains).
 // The gating condition lives once, in each optional agent's frontmatter
@@ -135,7 +152,7 @@ function selectHierarchy(manifest, studioMode, gating, options) {
   const subagents = [...(mode.subagents || [])];
   for (const rel of optionalPaths(mode.optional)) {
     const enabledBy = opts.readEnabledBy ? opts.readEnabledBy(rel) : readAgentEnabledBy(opts.domainDir, rel);
-    if (enabledBy === undefined || gates[enabledBy] === true) subagents.push(rel);
+    if (isGateEnabled(enabledBy, gates)) subagents.push(rel);
   }
   return { agents, subagents };
 }
@@ -146,6 +163,9 @@ function selectHierarchy(manifest, studioMode, gating, options) {
 // `<opencode-dir>/project-data/`. A missing artifact, or a merely declared
 // solution whose file is missing, means "not detected" — the conservative
 // default. Only an affirmative `solutionExists === true` enables the gate.
+//
+// Keep in sync with nativeSubprojectPresent in
+// tools/shared/registry/src/build.ts; pinned by tests/gating-agreement.test.ts.
 function detectNativeSubproject(opencodeDir) {
   const file = path.join(opencodeDir, 'project-data', 'native-project-state.json');
   if (!isFile(file)) return false;
@@ -171,7 +191,9 @@ function persistStudioMode(opencodeDir, studioMode, warnings) {
   const file = path.join(opencodeDir, 'unity-studio.json');
   let config = readStudioConfig(opencodeDir);
   if (!config) {
-    if (isFile(file)) warnings.push(`unity-studio.json is not a JSON object; rewriting with studioMode only`);
+    if (isFile(file)) {
+      warnings.push(`unity-studio.json is not a JSON object; dropping prior content and rewriting with studioMode only`);
+    }
     config = {};
   }
   config.studioMode = studioMode;
@@ -585,6 +607,7 @@ module.exports = {
   resolveStudioMode,
   selectHierarchy,
   optionalPaths,
+  isGateEnabled,
   readStudioConfig,
   readExistingStudioMode,
   detectNativeSubproject,
