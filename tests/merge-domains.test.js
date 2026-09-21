@@ -15,6 +15,7 @@ const {
     selectHierarchy,
     resolveStudioMode,
     normalizeStudioMode,
+    persistStudioMode,
 } = require('../xdomains/merge-domains.js');
 
 const DOMAIN_DIR = path.resolve(__dirname, '../xdomains/game-dev/unity-3d');
@@ -155,6 +156,12 @@ describe('resolveStudioMode', () => {
         expect(normalizeStudioMode('full-studio')).toBeNull();
     });
 
+    test('normalizes case and surrounding whitespace', async () => {
+        expect(await resolveStudioMode({ 'studio-mode': 'FULL' })).toBe('full');
+        expect(await resolveStudioMode({ 'studio-mode': ' Full ' })).toBe('full');
+        expect(normalizeStudioMode('  LEAN  ')).toBe('lean');
+    });
+
     test('defaults to lean when non-interactive', async () => {
         expect(await resolveStudioMode({}, { interactive: false })).toBe('lean');
     });
@@ -182,6 +189,65 @@ describe('resolveStudioMode', () => {
     });
 
     test('throws on a bare --studio-mode with no value', async () => {
-        await expect(resolveStudioMode({ 'studio-mode': true })).rejects.toThrow();
+        await expect(resolveStudioMode({ 'studio-mode': true })).rejects.toThrow('--studio-mode requires a value');
+    });
+
+    test('ignores the undocumented camelCase studioMode key', async () => {
+        expect(await resolveStudioMode({ studioMode: 'full' }, { interactive: false })).toBe('lean');
+    });
+});
+
+describe('persistStudioMode', () => {
+    function freshDir() {
+        return fs.mkdtempSync(path.join(os.tmpdir(), 'xdomain-persist-'));
+    }
+
+    test('preserves other fields in a valid config', () => {
+        const dir = freshDir();
+        try {
+            fs.writeFileSync(
+                path.join(dir, 'unity-studio.json'),
+                JSON.stringify({ schemaVersion: 1, reviewIntensity: 'lean', patterns: ['factory'] })
+            );
+            const warnings = [];
+            persistStudioMode(dir, 'full', warnings);
+            expect(warnings).toEqual([]);
+            const config = JSON.parse(fs.readFileSync(path.join(dir, 'unity-studio.json'), 'utf8'));
+            expect(config.studioMode).toBe('full');
+            expect(config.reviewIntensity).toBe('lean');
+            expect(config.patterns).toEqual(['factory']);
+        } finally {
+            fs.rmSync(dir, { recursive: true, force: true });
+        }
+    });
+
+    for (const [label, malformed] of [['JSON array', '[]'], ['JSON string', '"nope"']]) {
+        test(`warns and rewrites a malformed config (${label})`, () => {
+            const dir = freshDir();
+            try {
+                fs.writeFileSync(path.join(dir, 'unity-studio.json'), malformed);
+                const warnings = [];
+                persistStudioMode(dir, 'lean', warnings);
+                expect(warnings).toHaveLength(1);
+                expect(warnings[0]).toContain('dropping prior content');
+                const config = JSON.parse(fs.readFileSync(path.join(dir, 'unity-studio.json'), 'utf8'));
+                expect(config).toEqual({ studioMode: 'lean' });
+            } finally {
+                fs.rmSync(dir, { recursive: true, force: true });
+            }
+        });
+    }
+
+    test('creates the file when absent', () => {
+        const dir = freshDir();
+        try {
+            const warnings = [];
+            persistStudioMode(dir, 'full', warnings);
+            expect(warnings).toEqual([]);
+            const config = JSON.parse(fs.readFileSync(path.join(dir, 'unity-studio.json'), 'utf8'));
+            expect(config).toEqual({ studioMode: 'full' });
+        } finally {
+            fs.rmSync(dir, { recursive: true, force: true });
+        }
     });
 });

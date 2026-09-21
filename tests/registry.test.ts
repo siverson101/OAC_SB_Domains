@@ -170,14 +170,17 @@ describe('registry edge hygiene', () => {
   });
 });
 
-describe('command usedBy hygiene', () => {
+describe('command usedBy is for capability consumers', () => {
   interface StudioModeRoster {
     agents?: string[];
     subagents?: string[];
     optional?: (string | { path?: string })[];
   }
 
-  test('no command usedBy value names an agent', () => {
+  // `usedBy` is still a supported capability-contract field (capability ids
+  // that consume this command); only agent-id values were removed from the
+  // shipped commands, so this guards against an agent id creeping back in.
+  test('command usedBy values are capability ids, not agent ids', () => {
     const manifest = JSON.parse(readFileSync(join(unity3dDir, 'sb-domain.json'), 'utf8')) as {
       studioModes?: Record<string, StudioModeRoster>;
       commands?: string[];

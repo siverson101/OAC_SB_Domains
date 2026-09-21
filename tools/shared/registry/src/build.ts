@@ -183,7 +183,10 @@ function allStudioAgents(manifest: Manifest): string[] {
 // Native detection reads the standard project-data artifact (written by
 // project-scan); a missing file or a merely declared solution is "not
 // detected". Affirmative means the solution file exists.
-function nativeSubprojectPresent(opencodeDir?: string): boolean {
+//
+// Keep in sync with detectNativeSubproject in xdomains/merge-domains.js;
+// pinned by tests/gating-agreement.test.ts.
+export function nativeSubprojectPresent(opencodeDir?: string): boolean {
   if (!opencodeDir) return false;
   const artifact = readJson<{ state?: { solutionExists?: boolean } }>(
     join(opencodeDir, 'project-data', 'native-project-state.json')
@@ -227,6 +230,9 @@ function entry(
   modelTiers?: ModelTiers
 ): RegistryEntry {
   const fm = readFrontmatter(join(domainDir, relPath));
+  // `modelTiers` is passed for agents/subagents (which carry a `tier`) and
+  // omitted for every other entry kind, so tier resolution is intentionally
+  // conditional. Do not resolve a tier for entries that have no such concept.
   const tier = modelTiers ? asModelTier(frontmatterString(fm, 'tier')) : undefined;
   return {
     id,
