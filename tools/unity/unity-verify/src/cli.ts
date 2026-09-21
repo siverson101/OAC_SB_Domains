@@ -39,5 +39,10 @@ export function resolveOptions(argv: string[]): VerifyOptions {
         : 'full',
     changeScope,
     gatesJson: firstString(args, ['gates', 'gates-json', 'gatesJson']),
+    test: firstString(args, ['test', 'test-name', 'testName']),
+    expectedReason: firstString(args, ['expected-reason', 'expectedReason']),
+    failureMessage: firstString(args, ['failure-message', 'failureMessage']),
+    testResults: firstString(args, ['test-results', 'testResults']),
+    tdd: firstString(args, ['tdd']),
   };
 }

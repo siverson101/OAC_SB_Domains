@@ -13,6 +13,7 @@ import {
   gatesForIntensity,
   parseGateOverrides,
 } from '../tools/unity/unity-verify/src/gates';
+import { decideRedStep, parseTestCases } from '../tools/unity/unity-verify/src/failing-test-first';
 import { makeSnapshot } from '../tools/unity/unity-verify/src/shared';
 import { VERIFY_ABILITIES, VERIFY_MODES, type VerifyOptions } from '../tools/unity/unity-verify/src/types';
 import type { TestCounts } from '../tools/unity/gather-unity-context/src/gate';
@@ -479,15 +480,207 @@ describe('gate-review', () => {
   });
 });
 
+describe('failing-test-first', () => {
+  const failedXml = [
+    '<?xml version="1.0" encoding="utf-8"?>',
+    '<test-run id="2" testcasecount="1" result="Failed" total="1" passed="0" failed="1">',
+    '  <test-suite type="TestFixture" name="PlayerTests" result="Failed">',
+    '    <test-case id="1" name="PlayerTests.JumpTest" fullname="PlayerTests.JumpTest" result="Failed">',
+    '      <failure>',
+    '        <message><![CDATA[System.NullReferenceException: Object reference not set]]></message>',
+    '      </failure>',
+    '    </test-case>',
+    '  </test-suite>',
+    '</test-run>',
+  ].join('\n');
+
+  const passedXml = [
+    '<?xml version="1.0" encoding="utf-8"?>',
+    '<test-run id="2" testcasecount="1" result="Passed" total="1" passed="1" failed="0">',
+    '  <test-suite type="TestFixture" name="PlayerTests" result="Passed">',
+    '    <test-case id="1" name="PlayerTests.JumpTest" fullname="PlayerTests.JumpTest" result="Passed" />',
+    '  </test-suite>',
+    '</test-run>',
+  ].join('\n');
+
+  test('parseTestCases reads the name, result and failure message', () => {
+    const failed = parseTestCases(failedXml);
+    expect(failed).toEqual([
+      { name: 'PlayerTests.JumpTest', result: 'Failed', message: 'System.NullReferenceException: Object reference not set' },
+    ]);
+    expect(parseTestCases(passedXml)[0]).toEqual({ name: 'PlayerTests.JumpTest', result: 'Passed', message: null });
+  });
+
+  test('decideRedStep is OK only for an expected failure', () => {
+    const ok = decideRedStep({
+      test: 'T',
+      expectedReason: 'NullReferenceException',
+      observation: { result: 'Failed', message: 'System.NullReferenceException: boom' },
+    });
+    expect(ok.verdict).toBe('OK');
+    expect(ok.reason).toBe('expected-failure');
+
+    const passed = decideRedStep({ test: 'T', expectedReason: 'R', observation: { result: 'Passed', message: null } });
+    expect(passed.verdict).toBe('NG');
+    expect(passed.reason).toBe('unexpected-pass');
+
+    const unrelated = decideRedStep({
+      test: 'T',
+      expectedReason: 'NullReferenceException',
+      observation: { result: 'Failed', message: 'AssertionException: Expected 1 But was 2' },
+    });
+    expect(unrelated.verdict).toBe('NG');
+    expect(unrelated.reason).toBe('unrelated-failure');
+  });
+
+  test('refuses when TDD is off', () => {
+    const result = runVerify({
+      ...options,
+      ability: 'failing-test-first',
+      test: 'PlayerTests.JumpTest',
+      expectedReason: 'NullReferenceException',
+      failureMessage: 'System.NullReferenceException: boom',
+    });
+    expect(result.status).toBe('refused');
+    expect(result.errors.join(' ')).toContain('TDD is off');
+    if ('redStep' in result) expect(result.redStep).toBeNull();
+  });
+
+  test('returns STATUS: OK when the test failed for the expected reason', () => {
+    const result = runVerify({
+      ...options,
+      ability: 'failing-test-first',
+      tdd: 'on',
+      test: 'PlayerTests.JumpTest',
+      expectedReason: 'NullReferenceException',
+      failureMessage: 'System.NullReferenceException: Object reference not set',
+    });
+    expect(result.status).toBe('passed');
+    expect(result.summary).toContain('STATUS: OK');
+    if ('redStep' in result) {
+      expect(result.redStep).toBe('OK');
+      expect(result.reason).toBe('expected-failure');
+      expect(result.tddEnabled).toBe(true);
+    }
+  });
+
+  test('returns NG when the test passed unexpectedly (results file)', () => {
+    const resultsPath = join(fixture, 'passed-results.xml');
+    write(resultsPath, passedXml);
+    const result = runVerify({
+      ...options,
+      ability: 'failing-test-first',
+      tdd: 'on',
+      test: 'PlayerTests.JumpTest',
+      expectedReason: 'NullReferenceException',
+      testResults: resultsPath,
+    });
+    expect(result.status).toBe('failed');
+    expect(result.summary).toContain('STATUS: NG');
+    if ('redStep' in result) {
+      expect(result.redStep).toBe('NG');
+      expect(result.reason).toBe('unexpected-pass');
+      expect(result.observedResult).toBe('Passed');
+    }
+  });
+
+  test('returns NG when it failed for an unrelated reason', () => {
+    const result = runVerify({
+      ...options,
+      ability: 'failing-test-first',
+      tdd: 'on',
+      test: 'PlayerTests.JumpTest',
+      expectedReason: 'NullReferenceException',
+      failureMessage: 'AssertionException: Expected 1 But was 2',
+    });
+    expect(result.status).toBe('failed');
+    if ('redStep' in result) {
+      expect(result.redStep).toBe('NG');
+      expect(result.reason).toBe('unrelated-failure');
+    }
+  });
+
+  test('a results file confirms the expected failure without a --failure-message', () => {
+    const resultsPath = join(fixture, 'failed-results.xml');
+    write(resultsPath, failedXml);
+    const result = runVerify({
+      ...options,
+      ability: 'failing-test-first',
+      tdd: 'on',
+      test: 'PlayerTests.JumpTest',
+      expectedReason: 'NullReferenceException',
+      testResults: resultsPath,
+    });
+    expect(result.status).toBe('passed');
+    if ('redStep' in result) expect(result.redStep).toBe('OK');
+  });
+
+  test('a named test absent from the results is NG', () => {
+    const resultsPath = join(fixture, 'passed-results.xml');
+    const result = runVerify({
+      ...options,
+      ability: 'failing-test-first',
+      tdd: 'on',
+      test: 'PlayerTests.MissingTest',
+      expectedReason: 'NullReferenceException',
+      testResults: resultsPath,
+    });
+    expect(result.status).toBe('failed');
+    if ('redStep' in result) expect(result.reason).toBe('test-not-found');
+  });
+
+  test('refuses without --expected-reason', () => {
+    const result = runVerify({
+      ...options,
+      ability: 'failing-test-first',
+      tdd: 'on',
+      test: 'PlayerTests.JumpTest',
+      failureMessage: 'System.NullReferenceException: boom',
+    });
+    expect(result.status).toBe('refused');
+    expect(result.errors.join(' ')).toContain('expected-reason');
+  });
+
+  test('refuses without an observed failure', () => {
+    const result = runVerify({
+      ...options,
+      ability: 'failing-test-first',
+      tdd: 'on',
+      test: 'PlayerTests.JumpTest',
+      expectedReason: 'NullReferenceException',
+    });
+    expect(result.status).toBe('refused');
+    expect(result.errors.join(' ')).toContain('observed failure');
+  });
+
+  test('reads toggles.tdd from unity-studio.json when no --tdd override', () => {
+    const root = join(fixture, 'tdd-project');
+    const oc = join(root, '.opencode');
+    write(join(oc, 'unity-studio.json'), JSON.stringify({ schemaVersion: 1, toggles: { tdd: true, ftf: false } }));
+    const result = runVerify({
+      ...options,
+      projectRoot: root,
+      opencodeDir: oc,
+      ability: 'failing-test-first',
+      test: 'PlayerTests.JumpTest',
+      expectedReason: 'NullReferenceException',
+      failureMessage: 'System.NullReferenceException: boom',
+    });
+    expect(result.status).toBe('passed');
+    if ('redStep' in result) expect(result.redStep).toBe('OK');
+  });
+});
+
 describe('Verify command contracts', () => {
   const schema = JSON.parse(readFileSync(schemaPath, 'utf8'));
 
-  test('declares exactly the four abilities', () => {
+  test('declares exactly the five abilities', () => {
     expect(VERIFY_ABILITIES).toEqual([
       'compile-and-verify-project',
       'run-edit-mode-tests',
       'run-play-mode-tests',
       'gate-review',
+      'failing-test-first',
     ]);
   });
 
@@ -510,7 +703,7 @@ describe('Verify command contracts', () => {
 });
 
 describe('unity-verify bundle', () => {
-  test('lists the four abilities', () => {
+  test('lists the abilities', () => {
     const res = spawnSync(process.execPath, [bundle, '--list'], { encoding: 'utf8' });
     expect(res.status).toBe(0);
     expect(res.stdout.trim().split(/\r?\n/)).toEqual(VERIFY_ABILITIES);
