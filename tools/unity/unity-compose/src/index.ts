@@ -1,4 +1,5 @@
-// unity-compose — CLI entry for the four Compose abilities (Phase 2 Step 2.7).
+// unity-compose — CLI entry for the five Compose abilities (Phase 2 Step 2.7,
+// Phase 5 Step 5.3).
 //
 // Usage:
 //   unity-compose --project-root . --opencode-dir .opencode \
@@ -9,6 +10,8 @@
 //   unity-compose ... --ability primitive-composition --json
 //   unity-compose ... --ability contract-aware-design --json
 //   unity-compose ... --ability ci-status-baseline --verb record --json
+//   unity-compose ... --ability plan-feature --feature <slug> \
+//     --test-cases "<verbatim>" --testability PASS --json
 //   unity-compose --list
 //
 // Every ability is offline and fail-soft: it reads/writes plain files under
@@ -40,6 +43,12 @@ function render(result: ComposeResult): string {
   }
   if ('baselinePath' in result) {
     lines.push(`  action: ${result.action} · baseline: ${result.baseline?.status ?? 'none'}`);
+  }
+  if ('planPath' in result) {
+    lines.push(
+      `  action: ${result.action} · feature: ${result.feature ?? 'n/a'} · testability: ${result.testability ?? 'n/a'} · written: ${result.written}`
+    );
+    if (result.instruction) lines.push(`  instruction: ${result.instruction}`);
   }
   for (const error of result.errors) lines.push(`  error: ${error}`);
   return lines.join('\n');

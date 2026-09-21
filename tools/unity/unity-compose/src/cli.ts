@@ -31,5 +31,12 @@ export function resolveOptions(argv: string[]): ComposeOptions {
     schema: firstString(args, ['schema']),
     source: firstString(args, ['source']),
     cliCommand: firstString(args, ['unity-cli', 'unityCli']) ?? 'unity',
+    feature: firstString(args, ['feature', 'slug']),
+    context: firstString(args, ['context']),
+    design: firstString(args, ['design']),
+    testCases: firstString(args, ['test-cases', 'testCases']),
+    testingDecisions: firstString(args, ['testing-decisions', 'testingDecisions']),
+    testability: firstString(args, ['testability']),
+    tradeOffs: firstString(args, ['trade-offs', 'tradeOffs']),
   };
 }

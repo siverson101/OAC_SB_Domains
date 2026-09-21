@@ -26,6 +26,10 @@ import {
 } from '../tools/unity/unity-compose/src/primitive-composition';
 import { runContractAwareDesign } from '../tools/unity/unity-compose/src/contract-aware-design';
 import { runCiStatusBaseline } from '../tools/unity/unity-compose/src/ci-status-baseline';
+import {
+  PLAN_SECTIONS,
+  runPlanFeature,
+} from '../tools/unity/unity-compose/src/plan-feature';
 import { runCompose } from '../tools/unity/unity-compose/src/abilities';
 import { parseYaml } from '../tools/shared/yaml';
 import { COMPOSE_ABILITIES, COMPOSE_MODES, type ComposeOptions } from '../tools/unity/unity-compose/src/types';
@@ -388,6 +392,149 @@ describe('ci-status-baseline', () => {
   });
 });
 
+describe('plan-feature', () => {
+  function planOptions(oc: string, extra: Partial<ComposeOptions> = {}): ComposeOptions {
+    return { ...base, ability: 'plan-feature' as const, opencodeDir: oc, ...extra };
+  }
+
+  function enableTdd(oc: string): void {
+    mkdirSync(oc, { recursive: true });
+    writeFileSync(
+      join(oc, 'unity-studio.json'),
+      JSON.stringify({ schemaVersion: 1, toggles: { tdd: true, ftf: false } })
+    );
+  }
+
+  const TEST_CASES = [
+    '| Layer | Test |',
+    '| --- | --- |',
+    '| Unit | jump raises the player by the configured height |',
+  ].join('\n');
+
+  test('writes the plan artifact with every section present and ordered', () => {
+    const oc = join(fixture, 'plan-write', '.opencode');
+    enableTdd(oc);
+    const result = runPlanFeature(
+      planOptions(oc, {
+        feature: 'player-jump',
+        context: 'Add a jump ability.',
+        design: 'PlayerJump.Jump(height: float) in Assets/Scripts/PlayerJump.cs',
+        testCases: TEST_CASES,
+        testingDecisions: 'Test at the PlayerJump public seam; prior art: PlayerMoveTests.',
+        testability: 'PASS',
+        tradeOffs: 'Jump height is a magic number.',
+      })
+    );
+
+    expect(result.status).toBe('ok');
+    expect(result.action).toBe('write');
+    expect(result.written).toBe(true);
+    expect(result.testability).toBe('PASS');
+    expect(result.planPath.endsWith('/plans/player-jump.md')).toBe(true);
+
+    const path = join(oc, 'plans', 'player-jump.md');
+    expect(existsSync(path)).toBe(true);
+    const markdown = readFileSync(path, 'utf8');
+
+    let cursor = -1;
+    for (const section of PLAN_SECTIONS) {
+      const index = markdown.indexOf(`## ${section}`);
+      expect(index, `${section} present`).toBeGreaterThan(-1);
+      expect(index, `${section} ordered`).toBeGreaterThan(cursor);
+      cursor = index;
+    }
+
+    expect(markdown).toContain(TEST_CASES);
+    for (const rule of [
+      'Red before green',
+      'One vertical slice at a time',
+      'pre-agreed public seams',
+      'Refactoring belongs to review',
+      'Implementation-coupled',
+      'Tautological',
+      'Horizontally sliced',
+    ]) {
+      expect(markdown, rule).toContain(rule);
+    }
+  });
+
+  test('refuses when TDD is off and writes nothing', () => {
+    const oc = join(fixture, 'plan-tdd-off', '.opencode');
+    const result = runPlanFeature(planOptions(oc, { feature: 'player-jump', testCases: TEST_CASES, testability: 'PASS' }));
+
+    expect(result.status).toBe('refused');
+    expect(result.written).toBe(false);
+    expect(result.summary.toLowerCase()).toContain('tdd');
+    expect(existsSync(join(oc, 'plans', 'player-jump.md'))).toBe(false);
+  });
+
+  test('a Testability FAIL loops back once, then aborts, writing no plan', () => {
+    const oc = join(fixture, 'plan-fail', '.opencode');
+    enableTdd(oc);
+    const options = planOptions(oc, { feature: 'player-jump', testCases: TEST_CASES, testability: 'FAIL' });
+
+    const first = runPlanFeature(options);
+    expect(first.status).toBe('loopback');
+    expect(first.action).toBe('loopback');
+    expect(first.attempt).toBe(1);
+    expect(first.written).toBe(false);
+    expect(first.instruction?.toLowerCase()).toContain('retry');
+    expect(existsSync(join(oc, 'plans', 'player-jump.md'))).toBe(false);
+
+    const second = runPlanFeature(options);
+    expect(second.status).toBe('aborted');
+    expect(second.action).toBe('abort');
+    expect(second.written).toBe(false);
+    expect(existsSync(join(oc, 'plans', 'player-jump.md'))).toBe(false);
+  });
+
+  test('a Testability WARN writes the plan and records the warning under Known Trade-offs', () => {
+    const oc = join(fixture, 'plan-warn', '.opencode');
+    enableTdd(oc);
+    const result = runPlanFeature(
+      planOptions(oc, {
+        feature: 'player-jump',
+        testCases: TEST_CASES,
+        testability: 'WARN',
+        tradeOffs: '- Seam X is private.',
+      })
+    );
+
+    expect(result.status).toBe('ok');
+    const markdown = readFileSync(join(oc, 'plans', 'player-jump.md'), 'utf8');
+    expect(markdown).toContain('- Seam X is private.');
+    expect(markdown).toContain('Testability WARN');
+  });
+
+  test('a PASS after a FAIL clears the loopback marker so a new cycle can retry', () => {
+    const oc = join(fixture, 'plan-recover', '.opencode');
+    enableTdd(oc);
+    runPlanFeature(planOptions(oc, { feature: 'player-jump', testCases: TEST_CASES, testability: 'FAIL' }));
+    const passed = runPlanFeature(planOptions(oc, { feature: 'player-jump', testCases: TEST_CASES, testability: 'PASS' }));
+    expect(passed.status).toBe('ok');
+    expect(existsSync(join(oc, 'plans', 'player-jump.loopback.json'))).toBe(false);
+
+    const failedAgain = runPlanFeature(planOptions(oc, { feature: 'player-jump', testCases: TEST_CASES, testability: 'FAIL' }));
+    expect(failedAgain.status).toBe('loopback');
+  });
+
+  test('refuses a non-kebab slug so the artifact can only land under .opencode/plans/', () => {
+    const oc = join(fixture, 'plan-slug', '.opencode');
+    enableTdd(oc);
+    const result = runPlanFeature(planOptions(oc, { feature: '../escape', testCases: TEST_CASES, testability: 'PASS' }));
+    expect(result.status).toBe('refused');
+    expect(result.written).toBe(false);
+    expect(existsSync(join(oc, 'escape.md'))).toBe(false);
+  });
+
+  test('refuses a missing verdict or missing test cases', () => {
+    const oc = join(fixture, 'plan-missing', '.opencode');
+    enableTdd(oc);
+    expect(runPlanFeature(planOptions(oc, { feature: 'player-jump', testCases: TEST_CASES })).status).toBe('refused');
+    expect(runPlanFeature(planOptions(oc, { feature: 'player-jump', testability: 'PASS' })).status).toBe('refused');
+  });
+});
+
 describe('compose dispatcher', () => {
   test('routes each ability to its handler', async () => {
     const board = await runCompose({ ...base, ability: 'coordination-board', verb: 'status' });
@@ -401,18 +548,22 @@ describe('compose dispatcher', () => {
 
     const ci = await runCompose({ ...base, ability: 'ci-status-baseline' });
     expect(ci.ability).toBe('ci-status-baseline');
+
+    const plan = await runCompose({ ...base, ability: 'plan-feature', feature: 'x', testCases: 'test', testability: 'PASS' });
+    expect(plan.ability).toBe('plan-feature');
   });
 });
 
 describe('Compose command contracts', () => {
   const schema = JSON.parse(readFileSync(schemaPath, 'utf8'));
 
-  test('declares exactly the four abilities', () => {
+  test('declares exactly the five abilities', () => {
     expect(COMPOSE_ABILITIES).toEqual([
       'coordination-board',
       'primitive-composition',
       'contract-aware-design',
       'ci-status-baseline',
+      'plan-feature',
     ]);
   });
 
@@ -442,7 +593,7 @@ describe('Compose command contracts', () => {
 });
 
 describe('unity-compose bundle', () => {
-  test('lists the four abilities', () => {
+  test('lists the five abilities', () => {
     const res = spawnSync(process.execPath, [bundle, '--list'], { encoding: 'utf8' });
     expect(res.status).toBe(0);
     expect(res.stdout.trim().split(/\r?\n/)).toEqual(COMPOSE_ABILITIES);
