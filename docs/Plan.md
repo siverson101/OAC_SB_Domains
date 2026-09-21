@@ -309,16 +309,29 @@ verification extraction test.
 ### Step 5.3 — TDD toggle + test-first workflows
 
 - **Context:** unity-coding-skills `skills/plan-feature`, `skills/fix-bug`
-  (`STATUS: OK/NG`, `TESTABILITY: PASS/WARN/FAIL`). Implement `failing-test-first` and
-  `plan-feature` (test-designer → failing-test-writer) behind the TDD toggle. TDD off still requires
-  tests (FR4).
-- **Completion:** FTF returns `STATUS: OK/NG` and aborts on NG; the red step confirms the test fails
-  for the expected reason.
+  (`STATUS: OK/NG`, `TESTABILITY: PASS/WARN/FAIL`); design reference for the workflow rules is the
+  workspace `MattSkills/skills/engineering` set (`to-spec`, `tdd`, `to-tickets`, `wayfinder`).
+  Implement `failing-test-first` and `plan-feature` (test-designer → failing-test-writer) behind the
+  TDD toggle. TDD off still requires tests (FR4).
+- **Plan artifact:** `plan-feature` emits a plan file (not a Claude-Code plan-mode toggle — OAC has no
+  plan mode). Sections, adapted from the reference plus `to-spec`/`tdd`: **Context**, **Implementation
+  Design** (seams, class/method signatures, file placement), **Test Cases** (Editor/Unit/Integration/
+  Visual/Manual, pasted verbatim from test-designer), **Testing Decisions** (the seams under test, what
+  makes a good test, prior art), **Testability Assessment** (`PASS`/`WARN`/`FAIL`, one retry then
+  abort), **Known Trade-offs**, **Development Workflow**.
+- **TDD loop rules (from `tdd`):** red before green; one vertical slice (one seam, one test, one
+  minimal implementation) at a time; tests at pre-agreed public seams only; refactoring belongs to
+  review, not the loop; reject implementation-coupled, tautological, and horizontally-sliced tests.
+- **Completion:** `plan-feature` emits the plan artifact; FTF returns `STATUS: OK/NG` and aborts on NG;
+  the red step confirms the test fails for the expected reason.
 
 ### Step 5.4 — Test plans & dedup
 
 - **Context:** `test_plan` field (Step 1.1), per-feature `test-plan.md`. Dedup runs over the suite
-  (name/assertion comparison), merges/removes redundant tests, records an artifact.
+  (name/assertion comparison), merges/removes redundant tests, records an artifact. A duplicate is
+  **same condition + same assertion**; never trade coverage for tidiness; never merge same-condition
+  tests into one multi-assert test (from the `tdd` anti-patterns and unity-coding-skills
+  `test-deduplicator`).
 - **Completion:** a dedup run on a fixture suite with two redundant tests removes one and records the
   removal.
 
