@@ -12,6 +12,7 @@ uses: [gather-unity-context]
 provides: [compile-and-verify-project]
 requires: [compile-state]
 usedBy: [gate-review]
+testPlan: ["Checkpoint the compile state before a mutation", "Introduce a compile error and confirm newIssues reports it", "Confirm a no-op reports a null delta rather than clean"]
 versionCompatibility: { unity: ["6.0", "6.3", "6.5", "LTS+"] }
 ---
 

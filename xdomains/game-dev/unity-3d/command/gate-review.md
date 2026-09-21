@@ -11,6 +11,7 @@ safetyGate: { mutates: false, requiresEditor: false }
 uses: [compile-and-verify-project, run-edit-mode-tests, run-play-mode-tests]
 provides: [gate-review]
 requires: [gate-state, unity-verification-report]
+testPlan: ["Fold a passed and a failed gate and confirm strictest-wins", "Confirm an uncertain external verdict folds at least as strict as warning", "Confirm review intensity lean skips the performance gate"]
 versionCompatibility: { unity: ["6.0", "6.3", "6.5", "LTS+"] }
 ---
 

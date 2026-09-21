@@ -4,6 +4,7 @@ import { runContractAwareDesign, type ContractAwareResult } from './contract-awa
 import { runCoordinationBoard, type CoordinationBoardResult } from './coordination-board';
 import { runPlanFeature, type PlanFeatureResult } from './plan-feature';
 import { runPrimitiveComposition, type PrimitiveCompositionResult } from './primitive-composition';
+import { runTestPlan, type TestPlanResult } from './test-plan';
 import type { ComposeOptions } from './types';
 
 export type ComposeResult =
@@ -11,7 +12,8 @@ export type ComposeResult =
   | PrimitiveCompositionResult
   | ContractAwareResult
   | CiStatusBaselineResult
-  | PlanFeatureResult;
+  | PlanFeatureResult
+  | TestPlanResult;
 
 // async because the coordination board queues on --wait-seconds.
 export async function runCompose(options: ComposeOptions): Promise<ComposeResult> {
@@ -26,6 +28,8 @@ export async function runCompose(options: ComposeOptions): Promise<ComposeResult
       return runCiStatusBaseline(options);
     case 'plan-feature':
       return runPlanFeature(options);
+    case 'test-plan':
+      return runTestPlan(options);
     default: {
       const exhaustive: never = options.ability;
       throw new Error(`unsupported Compose ability: ${String(exhaustive)}`);

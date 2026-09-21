@@ -13,6 +13,7 @@ const COMPOSE_ABILITY_NAMES = [
   'contract-aware-design',
   'ci-status-baseline',
   'plan-feature',
+  'test-plan',
 ] as const;
 
 export type ComposeAbility = (typeof COMPOSE_ABILITY_NAMES)[number];
@@ -29,6 +30,7 @@ export const COMPOSE_MODES: Record<ComposeAbility, ComposeMode> = {
   'contract-aware-design': 'offline',
   'ci-status-baseline': 'both',
   'plan-feature': 'offline',
+  'test-plan': 'offline',
 };
 
 export type ComposeStatus =
@@ -91,4 +93,7 @@ export interface ComposeOptions {
   testingDecisions?: string;
   testability?: string;
   tradeOffs?: string;
+  planAbilities?: string[];
+  commandsDir?: string;
+  featuresMap?: string;
 }

@@ -9,6 +9,8 @@
 //   unity-verify ... --ability gate-review --review-intensity lean --json
 //   unity-verify ... --ability failing-test-first --test "PlayerTests.JumpTest" \
 //     --expected-reason "NullReferenceException" --failure-message "..." --json
+//   unity-verify ... --ability test-deduplication --feature <slug> \
+//     --tests Assets/Tests --json
 //   unity-verify --list
 //
 // Verify never mutates the project. Every ability is fail-soft: without a Unity
@@ -34,6 +36,13 @@ function render(result: VerifyResult): string {
   }
   if ('gates' in result) lines.push(`  gates: ${result.gates.status} (${result.gates.strictest ?? 'none'})`);
   if ('redStep' in result && result.redStep) lines.push(`  STATUS: ${result.redStep}`);
+  if ('removals' in result) {
+    lines.push(
+      `  action: ${result.action} · tests: ${result.totalTests} · removals: ${result.removals.length} · merges: ${result.merges.length} · written: ${result.written}`
+    );
+    for (const removal of result.removals) lines.push(`  remove ${removal.name} (keep ${removal.keptName})`);
+    for (const merge of result.merges) lines.push(`  merge ${merge.removedNames.join(', ')} into ${merge.keptName}`);
+  }
   for (const error of result.errors) lines.push(`  error: ${error}`);
   return lines.join('\n');
 }

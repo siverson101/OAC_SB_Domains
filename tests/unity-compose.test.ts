@@ -30,6 +30,7 @@ import {
   PLAN_SECTIONS,
   runPlanFeature,
 } from '../tools/unity/unity-compose/src/plan-feature';
+import { runTestPlan } from '../tools/unity/unity-compose/src/test-plan';
 import { runCompose } from '../tools/unity/unity-compose/src/abilities';
 import { parseYaml } from '../tools/shared/yaml';
 import { COMPOSE_ABILITIES, COMPOSE_MODES, type ComposeOptions } from '../tools/unity/unity-compose/src/types';
@@ -535,6 +536,83 @@ describe('plan-feature', () => {
   });
 });
 
+describe('test-plan', () => {
+  function writeCapability(dir: string, id: string, testPlan: string[] | null, summary = `${id} capability`): void {
+    mkdirSync(dir, { recursive: true });
+    const lines = ['---', `id: ${id}`, `summary: ${summary}`, 'family: compose', 'mode: offline'];
+    if (testPlan) lines.push(`testPlan: [${testPlan.map((step) => `"${step}"`).join(', ')}]`);
+    lines.push('---', '', `# ${id}`);
+    writeFileSync(join(dir, `${id}.md`), lines.join('\n'));
+  }
+
+  function planOptions(oc: string, extra: Partial<ComposeOptions> = {}): ComposeOptions {
+    return { ...base, ability: 'test-plan' as const, opencodeDir: oc, ...extra };
+  }
+
+  test('renders a section per capability and a deduplicated checklist', () => {
+    const oc = join(fixture, 'test-plan-write', '.opencode');
+    const commands = join(fixture, 'test-plan-write', 'command');
+    writeCapability(commands, 'alpha', ['shared step', 'alpha only']);
+    writeCapability(commands, 'beta', ['shared step', 'beta only']);
+
+    const result = runTestPlan(planOptions(oc, { feature: 'player-jump', planAbilities: ['alpha', 'beta'], commandsDir: commands }));
+
+    expect(result.status).toBe('ok');
+    expect(result.written).toBe(true);
+    expect(result.sections).toBe(2);
+    expect(result.checklist).toBe(3);
+    expect(result.planPath).toContain('/test-plans/player-jump.md');
+
+    const markdown = readFileSync(join(oc, 'test-plans', 'player-jump.md'), 'utf8');
+    expect(markdown).toContain('## alpha');
+    expect(markdown).toContain('## beta');
+    expect(markdown).toContain('- [ ] alpha only');
+    expect(markdown).toContain('- [ ] beta only');
+    expect(markdown.match(/shared step/g)?.length).toBe(1);
+  });
+
+  test('a missing capability and a missing testPlan are problems, not crashes', () => {
+    const oc = join(fixture, 'test-plan-missing', '.opencode');
+    const commands = join(fixture, 'test-plan-missing', 'command');
+    writeCapability(commands, 'alpha', ['alpha step']);
+    writeCapability(commands, 'empty', null);
+
+    const result = runTestPlan(planOptions(oc, { feature: 'player-jump', planAbilities: ['alpha', 'empty', 'ghost'], commandsDir: commands }));
+
+    expect(result.status).toBe('observed_locally');
+    expect(result.written).toBe(true);
+    expect(result.problems.join(' ')).toContain('ghost');
+    expect(result.problems.join(' ')).toContain('empty');
+    expect(result.problems.join(' ')).toContain('testPlan');
+
+    const markdown = readFileSync(join(oc, 'test-plans', 'player-jump.md'), 'utf8');
+    expect(markdown).toContain('> Problem:');
+  });
+
+  test('reads a feature→abilities mapping when --abilities is absent', () => {
+    const oc = join(fixture, 'test-plan-map', '.opencode');
+    const commands = join(fixture, 'test-plan-map', 'command');
+    writeCapability(commands, 'alpha', ['alpha step']);
+    mkdirSync(join(oc, 'test-plans'), { recursive: true });
+    writeFileSync(join(oc, 'test-plans', 'features.json'), JSON.stringify({ 'player-jump': ['alpha'] }));
+
+    const result = runTestPlan(planOptions(oc, { feature: 'player-jump', commandsDir: commands }));
+    expect(result.status).toBe('ok');
+    expect(result.sections).toBe(1);
+  });
+
+  test('refuses a non-kebab slug and writes nothing outside .opencode/test-plans/', () => {
+    const oc = join(fixture, 'test-plan-slug', '.opencode');
+    const commands = join(fixture, 'test-plan-slug', 'command');
+    writeCapability(commands, 'alpha', ['alpha step']);
+
+    const result = runTestPlan(planOptions(oc, { feature: '../escape', planAbilities: ['alpha'], commandsDir: commands }));
+    expect(result.status).toBe('refused');
+    expect(result.written).toBe(false);
+    expect(existsSync(join(oc, 'test-plans'))).toBe(false);
+  });
+});
+
 describe('compose dispatcher', () => {
   test('routes each ability to its handler', async () => {
     const board = await runCompose({ ...base, ability: 'coordination-board', verb: 'status' });
@@ -551,19 +629,23 @@ describe('compose dispatcher', () => {
 
     const plan = await runCompose({ ...base, ability: 'plan-feature', feature: 'x', testCases: 'test', testability: 'PASS' });
     expect(plan.ability).toBe('plan-feature');
+
+    const testPlan = await runCompose({ ...base, ability: 'test-plan', feature: 'x', planAbilities: ['a'] });
+    expect(testPlan.ability).toBe('test-plan');
   });
 });
 
 describe('Compose command contracts', () => {
   const schema = JSON.parse(readFileSync(schemaPath, 'utf8'));
 
-  test('declares exactly the five abilities', () => {
+  test('declares exactly the six abilities', () => {
     expect(COMPOSE_ABILITIES).toEqual([
       'coordination-board',
       'primitive-composition',
       'contract-aware-design',
       'ci-status-baseline',
       'plan-feature',
+      'test-plan',
     ]);
   });
 
@@ -593,7 +675,7 @@ describe('Compose command contracts', () => {
 });
 
 describe('unity-compose bundle', () => {
-  test('lists the five abilities', () => {
+  test('lists the six abilities', () => {
     const res = spawnSync(process.execPath, [bundle, '--list'], { encoding: 'utf8' });
     expect(res.status).toBe(0);
     expect(res.stdout.trim().split(/\r?\n/)).toEqual(COMPOSE_ABILITIES);

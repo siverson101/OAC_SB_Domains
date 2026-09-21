@@ -12,6 +12,7 @@ uses: [gather-unity-context]
 provides: [run-edit-mode-tests]
 requires: [unity-cli, test-inventory]
 usedBy: [gate-review]
+testPlan: ["Run the EditMode gate with an Editor available and confirm the counts", "Confirm the ability fails soft with no Unity CLI", "Confirm a regression reports newIssues"]
 versionCompatibility: { unity: ["6.0", "6.3", "6.5", "LTS+"] }
 ---
 

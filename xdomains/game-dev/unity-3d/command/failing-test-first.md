@@ -11,6 +11,7 @@ safetyGate: { mutates: false, requiresEditor: false }
 uses: [run-edit-mode-tests, run-play-mode-tests]
 provides: [failing-test-first]
 requires: [unity-studio-config, test-results]
+testPlan: ["Confirm STATUS OK when the named test fails for the expected reason", "Confirm STATUS NG when the test passes unexpectedly", "Confirm TDD off refuses clearly"]
 versionCompatibility: { unity: ["6.0", "6.3", "6.5", "LTS+"] }
 ---
 

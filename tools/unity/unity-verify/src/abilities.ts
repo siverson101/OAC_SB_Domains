@@ -1,8 +1,10 @@
 // Dispatcher for the five Verify abilities (Phase 2 Step 2.5, Phase 5 Step 5.3, ADR-0015).
 //
-// None of these abilities mutate the project. They checkpoint, scan, run tests,
-// and fold gates; the delta is always reported with the honesty rules from
-// `delta.ts`.
+// None of these abilities mutate the project assets. They checkpoint, scan, run
+// tests, and fold gates; the delta is always reported with the honesty rules
+// from `delta.ts`. `test-deduplication` is the one exception to "read-only": it
+// is dry-run-first, and `--apply` removes true-duplicate test methods and records
+// a dedup artifact under `.opencode/test-dedup/`.
 import { join } from 'node:path';
 import { readJson } from '../../../shared/io';
 import { findExecutable } from '../../../shared/toolchain';
@@ -15,6 +17,7 @@ import {
 } from './checkpoint';
 import { computeDelta, notComputedDelta } from './delta';
 import { runFailingTestFirst, type FailingTestFirstResult } from './failing-test-first';
+import { runTestDeduplication, type TestDeduplicationResult } from './test-deduplication';
 import {
   foldGates,
   gateEntriesFromState,
@@ -53,7 +56,8 @@ export type VerifyResult =
   | CompileVerifyResult
   | TestRunVerifyResult
   | GateReviewResult
-  | FailingTestFirstResult;
+  | FailingTestFirstResult
+  | TestDeduplicationResult;
 
 function readData(options: VerifyOptions, file: string): Json | null {
   return readJson<Json>(join(projectDataDir(options), file));
@@ -226,6 +230,8 @@ export function runVerify(options: VerifyOptions): VerifyResult {
       return gateReview(options);
     case 'failing-test-first':
       return runFailingTestFirst(options);
+    case 'test-deduplication':
+      return runTestDeduplication(options);
     default: {
       const exhaustive: never = options.ability;
       throw new Error(`unsupported Verify ability: ${String(exhaustive)}`);
