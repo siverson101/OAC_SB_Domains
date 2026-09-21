@@ -11,7 +11,6 @@ safetyGate: { mutates: true, requiresEditor: false, advisory: true, writesState:
 uses: []
 provides: [coordination-board, coordination-claims, editor-hold]
 requires: [opencode-coordination-dir]
-usedBy: [unity-3d-orchestrator, subagents/unity/implementer, subagents/unity/scene, subagents/unity/qa]
 versionCompatibility: { unity: ["6.0", "6.3", "6.5", "LTS+"] }
 ---
 

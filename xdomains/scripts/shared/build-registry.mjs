@@ -76,6 +76,7 @@ function asRecord(value) {
 // tools/unity/studio-config/src/types.ts
 var STUDIO_MODES = ["lean", "full"];
 var REVIEW_INTENSITIES = ["full", "lean", "solo"];
+var MODEL_TIERS = ["router", "lead", "specialist"];
 var STUDIO_CONFIG_SCHEMA_VERSION = 1;
 var DEFAULT_STUDIO_CONFIG = {
   schemaVersion: STUDIO_CONFIG_SCHEMA_VERSION,
@@ -83,7 +84,8 @@ var DEFAULT_STUDIO_CONFIG = {
   reviewIntensity: "full",
   toggles: { tdd: false, ftf: false },
   patterns: [],
-  packages: []
+  packages: [],
+  modelTiers: {}
 };
 
 // tools/unity/studio-config/src/config.ts
@@ -94,7 +96,8 @@ var KNOWN_KEYS = new Set([
   "reviewIntensity",
   "toggles",
   "patterns",
-  "packages"
+  "packages",
+  "modelTiers"
 ]);
 var KNOWN_TOGGLE_KEYS = new Set(["tdd", "ftf"]);
 function defaultStudioConfig() {
@@ -102,7 +105,8 @@ function defaultStudioConfig() {
     ...DEFAULT_STUDIO_CONFIG,
     toggles: { ...DEFAULT_STUDIO_CONFIG.toggles },
     patterns: [],
-    packages: []
+    packages: [],
+    modelTiers: { ...DEFAULT_STUDIO_CONFIG.modelTiers }
   };
 }
 function parseStringArray(value, field, problems) {
@@ -169,6 +173,35 @@ function parseToggles(value, problems) {
   }
   return toggles;
 }
+function parseModelTiers(value, problems) {
+  const tiers = {};
+  if (value === undefined)
+    return tiers;
+  const record = asRecord(value);
+  if (!record) {
+    problems.push({
+      field: "modelTiers",
+      message: `expected an object mapping ${MODEL_TIERS.join("|")} to a model id`
+    });
+    return tiers;
+  }
+  for (const key of Object.keys(record)) {
+    if (!MODEL_TIERS.includes(key)) {
+      problems.push({ field: `modelTiers.${key}`, message: `unknown tier; expected one of ${MODEL_TIERS.join("|")}` });
+      continue;
+    }
+    const model = record[key];
+    if (typeof model !== "string" || model.trim() === "") {
+      problems.push({
+        field: `modelTiers.${key}`,
+        message: `expected a non-empty model id string, got ${JSON.stringify(model)}`
+      });
+      continue;
+    }
+    tiers[key] = model.trim();
+  }
+  return tiers;
+}
 function parseStudioConfig(value) {
   const problems = [];
   const record = asRecord(value);
@@ -199,7 +232,8 @@ function parseStudioConfig(value) {
     reviewIntensity: parseIntensity(record.reviewIntensity, problems),
     toggles: parseToggles(record.toggles, problems),
     patterns: parseStringArray(record.patterns, "patterns", problems),
-    packages: parseStringArray(record.packages, "packages", problems)
+    packages: parseStringArray(record.packages, "packages", problems),
+    modelTiers: parseModelTiers(record.modelTiers, problems)
   };
   return { config, problems };
 }
@@ -590,15 +624,21 @@ function walkFiles(dir, base, out = []) {
   }
   return out;
 }
-function entry(domainDir, relPath, id, consumes, layer) {
+function asModelTier(value) {
+  return value && MODEL_TIERS.includes(value) ? value : undefined;
+}
+function entry(domainDir, relPath, id, consumes, layer, modelTiers) {
   const fm = readFrontmatter(join2(domainDir, relPath));
+  const tier = modelTiers ? asModelTier(frontmatterString(fm, "tier")) : undefined;
   return {
     id,
     name: frontmatterString(fm, "name") || id,
     path: relPath,
     description: frontmatterString(fm, "description"),
     consumes: consumes.length > 0 ? consumes : undefined,
-    layer
+    layer,
+    tier,
+    model: tier ? modelTiers?.[tier] : undefined
   };
 }
 function candidateKeys(path, id) {
@@ -639,6 +679,7 @@ function absentStudioConfig() {
     toggles: { ...defaults.toggles },
     patterns: [],
     packages: [],
+    modelTiers: { ...defaults.modelTiers },
     conflicts: [],
     problems: [],
     valid: true
@@ -662,6 +703,7 @@ function buildStudioConfig(domainDir, opencodeDir) {
     toggles: resolved.resolution.config.toggles,
     patterns: resolved.resolution.enabledPatterns,
     packages: resolved.resolution.enabledPackages,
+    modelTiers: resolved.resolution.config.modelTiers,
     conflicts: resolved.resolution.conflicts,
     problems: resolved.resolution.problems,
     valid: resolved.resolution.valid
@@ -672,10 +714,10 @@ function buildRegistry(domainDir, generatedAt, opencodeDir) {
   const projections = readJson(join2(domainDir, "context-projections.json")) ?? {};
   const consumers = projections.consumers ?? {};
   const studioConfig = buildStudioConfig(domainDir, opencodeDir);
-  const mapEntries = (paths, layer) => (paths ?? []).map((rel) => entry(domainDir, rel, basename(rel, ".md"), consumedOutputs(rel, basename(rel, ".md"), consumers), layer));
+  const mapEntries = (paths, layer, modelTiers) => (paths ?? []).map((rel) => entry(domainDir, rel, basename(rel, ".md"), consumedOutputs(rel, basename(rel, ".md"), consumers), layer, modelTiers));
   const roster = selectStudioRoster(manifest, studioConfig.studioMode);
-  const agents = mapEntries(roster.agents);
-  const subagents = mapEntries(roster.subagents);
+  const agents = mapEntries(roster.agents, undefined, studioConfig.modelTiers);
+  const subagents = mapEntries(roster.subagents, undefined, studioConfig.modelTiers);
   const commands = mapEntries(manifest.commands, "command");
   const abilities = (manifest.abilities ?? []).map((ability) => {
     const rel = `command/${ability}.md`;
@@ -808,6 +850,10 @@ function escapeCell2(value) {
 function entriesTable(entries, options = {}) {
   const lines = [];
   const header = ["Id", "Name", "Path", "Description"];
+  if (options.tier)
+    header.push("Tier");
+  if (options.model)
+    header.push("Model");
   if (options.layer)
     header.push("Layer");
   if (options.realised)
@@ -820,6 +866,10 @@ function entriesTable(entries, options = {}) {
   lines.push(`|${header.map(() => "---").join("|")}|`);
   for (const entry of entries) {
     const row = [entry.id, entry.name, `\`${entry.path}\``, escapeCell2(entry.description)];
+    if (options.tier)
+      row.push(entry.tier ?? "");
+    if (options.model)
+      row.push(entry.model ?? "");
     if (options.layer)
       row.push(entry.layer ?? "");
     if (options.realised)
@@ -902,8 +952,8 @@ function renderRegistry(registry) {
   lines.push("> Layering: **tool** = thin typed adapter (no workflow logic); **ability** = named capability composing tools; **command** = user-invocable entry realising an ability (ADR-0004 / ADR-0012).");
   lines.push("");
   studioConfigSection(lines, registry.studioConfig);
-  section(lines, "Agents", registry.agents, { consumes: true });
-  section(lines, "SubAgents", registry.subagents, { consumes: true });
+  section(lines, "Agents", registry.agents, { consumes: true, tier: true, model: true });
+  section(lines, "SubAgents", registry.subagents, { consumes: true, tier: true, model: true });
   section(lines, "Commands", registry.commands, { consumes: true, layer: true });
   section(lines, "Abilities", registry.abilities, { realised: true, layer: true });
   section(lines, "Context", registry.context, { consumes: true });

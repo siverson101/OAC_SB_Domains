@@ -11,6 +11,14 @@ export type StudioMode = (typeof STUDIO_MODES)[number];
 export const REVIEW_INTENSITIES = ['full', 'lean', 'solo'] as const;
 export type ReviewIntensity = (typeof REVIEW_INTENSITIES)[number];
 
+// Abstract agent tiers. Agent frontmatter declares a `tier`; `modelTiers` maps
+// that tier to a concrete model id so no vendor id is hardcoded in an agent.
+export const MODEL_TIERS = ['router', 'lead', 'specialist'] as const;
+export type ModelTier = (typeof MODEL_TIERS)[number];
+
+// Sparse tier -> model id map. An absent tier resolves to no model.
+export type ModelTiers = Partial<Record<ModelTier, string>>;
+
 export interface StudioToggles {
   tdd: boolean;
   ftf: boolean;
@@ -27,6 +35,7 @@ export interface StudioConfig {
   toggles: StudioToggles;
   patterns: string[];
   packages: string[];
+  modelTiers: ModelTiers;
 }
 
 // The fail-soft default when the file is missing or unreadable: Lean hierarchy,
@@ -38,6 +47,7 @@ export const DEFAULT_STUDIO_CONFIG: StudioConfig = {
   toggles: { tdd: false, ftf: false },
   patterns: [],
   packages: [],
+  modelTiers: {},
 };
 
 // A schema/loader complaint. Problems are reported alongside the effective
