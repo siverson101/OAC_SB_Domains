@@ -27,7 +27,7 @@ import {
 import { runContractAwareDesign } from '../tools/unity/unity-compose/src/contract-aware-design';
 import { runCiStatusBaseline } from '../tools/unity/unity-compose/src/ci-status-baseline';
 import { runCompose } from '../tools/unity/unity-compose/src/abilities';
-import { parseYaml } from '../tools/unity/unity-compose/src/yaml';
+import { parseYaml } from '../tools/shared/yaml';
 import { COMPOSE_ABILITIES, COMPOSE_MODES, type ComposeOptions } from '../tools/unity/unity-compose/src/types';
 import { parseFrontmatter } from '../tools/shared/registry/src/frontmatter';
 import { validateContract } from '../tools/shared/registry/src/contract';
@@ -304,6 +304,17 @@ describe('primitive-composition', () => {
     const result = runPrimitiveComposition({ ...base, ability: 'primitive-composition', primitivesDir: join(fixture, 'primitives') });
     expect(result.status).toBe('observed_locally');
     expect(result.report.primitives).toHaveLength(2);
+  });
+
+  test('reports conflicts to non-imported primitives as unresolved', () => {
+    const shipped = join(repoRoot, 'xdomains', 'game-dev', 'unity-3d', 'primitives');
+    const report = analyzeComposition(discoverPrimitives(shipped));
+    const hasConflictEdge = (from: string, to: string): boolean =>
+      report.edges.some((edge) => edge.kind === 'conflicts' && edge.from === from && edge.to === to);
+    expect(hasConflictEdge('csharp.gameplay.match3', 'csharp.match3.grid_core')).toBe(true);
+    expect(hasConflictEdge('csharp.utils.crc32', 'yarnspinner.dialogue.core')).toBe(true);
+    expect(report.unresolved).toContain('csharp.gameplay.match3 conflicts with unknown primitive "csharp.match3.grid_core"');
+    expect(report.unresolved).toContain('csharp.utils.crc32 conflicts with unknown primitive "yarnspinner.dialogue.core"');
   });
 });
 

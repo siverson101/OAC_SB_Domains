@@ -1,0 +1,47 @@
+id: unity.data.csv_parser
+name: CSV Parser Utility
+engine: Unity
+language: C#
+category: data
+status: extracted
+genre_tags:
+- all
+summary: A robust and standalone CSV parser for Unity, handling reading, writing, custom separators, and
+  string escaping.
+when_to_use:
+- When you need to parse static CSV data exported from Excel or Google Sheets into your game without adding
+  large external libraries.
+- When dealing with CSV files that contain escaped commas inside strings (e.g., '"Hello, World!", 123').
+when_not_to_use:
+- If you need extremely high-performance JSON serialization instead (CSV is inherently string-based and
+  generates garbage on parsing).
+requires:
+  components: []
+  scene_objects: []
+  primitives: []
+provides:
+  events: []
+  state: []
+config_schema: {}
+compatible_primitives: []
+conflicts_with: []
+setup_steps:
+- Place CsvParser.cs in your project.
+- Instantiate `using (var parser = new CsvParser(stream)) { var data = parser.GetListCsvData(); }`
+test_plan:
+- Smoke-test single-column input (e.g. a file containing only `alpha`) and assert a non-empty row list
+  is returned.
+- Do not assert correct multi-column or quoted-comma splitting; the upstream field loop is known-broken
+  (see failure_modes), so `123, "A string, with a comma"` will not parse as two columns.
+failure_modes:
+- The upstream `ParseLine` field-splitting loop is broken. It adds a field on every character while a
+  column is open (rather than every separator) and only appends the character that opened the column,
+  so a row is emitted as roughly one field per character. Quoted commas (e.g.
+  `"A string, with a comma"`) are therefore not handled despite the summary/when_to_use wording, and
+  `test_plan` must not assert multi-column parsing.
+- Attempting to load large CSV files directly using string paths on Android without using UnityWebRequest
+  (since streaming assets are inside a jar).
+code_files:
+- CsvParser.cs
+source_repo: https://github.com/CragonGame/CasinosClient
+license: MIT

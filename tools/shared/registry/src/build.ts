@@ -1,6 +1,16 @@
 import { readdirSync, statSync } from 'node:fs';
 import { basename, join, relative, sep } from 'node:path';
+import { findPatternCatalog } from '../../../shared/context-files';
 import { readJson } from '../../../shared/io';
+import {
+  defaultStudioConfig,
+  resolveStudioConfigProject,
+  type ConfigProblem,
+  type PatternConflict,
+  type ReviewIntensity,
+  type StudioMode,
+  type StudioToggles,
+} from '../../../unity/studio-config/src/resolve';
 import { frontmatterString, frontmatterStringArray, readFrontmatter } from './frontmatter';
 
 export interface RegistryEntry {
@@ -11,6 +21,7 @@ export interface RegistryEntry {
   realisedAs?: string;
   consumes?: string[];
   layer?: 'tool' | 'ability' | 'command';
+  standardsVersion?: string;
 }
 
 export type RegistryEdgeType = 'agent-ability' | 'workflow-ability' | 'workflow-agent';
@@ -19,6 +30,22 @@ export interface RegistryEdge {
   type: RegistryEdgeType;
   from: string;
   to: string;
+}
+
+// The enabled pattern/package config surfaced from `.opencode/unity-studio.json`
+// (fail-soft: absent -> defaults, `present: false`). Conflicts are reported, not
+// resolved by dropping a pattern.
+export interface RegistryStudioConfig {
+  present: boolean;
+  path: string | null;
+  studioMode: StudioMode;
+  reviewIntensity: ReviewIntensity;
+  toggles: StudioToggles;
+  patterns: string[];
+  packages: string[];
+  conflicts: PatternConflict[];
+  problems: ConfigProblem[];
+  valid: boolean;
 }
 
 export interface Registry {
@@ -35,9 +62,13 @@ export interface Registry {
   abilities: RegistryEntry[];
   context: RegistryEntry[];
   workflows: RegistryEntry[];
+  snippets: RegistryEntry[];
+  templates: RegistryEntry[];
   tools: RegistryEntry[];
   scripts: RegistryEntry[];
   edges: RegistryEdge[];
+  warnings: string[];
+  studioConfig: RegistryStudioConfig;
   projections: { outputDir: string | null; outputs: { file: string; title: string; consumedBy: string[] }[] };
 }
 
@@ -60,6 +91,36 @@ interface Projections {
   outputDir?: string;
   outputs?: { file: string; title?: string }[];
   consumers?: Record<string, string[]>;
+}
+
+interface SnippetEntry {
+  id: string;
+  path: string;
+  description?: string;
+  language?: string;
+  priority?: string;
+  standardsVersion?: string;
+}
+
+interface SnippetManifest {
+  schemaVersion?: number;
+  standardsVersion?: string;
+  snippets?: SnippetEntry[];
+}
+
+interface TemplateEntry {
+  id: string;
+  path: string;
+  description?: string;
+  priority?: string;
+  standardsVersion?: string;
+  files?: string[];
+}
+
+interface TemplateManifest {
+  schemaVersion?: number;
+  standardsVersion?: string;
+  templates?: TemplateEntry[];
 }
 
 function toPosix(path: string): string {
@@ -123,10 +184,69 @@ function consumedOutputs(path: string, id: string, consumers: Record<string, str
   return [...out];
 }
 
-export function buildRegistry(domainDir: string, generatedAt: string): Registry {
+function readKindManifest<T>(
+  domainDir: string,
+  context: string[] | undefined,
+  kind: string
+): { baseDir: string; manifest: T } | null {
+  for (const rel of context ?? []) {
+    const full = join(domainDir, rel);
+    if (!isDir(full)) continue;
+    const manifestPath = join(full, kind, 'manifest.json');
+    const manifest = readJson<T>(manifestPath);
+    if (manifest) return { baseDir: toPosix(join(rel, kind)), manifest };
+  }
+  return null;
+}
+
+function absentStudioConfig(): RegistryStudioConfig {
+  const defaults = defaultStudioConfig();
+  return {
+    present: false,
+    path: null,
+    studioMode: defaults.studioMode,
+    reviewIntensity: defaults.reviewIntensity,
+    toggles: { ...defaults.toggles },
+    patterns: [],
+    packages: [],
+    conflicts: [],
+    problems: [],
+    valid: true,
+  };
+}
+
+function buildStudioConfig(domainDir: string, opencodeDir?: string): RegistryStudioConfig {
+  const opencodePath = opencodeDir ? join(opencodeDir, 'unity-studio.json') : null;
+  const domainPath = join(domainDir, 'unity-studio.json');
+  const catalogPath = findPatternCatalog({ domainDir, opencodeDir });
+
+  // Prefer the installed `.opencode/unity-studio.json`; fall back to the default
+  // config shipped with the domain; otherwise the fail-soft defaults.
+  let resolved = resolveStudioConfigProject({ configPath: opencodePath ?? domainPath, catalogPath });
+  if (opencodePath && !resolved.present) {
+    resolved = resolveStudioConfigProject({ configPath: domainPath, catalogPath });
+  }
+  if (!resolved.present) return absentStudioConfig();
+
+  return {
+    present: true,
+    path: resolved.configPath,
+    studioMode: resolved.resolution.config.studioMode,
+    reviewIntensity: resolved.resolution.config.reviewIntensity,
+    toggles: resolved.resolution.config.toggles,
+    patterns: resolved.resolution.enabledPatterns,
+    packages: resolved.resolution.enabledPackages,
+    conflicts: resolved.resolution.conflicts,
+    problems: resolved.resolution.problems,
+    valid: resolved.resolution.valid,
+  };
+}
+
+export function buildRegistry(domainDir: string, generatedAt: string, opencodeDir?: string): Registry {
   const manifest = readJson<Manifest>(join(domainDir, 'sb-domain.json')) ?? {};
   const projections = readJson<Projections>(join(domainDir, 'context-projections.json')) ?? {};
   const consumers = projections.consumers ?? {};
+  const studioConfig = buildStudioConfig(domainDir, opencodeDir);
 
   const mapEntries = (paths: string[] | undefined, layer?: RegistryEntry['layer']): RegistryEntry[] =>
     (paths ?? []).map((rel) => entry(domainDir, rel, basename(rel, '.md'), consumedOutputs(rel, basename(rel, '.md'), consumers), layer));
@@ -147,14 +267,51 @@ export function buildRegistry(domainDir: string, generatedAt: string): Registry 
     return { id: ability, name: ability, path: rel, realisedAs: exists ? rel : undefined, layer: 'ability' };
   });
 
+  // Exclude the snippet/template kind dirs by comparing the path segment under
+  // each context dir, so a decoy path like `notes/templates/foo.md` is kept.
+  const kindDirs = (manifest.context ?? [])
+    .filter((rel) => isDir(join(domainDir, rel)))
+    .flatMap((rel) => [toPosix(join(rel, 'snippets')), toPosix(join(rel, 'templates'))]);
+  const isKindFile = (rel: string): boolean =>
+    kindDirs.some((dir) => rel === dir || rel.startsWith(`${dir}/`));
+
   const contextFiles = (manifest.context ?? []).flatMap((rel) => {
     const full = join(domainDir, rel);
     return isDir(full) ? walkFiles(full, domainDir) : [rel];
   });
   const context = contextFiles
     .filter((rel) => rel.endsWith('.md'))
+    .filter((rel) => !isKindFile(rel))
     .map((rel) => entry(domainDir, rel, basename(rel, '.md'), consumedOutputs(rel, basename(rel, '.md'), consumers)));
   const workflows = context.filter((c) => c.path.includes('/workflows/'));
+
+  const snippetsManifest = readKindManifest<SnippetManifest>(domainDir, manifest.context, 'snippets');
+  const templatesManifest = readKindManifest<TemplateManifest>(domainDir, manifest.context, 'templates');
+
+  // The fallback only matters when a manifest is absent (no entries are emitted
+  // then); derive it from the domain's context dir rather than hardcoding a
+  // sub-domain so a non-unity-3d domain keeps correct paths.
+  const defaultContextDir =
+    (manifest.context ?? []).find((rel) => isDir(join(domainDir, rel))) ??
+    `context/${manifest.subdomain ?? manifest.name ?? ''}`;
+  const snippetsBaseDir = snippetsManifest?.baseDir ?? toPosix(join(defaultContextDir, 'snippets'));
+  const templatesBaseDir = templatesManifest?.baseDir ?? toPosix(join(defaultContextDir, 'templates'));
+
+  const snippets: RegistryEntry[] = (snippetsManifest?.manifest.snippets ?? []).map((snippet) => ({
+    id: snippet.id,
+    name: snippet.id,
+    path: `${snippetsBaseDir}/${snippet.path}`,
+    description: snippet.description,
+    standardsVersion: snippet.standardsVersion ?? snippetsManifest?.manifest.standardsVersion,
+  }));
+
+  const templates: RegistryEntry[] = (templatesManifest?.manifest.templates ?? []).map((template) => ({
+    id: template.id,
+    name: template.id,
+    path: `${templatesBaseDir}/${template.path}/README.md`,
+    description: template.description,
+    standardsVersion: template.standardsVersion ?? templatesManifest?.manifest.standardsVersion,
+  }));
 
   const tools: RegistryEntry[] = (manifest.tools ?? []).map((tool) => ({ id: tool, name: tool, path: `tools/${tool}`, layer: 'tool' as const }));
   const scripts: RegistryEntry[] = (manifest.scripts ?? []).map((script) => ({ id: basename(script), name: basename(script), path: script }));
@@ -166,9 +323,29 @@ export function buildRegistry(domainDir: string, generatedAt: string): Registry 
     return { file: output.file, title: output.title ?? output.file, consumedBy };
   });
 
+  const knownAbilities = new Set(manifest.abilities ?? []);
+  const knownAgents = new Set(
+    [...(manifest.agents ?? []), ...(manifest.subagents ?? [])].map((rel) => basename(rel, '.md'))
+  );
+
+  const warnings: string[] = [];
   const edges: RegistryEdge[] = [];
+  const seenEdges = new Set<string>();
   const addEdges = (type: RegistryEdgeType, from: string, tos: string[]): void => {
-    for (const to of tos) edges.push({ type, from, to });
+    for (const to of tos) {
+      const key = `${type}\u0000${from}\u0000${to}`;
+      if (seenEdges.has(key)) continue;
+      seenEdges.add(key);
+      if ((type === 'agent-ability' || type === 'workflow-ability') && !knownAbilities.has(to)) {
+        warnings.push(`edge ${type} ${from} -> ${to}: unknown ability`);
+        continue;
+      }
+      if (type === 'workflow-agent' && !knownAgents.has(to)) {
+        warnings.push(`edge ${type} ${from} -> ${to}: unknown agent`);
+        continue;
+      }
+      edges.push({ type, from, to });
+    }
   };
 
   for (const rel of [...(manifest.agents ?? []), ...(manifest.subagents ?? [])]) {
@@ -182,6 +359,15 @@ export function buildRegistry(domainDir: string, generatedAt: string): Registry 
     addEdges('workflow-agent', workflow.id, frontmatterStringArray(fm, 'agents') ?? []);
   }
 
+  // Deterministic order (type, from, to) so reordering `sb-domain.json` or a
+  // frontmatter list does not churn the rendered registry.md.
+  edges.sort((a, b) => {
+    if (a.type !== b.type) return a.type < b.type ? -1 : 1;
+    if (a.from !== b.from) return a.from < b.from ? -1 : 1;
+    if (a.to !== b.to) return a.to < b.to ? -1 : 1;
+    return 0;
+  });
+
   const counts = {
     agents: agents.length,
     subagents: subagents.length,
@@ -189,9 +375,13 @@ export function buildRegistry(domainDir: string, generatedAt: string): Registry 
     abilities: abilities.length,
     context: context.length,
     workflows: workflows.length,
+    snippets: snippets.length,
+    templates: templates.length,
     tools: tools.length,
     scripts: scripts.length,
     edges: edges.length,
+    warnings: warnings.length,
+    studioPatterns: studioConfig.patterns.length,
   };
 
   return {
@@ -208,9 +398,13 @@ export function buildRegistry(domainDir: string, generatedAt: string): Registry 
     abilities,
     context,
     workflows,
+    snippets,
+    templates,
     tools,
     scripts,
     edges,
+    warnings,
+    studioConfig,
     projections: { outputDir: projections.outputDir ?? null, outputs },
   };
 }

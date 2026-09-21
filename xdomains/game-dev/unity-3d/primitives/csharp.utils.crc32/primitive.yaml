@@ -1,0 +1,40 @@
+id: csharp.utils.crc32
+name: Zero-Allocation CRC32 Utility
+engine: Unity
+language: C#
+category: utils
+status: extracted
+genre_tags:
+- any
+summary: A fast and highly decoupled static utility class for generating CRC32 checksums of strings and
+  byte arrays with zero heap allocations.
+when_to_use:
+- When you need to hash strings (e.g., resource paths, asset IDs, networking packets) continuously without
+  causing GC spikes.
+when_not_to_use:
+- When you need a cryptographically secure hash (CRC32 is for checksums, not security).
+requires:
+  components: []
+  scene_objects: []
+  primitives: []
+provides:
+  events: []
+  state: []
+config_schema: {}
+compatible_primitives: []
+conflicts_with:
+- yarnspinner.dialogue.core
+setup_steps:
+- Include `CRC32.cs` in your utility folder.
+- Call `CRC32.GetChecksum(string)` or `CRC32.GetChecksumString(string)`.
+test_plan:
+- Call `GetChecksum` on a string inside an Update loop and verify 0 bytes of GC allocation in the Profiler.
+failure_modes:
+- Passing strings that require more than 1024 bytes of UTF-8 encoding will fall back to `ArrayPool`, which
+  is safe but slightly slower than `stackalloc`.
+- Both declare `Yarn.Utility.CRC32` (the CRC32 primitive was extracted from YarnSpinner). Copying both
+  causes a CS0101 duplicate-definition error; use the YarnSpinner copy if you already depend on it.
+code_files:
+- CRC32.cs
+source_repo: https://github.com/YarnSpinnerTool/YarnSpinner
+license: MIT

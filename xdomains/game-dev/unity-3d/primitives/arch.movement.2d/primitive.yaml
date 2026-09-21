@@ -1,0 +1,42 @@
+id: arch.movement.2d
+name: Arch 2D Movement System
+engine: Unity
+language: C#
+category: movement
+status: extracted
+genre_tags:
+- 2D
+- Simulation
+summary: A high-performance ECS 2D movement system and bounce logic using the Arch framework.
+when_to_use:
+- When simulating thousands of moving 2D entities.
+- When you are already using Arch ECS in Unity.
+when_not_to_use:
+- For simple games with few entities where MonoBehaviours suffice.
+- If you rely on Unity's built-in physics (Rigidbody2D).
+requires:
+  components: []
+  scene_objects: []
+  primitives: []
+provides:
+  events: []
+  state:
+  - Position component
+  - Velocity component
+config_schema:
+  viewport: Rect
+setup_steps:
+- Import the Arch ECS framework to your Unity project.
+- Copy ArchMovement2D.cs to your Scripts folder.
+- Create an Arch World and instantiate MovementSystem in a Manager/Bootstrap script.
+- Call MovementSystem.Update(Time.deltaTime) in the Update loop of your Manager.
+test_plan:
+- Spawn an entity with Position and Velocity components.
+- Observe that its Position updates according to Velocity in the Arch World.
+- Observe that it bounces when hitting the viewport bounds.
+failure_modes:
+- Missing Arch DLLs or source in Unity, causing compilation errors.
+code_files:
+- ArchMovement2D.cs
+source_repo: https://github.com/genaray/Arch
+license: Apache-2.0

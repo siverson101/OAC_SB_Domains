@@ -3,8 +3,9 @@
 // Reads `xdomains/context/programming-patterns.json` (categories, patterns,
 // per-pattern `conflictsWith`) and, given an enabled set, surfaces cross-pattern
 // conflicts instead of silently choosing. Read-only and offline.
-import { dirname, join } from 'node:path';
+import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { patternCatalogCandidates } from '../../../shared/context-files';
 import { readJson, toPosix } from '../../../shared/io';
 import { asArray, asRecord, makeResult, str, stringArray, type ActOptions } from './shared';
 import type { ActBase, Json } from './types';
@@ -53,11 +54,7 @@ function moduleDir(): string {
 }
 
 export function patternTableCandidates(): string[] {
-  const here = moduleDir();
-  return [
-    join(here, '..', '..', 'context', 'programming-patterns.json'),
-    join(here, '..', '..', '..', '..', 'xdomains', 'context', 'programming-patterns.json'),
-  ];
+  return patternCatalogCandidates({ moduleDir: moduleDir() });
 }
 
 export function loadPatternTable(overridePath?: string): { data: Json | null; path: string | null; source: 'bundle' | 'missing' } {

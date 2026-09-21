@@ -1,0 +1,42 @@
+id: unity.system.main_thread_dispatcher
+name: Unity Main Thread Dispatcher
+engine: Unity
+language: C#
+category: system
+status: extracted
+genre_tags:
+- all
+summary: A thread-safe queue that allows background threads (e.g. networking, async callbacks) to schedule
+  Actions or Coroutines to execute on Unity's main thread.
+when_to_use:
+- When receiving data from external SDKs (like Firebase or native plugins) on a background thread, and
+  you need to update Unity UI or GameObjects.
+when_not_to_use:
+- If you are strictly using `async/await` and can capture the Unity `SynchronizationContext` natively.
+requires:
+  components: []
+  scene_objects: []
+  primitives: []
+provides:
+  events: []
+  state: []
+config_schema: {}
+compatible_primitives: []
+conflicts_with: []
+setup_steps:
+- Add the `UnityMainThreadDispatcher` component to a persistent GameObject in your starting scene.
+- From a background thread, call `UnityMainThreadDispatcher.Instance().Enqueue(() => { /* main thread
+  code */ });`.
+test_plan:
+- Spawn a `System.Threading.Thread` and call `Enqueue()` from inside it.
+- Verify the queued action modifies a GameObject successfully without throwing a thread-access exception.
+failure_modes:
+- `Enqueue(IEnumerator)` still allocates a closure per call
+  (`_executionQueue.Enqueue(() => { StartCoroutine(action); })`) despite the class comment claiming the
+  Coroutine allocation overhead was fixed; only the `Action` overload enqueues without a wrapper. The
+  residual closure allocation is per-call and inherent to the current API shape.
+- Forgetting to add the Dispatcher to the scene will result in exceptions when `Instance()` is called.
+code_files:
+- UnityMainThreadDispatcher.cs
+source_repo: https://github.com/PimDeWitte/UnityMainThreadDispatcher
+license: Apache-2.0

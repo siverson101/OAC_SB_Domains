@@ -1,6 +1,8 @@
 {
   "schemaVersion": 1,
   "description": "Offline Unity platform/build-target and version-define reference used by the platform-info Sense ability. Lists the predefined symbols Unity defines per platform and the version-gate defines used for conditional compilation. Read-only, no Editor required.",
+  "unityVersions": ["6.0", "6.3", "6.5", "LTS+"],
+  "updated": "2026-09-20",
   "platforms": [
     {
       "name": "Windows",

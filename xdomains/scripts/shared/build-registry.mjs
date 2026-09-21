@@ -1,9 +1,16 @@
 // tools/shared/registry/src/index.ts
 import { mkdirSync as mkdirSync2, writeFileSync as writeFileSync2 } from "node:fs";
-import { dirname, join as join2, resolve } from "node:path";
+import { dirname, join as join3, resolve } from "node:path";
 
 // tools/shared/io.ts
 import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+function fileExists(path) {
+  try {
+    return statSync(path).isFile();
+  } catch {
+    return false;
+  }
+}
 function readJson(path) {
   try {
     return JSON.parse(readFileSync(path, "utf8"));
@@ -11,13 +18,324 @@ function readJson(path) {
     return null;
   }
 }
+function readText(path) {
+  try {
+    return readFileSync(path, "utf8");
+  } catch {
+    return null;
+  }
+}
 function nowIso() {
   return new Date().toISOString();
+}
+function unique(values) {
+  return Array.from(new Set(values));
 }
 
 // tools/shared/registry/src/build.ts
 import { readdirSync, statSync as statSync2 } from "node:fs";
-import { basename, join, relative, sep } from "node:path";
+import { basename, join as join2, relative, sep } from "node:path";
+
+// tools/shared/context-files.ts
+import { join } from "node:path";
+var PATTERN_CATALOG_FILENAME = "programming-patterns.json";
+function patternCatalogCandidates(search) {
+  const candidates = [];
+  if (search.contextDir)
+    candidates.push(join(search.contextDir, PATTERN_CATALOG_FILENAME));
+  if (search.domainDir) {
+    candidates.push(join(search.domainDir, "..", "..", "context", PATTERN_CATALOG_FILENAME));
+  }
+  if (search.moduleDir) {
+    candidates.push(join(search.moduleDir, "..", "..", "context", PATTERN_CATALOG_FILENAME));
+    candidates.push(join(search.moduleDir, "..", "..", "..", "..", "xdomains", "context", PATTERN_CATALOG_FILENAME));
+  }
+  if (search.opencodeDir) {
+    candidates.push(join(search.opencodeDir, "xdomains", "context", PATTERN_CATALOG_FILENAME));
+    candidates.push(join(search.opencodeDir, "..", "xdomains", "context", PATTERN_CATALOG_FILENAME));
+  }
+  return candidates;
+}
+function findPatternCatalog(search) {
+  return patternCatalogCandidates(search).find((candidate) => fileExists(candidate)) ?? null;
+}
+
+// tools/unity/studio-config/src/catalog.ts
+function loadPatternCatalog(path) {
+  const catalog = readJson(path);
+  if (!catalog || typeof catalog !== "object")
+    return null;
+  return catalog;
+}
+
+// tools/shared/json-helpers.ts
+function asRecord(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? value : null;
+}
+
+// tools/unity/studio-config/src/types.ts
+var STUDIO_MODES = ["lean", "full"];
+var REVIEW_INTENSITIES = ["full", "lean", "solo"];
+var STUDIO_CONFIG_SCHEMA_VERSION = 1;
+var DEFAULT_STUDIO_CONFIG = {
+  schemaVersion: STUDIO_CONFIG_SCHEMA_VERSION,
+  studioMode: "lean",
+  reviewIntensity: "full",
+  toggles: { tdd: false, ftf: false },
+  patterns: [],
+  packages: []
+};
+
+// tools/unity/studio-config/src/config.ts
+var KNOWN_KEYS = new Set([
+  "$schema",
+  "schemaVersion",
+  "studioMode",
+  "reviewIntensity",
+  "toggles",
+  "patterns",
+  "packages"
+]);
+var KNOWN_TOGGLE_KEYS = new Set(["tdd", "ftf"]);
+function defaultStudioConfig() {
+  return {
+    ...DEFAULT_STUDIO_CONFIG,
+    toggles: { ...DEFAULT_STUDIO_CONFIG.toggles },
+    patterns: [],
+    packages: []
+  };
+}
+function parseStringArray(value, field, problems) {
+  if (value === undefined)
+    return [];
+  if (!Array.isArray(value)) {
+    problems.push({ field, message: "expected an array of strings" });
+    return [];
+  }
+  const out = [];
+  for (const item of value) {
+    if (typeof item === "string" && item.trim() !== "") {
+      const id = item.trim();
+      if (!out.includes(id))
+        out.push(id);
+    } else {
+      problems.push({ field, message: `ignored non-string entry ${JSON.stringify(item)}` });
+    }
+  }
+  return out;
+}
+function parseMode(value, problems) {
+  if (value === undefined)
+    return DEFAULT_STUDIO_CONFIG.studioMode;
+  if (typeof value === "string" && STUDIO_MODES.includes(value)) {
+    return value;
+  }
+  problems.push({ field: "studioMode", message: `expected one of ${STUDIO_MODES.join("|")}, got ${JSON.stringify(value)}` });
+  return DEFAULT_STUDIO_CONFIG.studioMode;
+}
+function parseIntensity(value, problems) {
+  if (value === undefined)
+    return DEFAULT_STUDIO_CONFIG.reviewIntensity;
+  if (typeof value === "string" && REVIEW_INTENSITIES.includes(value)) {
+    return value;
+  }
+  problems.push({
+    field: "reviewIntensity",
+    message: `expected one of ${REVIEW_INTENSITIES.join("|")}, got ${JSON.stringify(value)}`
+  });
+  return DEFAULT_STUDIO_CONFIG.reviewIntensity;
+}
+function parseToggles(value, problems) {
+  const toggles = { ...DEFAULT_STUDIO_CONFIG.toggles };
+  if (value === undefined)
+    return toggles;
+  const record = asRecord(value);
+  if (!record) {
+    problems.push({ field: "toggles", message: "expected an object with boolean tdd/ftf flags" });
+    return toggles;
+  }
+  for (const key of Object.keys(record)) {
+    if (!KNOWN_TOGGLE_KEYS.has(key))
+      problems.push({ field: `toggles.${key}`, message: "unknown toggle" });
+  }
+  for (const key of KNOWN_TOGGLE_KEYS) {
+    const flag = record[key];
+    if (flag === undefined)
+      continue;
+    if (typeof flag === "boolean")
+      toggles[key] = flag;
+    else
+      problems.push({ field: `toggles.${key}`, message: `expected a boolean, got ${JSON.stringify(flag)}` });
+  }
+  return toggles;
+}
+function parseStudioConfig(value) {
+  const problems = [];
+  const record = asRecord(value);
+  if (!record) {
+    problems.push({ field: "$", message: "config must be a JSON object" });
+    return { config: defaultStudioConfig(), problems };
+  }
+  for (const key of Object.keys(record)) {
+    if (!KNOWN_KEYS.has(key))
+      problems.push({ field: key, message: "unknown property" });
+  }
+  let schemaVersion = DEFAULT_STUDIO_CONFIG.schemaVersion;
+  if (record.schemaVersion !== undefined) {
+    if (typeof record.schemaVersion !== "number" || !Number.isFinite(record.schemaVersion)) {
+      problems.push({ field: "schemaVersion", message: `expected a number, got ${JSON.stringify(record.schemaVersion)}` });
+    } else if (record.schemaVersion !== STUDIO_CONFIG_SCHEMA_VERSION) {
+      problems.push({
+        field: "schemaVersion",
+        message: `unsupported schema version ${JSON.stringify(record.schemaVersion)}, expected ${STUDIO_CONFIG_SCHEMA_VERSION}`
+      });
+    } else {
+      schemaVersion = record.schemaVersion;
+    }
+  }
+  const config = {
+    schemaVersion,
+    studioMode: parseMode(record.studioMode, problems),
+    reviewIntensity: parseIntensity(record.reviewIntensity, problems),
+    toggles: parseToggles(record.toggles, problems),
+    patterns: parseStringArray(record.patterns, "patterns", problems),
+    packages: parseStringArray(record.packages, "packages", problems)
+  };
+  return { config, problems };
+}
+function loadStudioConfig(path) {
+  const text = readText(path);
+  if (text === null)
+    return { present: false, path, config: defaultStudioConfig(), problems: [] };
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch (error) {
+    return {
+      present: true,
+      path,
+      config: defaultStudioConfig(),
+      problems: [{ field: "$", message: `invalid JSON: ${error instanceof Error ? error.message : String(error)}` }]
+    };
+  }
+  const { config, problems } = parseStudioConfig(parsed);
+  return { present: true, path, config, problems };
+}
+
+// tools/unity/studio-config/src/resolver.ts
+function resolveStudioConfig(config, catalog, extraProblems = []) {
+  const problems = [...extraProblems];
+  const conflicts = [];
+  const patterns = unique(config.patterns);
+  const packages = unique(config.packages);
+  const enabled = new Set(patterns);
+  const patternById = new Map((catalog.patterns ?? []).map((pattern) => [pattern.id, pattern]));
+  const categoryById = new Map((catalog.categories ?? []).map((category) => [category.id, category]));
+  for (const id of patterns) {
+    if (!patternById.has(id))
+      problems.push({ field: "patterns", message: `unknown pattern id '${id}'` });
+  }
+  const byCategory = {};
+  for (const category of catalog.categories ?? []) {
+    const members = unique((category.patterns ?? []).filter((id) => enabled.has(id)));
+    for (const id of patterns) {
+      if (patternById.get(id)?.category === category.id && !members.includes(id))
+        members.push(id);
+    }
+    if (members.length === 0)
+      continue;
+    byCategory[category.id] = members;
+    if (members.length > 1) {
+      if (category.selection === "single") {
+        conflicts.push({
+          kind: "single-selection",
+          category: category.id,
+          patterns: members,
+          message: `category '${category.id}' allows a single pattern but ${members.length} are enabled: ${members.join(", ")}`
+        });
+      }
+      if (category.mutuallyExclusive) {
+        conflicts.push({
+          kind: "mutually-exclusive",
+          category: category.id,
+          patterns: members,
+          message: `category '${category.id}' is mutually exclusive but combines: ${members.join(", ")}`
+        });
+      }
+    }
+  }
+  for (const id of patterns) {
+    const category = patternById.get(id)?.category;
+    if (category && !categoryById.has(category)) {
+      problems.push({ field: "patterns", message: `pattern '${id}' references unknown category '${category}'` });
+    }
+  }
+  const seenPairs = new Set;
+  for (const id of patterns) {
+    for (const other of patternById.get(id)?.conflictsWith ?? []) {
+      if (!enabled.has(other))
+        continue;
+      const pair = [id, other].sort();
+      const key = pair.join("\x00");
+      if (seenPairs.has(key))
+        continue;
+      seenPairs.add(key);
+      conflicts.push({
+        kind: "conflictsWith",
+        patterns: pair,
+        message: `patterns '${pair[0]}' and '${pair[1]}' conflict`
+      });
+    }
+  }
+  const effective = { ...config, patterns, packages };
+  return {
+    config: effective,
+    enabledPatterns: patterns,
+    enabledPackages: packages,
+    byCategory,
+    conflicts,
+    problems,
+    valid: conflicts.length === 0 && problems.length === 0
+  };
+}
+// tools/unity/studio-config/src/render.ts
+function escapeCell(value) {
+  return value.replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
+}
+function formatIds(ids) {
+  return ids.map((id) => `\`${id}\``).join(", ") || "(none)";
+}
+function renderStudioConfigLines(view) {
+  const lines = [];
+  lines.push(`- Studio mode: ${view.studioMode}`);
+  lines.push(`- Review intensity: ${view.reviewIntensity}`);
+  lines.push(`- Toggles: tdd=${view.toggles.tdd}, ftf=${view.toggles.ftf}`);
+  lines.push(`- Enabled patterns: ${formatIds(view.patterns)}`);
+  lines.push(`- Enabled packages: ${formatIds(view.packages)}`);
+  if (view.conflicts.length > 0) {
+    lines.push("", "### Pattern conflicts", "");
+    for (const conflict of view.conflicts)
+      lines.push(`- **${conflict.kind}**: ${escapeCell(conflict.message)}`);
+  }
+  if (view.problems.length > 0) {
+    lines.push("", "### Config problems", "");
+    for (const problem of view.problems)
+      lines.push(`- \`${problem.field}\`: ${escapeCell(problem.message)}`);
+  }
+  return lines;
+}
+
+// tools/unity/studio-config/src/resolve.ts
+function resolveStudioConfigProject(options) {
+  const load = loadStudioConfig(options.configPath);
+  const catalog = options.catalogPath ? loadPatternCatalog(options.catalogPath) : null;
+  const problems = [...load.problems];
+  if (load.present && !catalog) {
+    problems.push({ field: "catalog", message: "pattern catalog not found; pattern conflicts were not validated" });
+  }
+  const resolution = resolveStudioConfig(load.config, catalog ?? { categories: [], patterns: [] }, problems);
+  return { configPath: options.configPath, catalogPath: options.catalogPath, present: load.present, resolution };
+}
 
 // tools/shared/registry/src/frontmatter.ts
 import { readFileSync as readFileSync2 } from "node:fs";
@@ -135,6 +453,10 @@ function parseInlineValue(rest) {
     return parseFlowArray(trimmed);
   if (trimmed.startsWith("{"))
     return parseFlowObject(trimmed);
+  const scalar = tryParseJson(trimmed);
+  if (scalar !== undefined && (typeof scalar !== "object" || scalar === null)) {
+    return scalar;
+  }
   return stripQuotes(trimmed);
 }
 function readBlock(lines, start) {
@@ -157,7 +479,7 @@ function readBlock(lines, start) {
     collected.push(line);
     i++;
   }
-  const trimmed = collected.map((line) => line.trim()).filter((line) => line !== "");
+  const trimmed = collected.map((line) => line.trim()).filter((line) => line !== "" && !line.startsWith("#"));
   if (trimmed.length > 0 && trimmed.every((line) => line.startsWith("-"))) {
     return { value: trimmed.map((line) => parseInlineValue(line.replace(/^-\s*/, ""))), nextIndex: i };
   }
@@ -217,7 +539,9 @@ function frontmatterString(fm, key) {
 }
 function frontmatterStringArray(fm, key) {
   const value = fm[key];
-  return Array.isArray(value) && value.every((item) => typeof item === "string") ? value : undefined;
+  if (!Array.isArray(value))
+    return;
+  return value.filter((item) => typeof item === "string");
 }
 
 // tools/shared/registry/src/build.ts
@@ -239,7 +563,7 @@ function walkFiles(dir, base, out = []) {
     return out;
   }
   for (const entry of entries) {
-    const full = join(dir, entry);
+    const full = join2(dir, entry);
     if (isDir(full))
       walkFiles(full, base, out);
     else
@@ -248,7 +572,7 @@ function walkFiles(dir, base, out = []) {
   return out;
 }
 function entry(domainDir, relPath, id, consumes, layer) {
-  const fm = readFrontmatter(join(domainDir, relPath));
+  const fm = readFrontmatter(join2(domainDir, relPath));
   return {
     id,
     name: frontmatterString(fm, "name") || id,
@@ -274,10 +598,61 @@ function consumedOutputs(path, id, consumers) {
   }
   return [...out];
 }
-function buildRegistry(domainDir, generatedAt) {
-  const manifest = readJson(join(domainDir, "sb-domain.json")) ?? {};
-  const projections = readJson(join(domainDir, "context-projections.json")) ?? {};
+function readKindManifest(domainDir, context, kind) {
+  for (const rel of context ?? []) {
+    const full = join2(domainDir, rel);
+    if (!isDir(full))
+      continue;
+    const manifestPath = join2(full, kind, "manifest.json");
+    const manifest = readJson(manifestPath);
+    if (manifest)
+      return { baseDir: toPosix(join2(rel, kind)), manifest };
+  }
+  return null;
+}
+function absentStudioConfig() {
+  const defaults = defaultStudioConfig();
+  return {
+    present: false,
+    path: null,
+    studioMode: defaults.studioMode,
+    reviewIntensity: defaults.reviewIntensity,
+    toggles: { ...defaults.toggles },
+    patterns: [],
+    packages: [],
+    conflicts: [],
+    problems: [],
+    valid: true
+  };
+}
+function buildStudioConfig(domainDir, opencodeDir) {
+  const opencodePath = opencodeDir ? join2(opencodeDir, "unity-studio.json") : null;
+  const domainPath = join2(domainDir, "unity-studio.json");
+  const catalogPath = findPatternCatalog({ domainDir, opencodeDir });
+  let resolved = resolveStudioConfigProject({ configPath: opencodePath ?? domainPath, catalogPath });
+  if (opencodePath && !resolved.present) {
+    resolved = resolveStudioConfigProject({ configPath: domainPath, catalogPath });
+  }
+  if (!resolved.present)
+    return absentStudioConfig();
+  return {
+    present: true,
+    path: resolved.configPath,
+    studioMode: resolved.resolution.config.studioMode,
+    reviewIntensity: resolved.resolution.config.reviewIntensity,
+    toggles: resolved.resolution.config.toggles,
+    patterns: resolved.resolution.enabledPatterns,
+    packages: resolved.resolution.enabledPackages,
+    conflicts: resolved.resolution.conflicts,
+    problems: resolved.resolution.problems,
+    valid: resolved.resolution.valid
+  };
+}
+function buildRegistry(domainDir, generatedAt, opencodeDir) {
+  const manifest = readJson(join2(domainDir, "sb-domain.json")) ?? {};
+  const projections = readJson(join2(domainDir, "context-projections.json")) ?? {};
   const consumers = projections.consumers ?? {};
+  const studioConfig = buildStudioConfig(domainDir, opencodeDir);
   const mapEntries = (paths, layer) => (paths ?? []).map((rel) => entry(domainDir, rel, basename(rel, ".md"), consumedOutputs(rel, basename(rel, ".md"), consumers), layer));
   const agents = mapEntries(manifest.agents);
   const subagents = mapEntries(manifest.subagents);
@@ -286,39 +661,86 @@ function buildRegistry(domainDir, generatedAt) {
     const rel = `command/${ability}.md`;
     const exists = (() => {
       try {
-        return statSync2(join(domainDir, rel)).isFile();
+        return statSync2(join2(domainDir, rel)).isFile();
       } catch {
         return false;
       }
     })();
     return { id: ability, name: ability, path: rel, realisedAs: exists ? rel : undefined, layer: "ability" };
   });
+  const kindDirs = (manifest.context ?? []).filter((rel) => isDir(join2(domainDir, rel))).flatMap((rel) => [toPosix(join2(rel, "snippets")), toPosix(join2(rel, "templates"))]);
+  const isKindFile = (rel) => kindDirs.some((dir) => rel === dir || rel.startsWith(`${dir}/`));
   const contextFiles = (manifest.context ?? []).flatMap((rel) => {
-    const full = join(domainDir, rel);
+    const full = join2(domainDir, rel);
     return isDir(full) ? walkFiles(full, domainDir) : [rel];
   });
-  const context = contextFiles.filter((rel) => rel.endsWith(".md")).map((rel) => entry(domainDir, rel, basename(rel, ".md"), consumedOutputs(rel, basename(rel, ".md"), consumers)));
+  const context = contextFiles.filter((rel) => rel.endsWith(".md")).filter((rel) => !isKindFile(rel)).map((rel) => entry(domainDir, rel, basename(rel, ".md"), consumedOutputs(rel, basename(rel, ".md"), consumers)));
   const workflows = context.filter((c) => c.path.includes("/workflows/"));
+  const snippetsManifest = readKindManifest(domainDir, manifest.context, "snippets");
+  const templatesManifest = readKindManifest(domainDir, manifest.context, "templates");
+  const defaultContextDir = (manifest.context ?? []).find((rel) => isDir(join2(domainDir, rel))) ?? `context/${manifest.subdomain ?? manifest.name ?? ""}`;
+  const snippetsBaseDir = snippetsManifest?.baseDir ?? toPosix(join2(defaultContextDir, "snippets"));
+  const templatesBaseDir = templatesManifest?.baseDir ?? toPosix(join2(defaultContextDir, "templates"));
+  const snippets = (snippetsManifest?.manifest.snippets ?? []).map((snippet) => ({
+    id: snippet.id,
+    name: snippet.id,
+    path: `${snippetsBaseDir}/${snippet.path}`,
+    description: snippet.description,
+    standardsVersion: snippet.standardsVersion ?? snippetsManifest?.manifest.standardsVersion
+  }));
+  const templates = (templatesManifest?.manifest.templates ?? []).map((template) => ({
+    id: template.id,
+    name: template.id,
+    path: `${templatesBaseDir}/${template.path}/README.md`,
+    description: template.description,
+    standardsVersion: template.standardsVersion ?? templatesManifest?.manifest.standardsVersion
+  }));
   const tools = (manifest.tools ?? []).map((tool) => ({ id: tool, name: tool, path: `tools/${tool}`, layer: "tool" }));
   const scripts = (manifest.scripts ?? []).map((script) => ({ id: basename(script), name: basename(script), path: script }));
   const outputs = (projections.outputs ?? []).map((output) => {
     const consumedBy = Object.entries(consumers).filter(([, files]) => files.includes(output.file)).map(([consumer]) => consumer);
     return { file: output.file, title: output.title ?? output.file, consumedBy };
   });
+  const knownAbilities = new Set(manifest.abilities ?? []);
+  const knownAgents = new Set([...manifest.agents ?? [], ...manifest.subagents ?? []].map((rel) => basename(rel, ".md")));
+  const warnings = [];
   const edges = [];
+  const seenEdges = new Set;
   const addEdges = (type, from, tos) => {
-    for (const to of tos)
+    for (const to of tos) {
+      const key = `${type}\x00${from}\x00${to}`;
+      if (seenEdges.has(key))
+        continue;
+      seenEdges.add(key);
+      if ((type === "agent-ability" || type === "workflow-ability") && !knownAbilities.has(to)) {
+        warnings.push(`edge ${type} ${from} -> ${to}: unknown ability`);
+        continue;
+      }
+      if (type === "workflow-agent" && !knownAgents.has(to)) {
+        warnings.push(`edge ${type} ${from} -> ${to}: unknown agent`);
+        continue;
+      }
       edges.push({ type, from, to });
+    }
   };
   for (const rel of [...manifest.agents ?? [], ...manifest.subagents ?? []]) {
-    const fm = readFrontmatter(join(domainDir, rel));
+    const fm = readFrontmatter(join2(domainDir, rel));
     addEdges("agent-ability", basename(rel, ".md"), frontmatterStringArray(fm, "abilities") ?? []);
   }
   for (const workflow of workflows) {
-    const fm = readFrontmatter(join(domainDir, workflow.path));
+    const fm = readFrontmatter(join2(domainDir, workflow.path));
     addEdges("workflow-ability", workflow.id, frontmatterStringArray(fm, "abilities") ?? []);
     addEdges("workflow-agent", workflow.id, frontmatterStringArray(fm, "agents") ?? []);
   }
+  edges.sort((a, b) => {
+    if (a.type !== b.type)
+      return a.type < b.type ? -1 : 1;
+    if (a.from !== b.from)
+      return a.from < b.from ? -1 : 1;
+    if (a.to !== b.to)
+      return a.to < b.to ? -1 : 1;
+    return 0;
+  });
   const counts = {
     agents: agents.length,
     subagents: subagents.length,
@@ -326,9 +748,13 @@ function buildRegistry(domainDir, generatedAt) {
     abilities: abilities.length,
     context: context.length,
     workflows: workflows.length,
+    snippets: snippets.length,
+    templates: templates.length,
     tools: tools.length,
     scripts: scripts.length,
-    edges: edges.length
+    edges: edges.length,
+    warnings: warnings.length,
+    studioPatterns: studioConfig.patterns.length
   };
   return {
     schemaVersion: 1,
@@ -344,15 +770,19 @@ function buildRegistry(domainDir, generatedAt) {
     abilities,
     context,
     workflows,
+    snippets,
+    templates,
     tools,
     scripts,
     edges,
+    warnings,
+    studioConfig,
     projections: { outputDir: projections.outputDir ?? null, outputs }
   };
 }
 
 // tools/shared/registry/src/render.ts
-function escapeCell(value) {
+function escapeCell2(value) {
   return (value ?? "").replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
 }
 function entriesTable(entries, options = {}) {
@@ -364,16 +794,20 @@ function entriesTable(entries, options = {}) {
     header.push("Realised as");
   if (options.consumes)
     header.push("Consumes");
+  if (options.standards)
+    header.push("Standards");
   lines.push(`| ${header.join(" | ")} |`);
   lines.push(`|${header.map(() => "---").join("|")}|`);
   for (const entry of entries) {
-    const row = [entry.id, entry.name, `\`${entry.path}\``, escapeCell(entry.description)];
+    const row = [entry.id, entry.name, `\`${entry.path}\``, escapeCell2(entry.description)];
     if (options.layer)
       row.push(entry.layer ?? "");
     if (options.realised)
       row.push(entry.realisedAs ? `\`${entry.realisedAs}\`` : "");
     if (options.consumes)
-      row.push(escapeCell((entry.consumes ?? []).join(", ")));
+      row.push(escapeCell2((entry.consumes ?? []).join(", ")));
+    if (options.standards)
+      row.push(entry.standardsVersion ?? "");
     lines.push(`| ${row.join(" | ")} |`);
   }
   return lines;
@@ -384,6 +818,19 @@ function section(lines, title, entries, options) {
   lines.push(`## ${title}`);
   lines.push("");
   lines.push(...entriesTable(entries, options));
+  lines.push("");
+}
+function studioConfigSection(lines, studio) {
+  lines.push("## Studio Config");
+  lines.push("");
+  if (studio.present) {
+    lines.push(`Source: \`${studio.path ?? "unity-studio.json"}\``);
+    lines.push("");
+  } else {
+    lines.push("> No `.opencode/unity-studio.json` found; using defaults (fail-soft).");
+    lines.push("");
+  }
+  lines.push(...renderStudioConfigLines(studio));
   lines.push("");
 }
 var EDGE_ORDER = ["agent-ability", "workflow-ability", "workflow-agent"];
@@ -402,6 +849,15 @@ function edgesSection(lines, edges) {
       lines.push(`- \`${edge.from}\` → \`${edge.to}\``);
     lines.push("");
   }
+}
+function warningsSection(lines, warnings) {
+  if (warnings.length === 0)
+    return;
+  lines.push("## Warnings");
+  lines.push("");
+  for (const warning of warnings)
+    lines.push(`- ${warning}`);
+  lines.push("");
 }
 function renderRegistry(registry) {
   const lines = [];
@@ -425,15 +881,19 @@ function renderRegistry(registry) {
   lines.push("");
   lines.push("> Layering: **tool** = thin typed adapter (no workflow logic); **ability** = named capability composing tools; **command** = user-invocable entry realising an ability (ADR-0004 / ADR-0012).");
   lines.push("");
+  studioConfigSection(lines, registry.studioConfig);
   section(lines, "Agents", registry.agents, { consumes: true });
   section(lines, "SubAgents", registry.subagents, { consumes: true });
   section(lines, "Commands", registry.commands, { consumes: true, layer: true });
   section(lines, "Abilities", registry.abilities, { realised: true, layer: true });
   section(lines, "Context", registry.context, { consumes: true });
   section(lines, "Workflows", registry.workflows, { consumes: true });
+  section(lines, "Snippets", registry.snippets, { standards: true });
+  section(lines, "Templates", registry.templates, { standards: true });
   section(lines, "Tools", registry.tools, { layer: true });
   section(lines, "Scripts", registry.scripts);
   edgesSection(lines, registry.edges);
+  warningsSection(lines, registry.warnings);
   if (registry.projections.outputs.length > 0) {
     lines.push("## Projected Context");
     lines.push("");
@@ -444,7 +904,7 @@ function renderRegistry(registry) {
     lines.push("| File | Title | Consumed by |");
     lines.push("|---|---|---|");
     for (const output of registry.projections.outputs) {
-      lines.push(`| \`${output.file}\` | ${escapeCell(output.title)} | ${escapeCell(output.consumedBy.join(", "))} |`);
+      lines.push(`| \`${output.file}\` | ${escapeCell2(output.title)} | ${escapeCell2(output.consumedBy.join(", "))} |`);
     }
     lines.push("");
   }
@@ -495,10 +955,10 @@ function main() {
   }
   const domainDir = resolve(String(domainDirArg));
   const opencodeDir = resolve(String(args["opencode-dir"] || ".opencode"));
-  const registry = buildRegistry(domainDir, nowIso());
+  const registry = buildRegistry(domainDir, nowIso(), opencodeDir);
   const subdomain = registry.subdomain || "unity";
-  const outJson = resolve(String(args["out-json"] || join2(opencodeDir, "registry.json")));
-  const outMd = resolve(String(args["out-md"] || join2(opencodeDir, "context", subdomain, "registry.md")));
+  const outJson = resolve(String(args["out-json"] || join3(opencodeDir, "registry.json")));
+  const outMd = resolve(String(args["out-md"] || join3(opencodeDir, "context", subdomain, "registry.md")));
   write(outJson, JSON.stringify(registry, null, 2) + `
 `);
   write(outMd, renderRegistry(registry));

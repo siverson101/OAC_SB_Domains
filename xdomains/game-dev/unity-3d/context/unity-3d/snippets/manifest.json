@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "standardsVersion": "1.0",
+  "updated": "2026-09-20",
+  "unityVersions": ["6.0", "6.3", "6.5", "LTS+"],
+  "provenance": "Original content authored for OAC. No third-party source was copied, so no attribution is required.",
+  "counts": {
+    "total": 4
+  },
+  "snippets": [
+    {
+      "id": "cached-component-lookup",
+      "path": "cached-component-lookup.cs",
+      "language": "csharp",
+      "priority": "high",
+      "standardsVersion": "1.0",
+      "description": "Cache GetComponent/TryGetComponent references in Awake instead of resolving them per frame."
+    },
+    {
+      "id": "scriptable-object-config",
+      "path": "scriptable-object-config.cs",
+      "language": "csharp",
+      "priority": "high",
+      "standardsVersion": "1.0",
+      "description": "Read-only ScriptableObject config asset validated in OnValidate and exposed through get-only properties."
+    },
+    {
+      "id": "object-pool",
+      "path": "object-pool.cs",
+      "language": "csharp",
+      "priority": "medium",
+      "standardsVersion": "1.0",
+      "description": "Generic prewarmed component pool that reuses instances to avoid per-spawn allocation."
+    },
+    {
+      "id": "event-channel",
+      "path": "event-channel.cs",
+      "language": "csharp",
+      "priority": "medium",
+      "standardsVersion": "1.0",
+      "description": "ScriptableObject pub/sub channel with null-safe subscribe/unsubscribe helpers."
+    }
+  ]
+}

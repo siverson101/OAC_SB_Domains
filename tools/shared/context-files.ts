@@ -1,5 +1,7 @@
 import { join } from 'node:path';
-import { readJson } from './io';
+import { fileExists, readJson } from './io';
+
+export const PATTERN_CATALOG_FILENAME = 'programming-patterns.json';
 
 export interface FiletypesFile {
   version?: string;
@@ -73,8 +75,42 @@ export function contextPaths(contextDir: string): ContextPaths {
     filetypes: join(contextDir, 'filetypes.json'),
     packageChoices: join(contextDir, 'unity', 'package-choices.json'),
     understoodPackages: join(contextDir, 'unity', 'understood-package-categories.json'),
-    patterns: join(contextDir, 'programming-patterns.json'),
+    patterns: join(contextDir, PATTERN_CATALOG_FILENAME),
   };
+}
+
+// The search locations for the shared `programming-patterns.json` catalog. Each
+// caller supplies the roots it knows (the source context dir, a domain dir, an
+// installed `.opencode` dir, or the module's own directory) and gets the
+// candidate paths back in priority order.
+export interface PatternCatalogSearch {
+  contextDir?: string;
+  domainDir?: string;
+  opencodeDir?: string;
+  moduleDir?: string;
+}
+
+export function patternCatalogCandidates(search: PatternCatalogSearch): string[] {
+  const candidates: string[] = [];
+  if (search.contextDir) candidates.push(join(search.contextDir, PATTERN_CATALOG_FILENAME));
+  if (search.domainDir) {
+    candidates.push(join(search.domainDir, '..', '..', 'context', PATTERN_CATALOG_FILENAME));
+  }
+  if (search.moduleDir) {
+    candidates.push(join(search.moduleDir, '..', '..', 'context', PATTERN_CATALOG_FILENAME));
+    candidates.push(
+      join(search.moduleDir, '..', '..', '..', '..', 'xdomains', 'context', PATTERN_CATALOG_FILENAME)
+    );
+  }
+  if (search.opencodeDir) {
+    candidates.push(join(search.opencodeDir, 'xdomains', 'context', PATTERN_CATALOG_FILENAME));
+    candidates.push(join(search.opencodeDir, '..', 'xdomains', 'context', PATTERN_CATALOG_FILENAME));
+  }
+  return candidates;
+}
+
+export function findPatternCatalog(search: PatternCatalogSearch): string | null {
+  return patternCatalogCandidates(search).find((candidate) => fileExists(candidate)) ?? null;
 }
 
 export function loadFiletypes(path: string): FiletypesFile {

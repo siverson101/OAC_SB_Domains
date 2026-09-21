@@ -7,6 +7,9 @@
     "sharedContext": [
       "context/domain/unity-common.md"
     ],
+    "config": [
+      "unity-studio.json"
+    ],
     "paths": {
       "agent": "agent/",
       "context": "context/",

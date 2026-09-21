@@ -1,4 +1,5 @@
-import type { Registry, RegistryEdge, RegistryEntry } from './build';
+import { renderStudioConfigLines } from '../../../unity/studio-config/src/resolve';
+import type { Registry, RegistryEdge, RegistryEntry, RegistryStudioConfig } from './build';
 
 function escapeCell(value: string | undefined): string {
   return (value ?? '').replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
@@ -6,13 +7,14 @@ function escapeCell(value: string | undefined): string {
 
 function entriesTable(
   entries: RegistryEntry[],
-  options: { realised?: boolean; consumes?: boolean; layer?: boolean } = {}
+  options: { realised?: boolean; consumes?: boolean; layer?: boolean; standards?: boolean } = {}
 ): string[] {
   const lines: string[] = [];
   const header = ['Id', 'Name', 'Path', 'Description'];
   if (options.layer) header.push('Layer');
   if (options.realised) header.push('Realised as');
   if (options.consumes) header.push('Consumes');
+  if (options.standards) header.push('Standards');
   lines.push(`| ${header.join(' | ')} |`);
   lines.push(`|${header.map(() => '---').join('|')}|`);
   for (const entry of entries) {
@@ -20,6 +22,7 @@ function entriesTable(
     if (options.layer) row.push(entry.layer ?? '');
     if (options.realised) row.push(entry.realisedAs ? `\`${entry.realisedAs}\`` : '');
     if (options.consumes) row.push(escapeCell((entry.consumes ?? []).join(', ')));
+    if (options.standards) row.push(entry.standardsVersion ?? '');
     lines.push(`| ${row.join(' | ')} |`);
   }
   return lines;
@@ -29,12 +32,26 @@ function section(
   lines: string[],
   title: string,
   entries: RegistryEntry[],
-  options?: { realised?: boolean; consumes?: boolean; layer?: boolean }
+  options?: { realised?: boolean; consumes?: boolean; layer?: boolean; standards?: boolean }
 ): void {
   if (entries.length === 0) return;
   lines.push(`## ${title}`);
   lines.push('');
   lines.push(...entriesTable(entries, options));
+  lines.push('');
+}
+
+function studioConfigSection(lines: string[], studio: RegistryStudioConfig): void {
+  lines.push('## Studio Config');
+  lines.push('');
+  if (studio.present) {
+    lines.push(`Source: \`${studio.path ?? 'unity-studio.json'}\``);
+    lines.push('');
+  } else {
+    lines.push('> No `.opencode/unity-studio.json` found; using defaults (fail-soft).');
+    lines.push('');
+  }
+  lines.push(...renderStudioConfigLines(studio));
   lines.push('');
 }
 
@@ -52,6 +69,14 @@ function edgesSection(lines: string[], edges: RegistryEdge[]): void {
     for (const edge of group) lines.push(`- \`${edge.from}\` → \`${edge.to}\``);
     lines.push('');
   }
+}
+
+function warningsSection(lines: string[], warnings: string[]): void {
+  if (warnings.length === 0) return;
+  lines.push('## Warnings');
+  lines.push('');
+  for (const warning of warnings) lines.push(`- ${warning}`);
+  lines.push('');
 }
 
 export function renderRegistry(registry: Registry): string {
@@ -76,16 +101,22 @@ export function renderRegistry(registry: Registry): string {
   lines.push('> Layering: **tool** = thin typed adapter (no workflow logic); **ability** = named capability composing tools; **command** = user-invocable entry realising an ability (ADR-0004 / ADR-0012).');
   lines.push('');
 
+  studioConfigSection(lines, registry.studioConfig);
+
   section(lines, 'Agents', registry.agents, { consumes: true });
   section(lines, 'SubAgents', registry.subagents, { consumes: true });
   section(lines, 'Commands', registry.commands, { consumes: true, layer: true });
   section(lines, 'Abilities', registry.abilities, { realised: true, layer: true });
   section(lines, 'Context', registry.context, { consumes: true });
   section(lines, 'Workflows', registry.workflows, { consumes: true });
+  section(lines, 'Snippets', registry.snippets, { standards: true });
+  section(lines, 'Templates', registry.templates, { standards: true });
   section(lines, 'Tools', registry.tools, { layer: true });
   section(lines, 'Scripts', registry.scripts);
 
   edgesSection(lines, registry.edges);
+
+  warningsSection(lines, registry.warnings);
 
   if (registry.projections.outputs.length > 0) {
     lines.push('## Projected Context');

@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "standardsVersion": "1.0",
+  "updated": "2026-09-20",
+  "unityVersions": ["6.0", "6.3", "6.5", "LTS+"],
+  "provenance": "Original content authored for OAC. No third-party source was copied, so no attribution is required.",
+  "counts": {
+    "templates": 3
+  },
+  "templates": [
+    {
+      "id": "monobehaviour-feature",
+      "path": "monobehaviour-feature",
+      "priority": "high",
+      "standardsVersion": "1.0",
+      "description": "Runtime feature scaffold with an idempotent enable/disable lifecycle and EditMode tests.",
+      "files": ["README.md", "FeatureBehaviour.cs", "FeatureTests.cs"]
+    },
+    {
+      "id": "scriptableobject-config",
+      "path": "scriptableobject-config",
+      "priority": "high",
+      "standardsVersion": "1.0",
+      "description": "Shared configuration asset plus a scene-level provider that validates the assignment.",
+      "files": ["README.md", "GameConfig.cs", "ConfigProvider.cs"]
+    },
+    {
+      "id": "editmode-test",
+      "path": "editmode-test",
+      "priority": "high",
+      "standardsVersion": "1.0",
+      "description": "Editor-only NUnit test assembly scaffold with an asmdef and an Arrange-Act-Assert sample.",
+      "files": ["README.md", "SampleEditModeTests.asmdef", "SampleEditModeTests.cs"]
+    }
+  ]
+}

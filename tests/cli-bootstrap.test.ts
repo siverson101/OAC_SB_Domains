@@ -1,10 +1,17 @@
-import { describe, expect, test } from 'bun:test';
+import { afterAll, describe, expect, test } from 'bun:test';
 import { runCli } from '../tools/shared/cli-bootstrap';
+
+// `runCli` sets `process.exitCode`; bun does not reset a restored `undefined`
+// back to 0, so a leaked non-zero value would make `bun test` exit 1 despite
+// all tests passing. Force a clean exit code once this file is done.
+afterAll(() => {
+  process.exitCode = 0;
+});
 
 describe('runCli sync throw guard', () => {
   test('a throwing synchronous handler is reported and exits non-zero', () => {
     const output: string[] = [];
-    const previous = process.exitCode;
+    const previous = process.exitCode ?? 0;
     try {
       process.exitCode = 0;
       runCli({
@@ -30,7 +37,7 @@ describe('runCli async seam', () => {
 
   test('an async handler that resolves emits the result with exit code 0', async () => {
     const output: string[] = [];
-    const previous = process.exitCode;
+    const previous = process.exitCode ?? 0;
     try {
       process.exitCode = 0;
       runCli({
@@ -51,7 +58,7 @@ describe('runCli async seam', () => {
 
   test('an async handler that rejects is reported and exits non-zero', async () => {
     const output: string[] = [];
-    const previous = process.exitCode;
+    const previous = process.exitCode ?? 0;
     try {
       process.exitCode = 0;
       runCli({

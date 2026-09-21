@@ -109,3 +109,13 @@ normalize separators.
   points). Front-load the correctness review.
 - **Test the invariant, not the implementation.** The tests that mattered asserted a *property*
   (runtime keys ⊆ schema keys; table mirrors frontmatter; clamp bounds) rather than restating the code.
+
+## Behaviour changes on record (Phase 3)
+
+- **`frontmatterStringArray` — mixed array now filters instead of rejecting.** It changed from
+  "return the array only if every entry is a string, otherwise `undefined`" to "non-array → `undefined`;
+  array → keep the string entries and drop the rest". So `[unity-read-project, 3]` now yields
+  `['unity-read-project']` instead of `undefined`. Reason: edge hygiene — one stray non-string entry
+  (e.g. a numeric id) used to discard every valid id in the same frontmatter field, and the failure was
+  silent. Dropping only the invalid entries keeps the contract usable while still ignoring a wholly
+  wrong type. Pinned by `tests/capability-contract.test.ts`.

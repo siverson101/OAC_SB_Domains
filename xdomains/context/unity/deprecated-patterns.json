@@ -1,6 +1,8 @@
 {
   "schemaVersion": 1,
   "description": "Unity API deprecations scanned offline by gather-unity-context (deprecation-scan producer). Each entry maps a deprecated member to its replacement.",
+  "unityVersions": ["6.0", "6.3", "6.5", "LTS+"],
+  "updated": "2026-09-20",
   "patterns": [
     {
       "id": "object-find-object-of-type",

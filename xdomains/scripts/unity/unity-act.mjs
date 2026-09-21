@@ -15,7 +15,8 @@ function runCli(config) {
     return;
   }
   if (options.list) {
-    write(config.abilities.join(`
+    if (config.abilities.length > 0)
+      write(config.abilities.join(`
 `) + `
 `);
     return;
@@ -176,8 +177,29 @@ function detectUnityCli() {
 }
 
 // tools/unity/unity-act/src/patterns.ts
-import { dirname as dirname2, join as join2 } from "node:path";
+import { dirname as dirname2 } from "node:path";
 import { fileURLToPath } from "node:url";
+
+// tools/shared/context-files.ts
+import { join } from "node:path";
+var PATTERN_CATALOG_FILENAME = "programming-patterns.json";
+function patternCatalogCandidates(search) {
+  const candidates = [];
+  if (search.contextDir)
+    candidates.push(join(search.contextDir, PATTERN_CATALOG_FILENAME));
+  if (search.domainDir) {
+    candidates.push(join(search.domainDir, "..", "..", "context", PATTERN_CATALOG_FILENAME));
+  }
+  if (search.moduleDir) {
+    candidates.push(join(search.moduleDir, "..", "..", "context", PATTERN_CATALOG_FILENAME));
+    candidates.push(join(search.moduleDir, "..", "..", "..", "..", "xdomains", "context", PATTERN_CATALOG_FILENAME));
+  }
+  if (search.opencodeDir) {
+    candidates.push(join(search.opencodeDir, "xdomains", "context", PATTERN_CATALOG_FILENAME));
+    candidates.push(join(search.opencodeDir, "..", "xdomains", "context", PATTERN_CATALOG_FILENAME));
+  }
+  return candidates;
+}
 
 // tools/unity/unity-act/src/types.ts
 var ACT_ABILITY_NAMES = [
@@ -238,7 +260,7 @@ function parseBool(value, fallback) {
 }
 
 // tools/unity/unity-act/src/shared.ts
-import { join } from "node:path";
+import { join as join2 } from "node:path";
 
 // tools/shared/result-envelope.ts
 function makeEnvelope(input) {
@@ -257,7 +279,7 @@ function makeEnvelope(input) {
 
 // tools/unity/unity-act/src/shared.ts
 function projectDataDir(options) {
-  return join(options.opencodeDir, "project-data");
+  return join2(options.opencodeDir, "project-data");
 }
 function makeResult(ability, status, summary, errors, route = "offline") {
   return {
@@ -272,11 +294,7 @@ function moduleDir() {
   return dirname2(fileURLToPath(import.meta.url));
 }
 function patternTableCandidates() {
-  const here = moduleDir();
-  return [
-    join2(here, "..", "..", "context", "programming-patterns.json"),
-    join2(here, "..", "..", "..", "..", "xdomains", "context", "programming-patterns.json")
-  ];
+  return patternCatalogCandidates({ moduleDir: moduleDir() });
 }
 function loadPatternTable(overridePath) {
   const candidates = overridePath ? [overridePath] : patternTableCandidates();

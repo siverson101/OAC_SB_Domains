@@ -15,7 +15,8 @@ function runCli(config) {
     return;
   }
   if (options.list) {
-    write(config.abilities.join(`
+    if (config.abilities.length > 0)
+      write(config.abilities.join(`
 `) + `
 `);
     return;
@@ -361,6 +362,10 @@ function parseInlineValue(rest) {
     return parseFlowArray(trimmed);
   if (trimmed.startsWith("{"))
     return parseFlowObject(trimmed);
+  const scalar = tryParseJson(trimmed);
+  if (scalar !== undefined && (typeof scalar !== "object" || scalar === null)) {
+    return scalar;
+  }
   return stripQuotes(trimmed);
 }
 function readBlock(lines, start) {
@@ -383,7 +388,7 @@ function readBlock(lines, start) {
     collected.push(line);
     i++;
   }
-  const trimmed = collected.map((line) => line.trim()).filter((line) => line !== "");
+  const trimmed = collected.map((line) => line.trim()).filter((line) => line !== "" && !line.startsWith("#"));
   if (trimmed.length > 0 && trimmed.every((line) => line.startsWith("-"))) {
     return { value: trimmed.map((line) => parseInlineValue(line.replace(/^-\s*/, ""))), nextIndex: i };
   }
@@ -859,7 +864,7 @@ function toResult(mutation, extraErrors, options) {
 import { readdirSync as readdirSync2, statSync as statSync3 } from "node:fs";
 import { basename as basename2, join as join4 } from "node:path";
 
-// tools/unity/unity-compose/src/yaml.ts
+// tools/shared/yaml.ts
 function stripComment(raw) {
   let inSingle = false;
   let inDouble = false;
@@ -973,19 +978,43 @@ function parseScalar(raw) {
 function isSequenceLine(content) {
   return content === "-" || content.startsWith("- ");
 }
+function isContinuationLine(line, indent) {
+  return Boolean(line && line.indent > indent && !isSequenceLine(line.content) && !/^[A-Za-z_][A-Za-z0-9_.-]*:(\s|$)/.test(line.content));
+}
+function foldContinuations(lines, start, indent, value) {
+  if (typeof value !== "string")
+    return { value, next: start };
+  let folded = value;
+  let i = start;
+  while (isContinuationLine(lines[i], indent)) {
+    folded = `${folded} ${lines[i].content}`;
+    i++;
+  }
+  return { value: folded, next: i };
+}
 function parseMapping(lines, start, indent) {
   const obj = {};
   let i = start;
-  while (i < lines.length && lines[i].indent === indent && !isSequenceLine(lines[i].content)) {
-    const line = lines[i];
-    const match = /^([^:]+):\s*(.*)$/.exec(line.content);
-    if (!match)
+  while (i < lines.length) {
+    if (lines[i].indent < indent)
       break;
+    if (lines[i].indent > indent) {
+      i++;
+      continue;
+    }
+    if (isSequenceLine(lines[i].content))
+      break;
+    const match = /^([A-Za-z_][A-Za-z0-9_.-]*):(?:\s+(.*)|)$/.exec(lines[i].content);
+    if (!match) {
+      i++;
+      continue;
+    }
     const key = unquote(match[1]);
-    const rest = match[2];
+    const rest = match[2] ?? "";
     if (rest.trim() === "") {
-      if (i + 1 < lines.length && lines[i + 1].indent > indent) {
-        const child = parseBlock(lines, i + 1, lines[i + 1].indent);
+      const next = lines[i + 1];
+      if (next && (next.indent > indent || next.indent === indent && isSequenceLine(next.content))) {
+        const child = parseBlock(lines, i + 1, next.indent);
         obj[key] = child.value;
         i = child.next;
       } else {
@@ -993,8 +1022,9 @@ function parseMapping(lines, start, indent) {
         i++;
       }
     } else {
-      obj[key] = parseScalar(rest);
-      i++;
+      const folded = foldContinuations(lines, i + 1, indent, parseScalar(rest));
+      obj[key] = folded.value;
+      i = folded.next;
     }
   }
   return { value: obj, next: i };
@@ -1016,11 +1046,11 @@ function parseSequence(lines, start, indent) {
       }
       continue;
     }
-    const match = /^([^:]+):\s*(.*)$/.exec(rest);
+    const match = /^([A-Za-z_][A-Za-z0-9_.-]*):(?:\s+(.*)|)$/.exec(rest);
     if (match) {
       const obj = {};
       const key = unquote(match[1]);
-      const value = match[2];
+      const value = match[2] ?? "";
       if (value.trim() === "") {
         if (i + 1 < lines.length && lines[i + 1].indent > indent) {
           const child = parseBlock(lines, i + 1, lines[i + 1].indent);
@@ -1036,11 +1066,11 @@ function parseSequence(lines, start, indent) {
       }
       while (i < lines.length && lines[i].indent > indent && !isSequenceLine(lines[i].content)) {
         const cont = lines[i];
-        const contMatch = /^([^:]+):\s*(.*)$/.exec(cont.content);
+        const contMatch = /^([A-Za-z_][A-Za-z0-9_.-]*):(?:\s+(.*)|)$/.exec(cont.content);
         if (!contMatch)
           break;
         const contKey = unquote(contMatch[1]);
-        const contValue = contMatch[2];
+        const contValue = contMatch[2] ?? "";
         if (contValue.trim() === "") {
           if (i + 1 < lines.length && lines[i + 1].indent > cont.indent) {
             const child = parseBlock(lines, i + 1, lines[i + 1].indent);
@@ -1058,8 +1088,9 @@ function parseSequence(lines, start, indent) {
       arr.push(obj);
       continue;
     }
-    arr.push(parseScalar(rest));
-    i++;
+    const folded = foldContinuations(lines, i + 1, indent, parseScalar(rest));
+    arr.push(folded.value);
+    i = folded.next;
   }
   return { value: arr, next: i };
 }
@@ -1105,9 +1136,9 @@ function toPrimitiveRecord(id, path, parsed) {
     path,
     summary: str(record, "summary"),
     requires: asStrings(requiresBlock?.primitives),
-    events: asStrings(record?.wireThroughEvents ?? record?.events),
-    compatiblePrimitives: asStrings(record?.compatiblePrimitives),
-    conflictsWith: asStrings(record?.conflictsWith)
+    events: asStrings(record?.wireThroughEvents ?? record?.wire_through_events ?? record?.events),
+    compatiblePrimitives: asStrings(record?.compatiblePrimitives ?? record?.compatible_primitives),
+    conflictsWith: asStrings(record?.conflictsWith ?? record?.conflicts_with)
   };
 }
 function discoverPrimitives(dir) {
@@ -1192,6 +1223,8 @@ function analyzeComposition(records) {
     }
     for (const conflict of record.conflictsWith) {
       edges.push({ from: record.id, to: conflict, kind: "conflicts" });
+      if (!ids.has(conflict))
+        unresolved.push(`${record.id} conflicts with unknown primitive "${conflict}"`);
       const pair = [record.id, conflict].sort().join("|");
       if (seenPairs.has(pair))
         continue;

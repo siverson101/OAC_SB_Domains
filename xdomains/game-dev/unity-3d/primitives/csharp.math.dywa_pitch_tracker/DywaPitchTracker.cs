@@ -1,0 +1,442 @@
+/* This code is a C# port of dywapitchtrack by Antoine Schmitt.
+   It implements a wavelet algorithm, described in a paper by Eric Larson and Ross Maddox:
+   “Real-Time Time-Domain Pitch Tracking Using Wavelets” of UIUC Physics.
+   
+   Note that the original implementation by Schmitt uses double instead of float data type.
+ -------
+ Dynamic Wavelet Algorithm Pitch Tracking library
+ Released under the MIT open source licence
+  
+ Copyright (c) 2010 Antoine Schmitt
+ 
+ Permission is hereby granted, free of charge, to any person obtaining a copy
+ of this software and associated documentation files (the "Software"), to deal
+ in the Software without restriction, including without limitation the rights
+ to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ copies of the Software, and to permit persons to whom the Software is
+ furnished to do so, subject to the following conditions:
+ 
+ The above copyright notice and this permission notice shall be included in
+ all copies or substantial portions of the Software.
+ 
+ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ THE SOFTWARE.
+*/
+
+using System.Collections.Generic;
+
+public class DywaPitchTracker
+{
+    private float prevPitch;
+    private int pitchConfidence;
+
+    // Algorithm parameters
+    public int MaxFlwtLevels { get; set; } = 6;
+    public float MaxFrequency { get; set; } = 3000.0f;
+    public int DifferenceLevelsN { get; set; } = 3;
+    public float MaximaThresholdRatio { get; set; } = 0.75f;
+    public int SampleRateHz { get; set; } = 44100;
+
+    private readonly Dictionary<int, WorkingBuffers> sampleCountToWorkingBuffers = new();
+
+    public DywaPitchTracker()
+    {
+        ClearPitchHistory();
+    }
+
+    // ************************************
+    // The API main entry points
+    // ************************************
+
+    // samples : the sample buffer
+    // startsample : the index of the first sample to use in the sample buffer
+    // samplecount : the number of samples to use to compute the pitch
+    // return : the frequency in Hz of the found pitch, or 0 if no pitch was found (sound too low, noise, etc..)
+    public float ComputePitch(float[] samples, int startsample, int samplecount)
+    {
+        float raw_pitch = ComputeWaveletPitch(samples, startsample, samplecount);
+
+        // Note: The algorithm currently assumes a 44100Hz audio sampling rate. If you use a different
+        // samplerate, you can just multiply the resulting pitch by the ratio between your samplerate and 44100.
+        // -> This ratio is stored in rawPitchScaleFactor.
+        if (SampleRateHz != 44100)
+        {
+            raw_pitch *= (SampleRateHz / 44100f);
+        }
+
+        return DynamicPostProcessing(raw_pitch);
+    }
+
+    public void ClearPitchHistory()
+    {
+        prevPitch = -1.0f;
+        pitchConfidence = -1;
+    }
+
+    public int NeededSampleCount(int minFreq)
+    {
+        int nbSam = 3 * 44100 / minFreq; // 1017. for 130 Hz
+        nbSam = CeilPowerOf2(nbSam); // 1024
+        return nbSam;
+    }
+
+    // ************************************
+    // utility methods
+    // ************************************
+
+    // Absolute value (float)
+    private float FloatAbs(float a)
+    {
+        return (a < 0) ? -a : a;
+    }
+
+    // Returns 1 if power of 2
+    private int IsPowerOf2(int value)
+    {
+        if (value == 0) return 1;
+        if (value == 2) return 1;
+        if ((value & 0x1) != 0) return 0;
+        return (IsPowerOf2(value >> 1));
+    }
+
+    // Count number of bits
+    private int Bitcount(int value)
+    {
+        if (value == 0) return 0;
+        if (value == 1) return 1;
+        if (value == 2) return 2;
+        return Bitcount(value >> 1) + 1;
+    }
+
+    // Closest power of 2 above or equal to the given value
+    private int CeilPowerOf2(int value)
+    {
+        if (IsPowerOf2(value) != 0) return value;
+        if (value == 1) return 2;
+        int i = Bitcount(value);
+        int res = 1;
+        for (int j = 0; j < i; j++) res <<= 1;
+        return res;
+    }
+
+    // Closest power of 2 below or equal to the given value
+    private int FloorPowerOf2(int value)
+    {
+        if (IsPowerOf2(value) != 0) return value;
+        return CeilPowerOf2(value) / 2;
+    }
+
+    private int IntMax(int a, int b) => (a > b) ? a : b;
+    private int IntMin(int a, int b) => (a < b) ? a : b;
+    private int IntAbs(int x) => (x >= 0) ? x : -x;
+
+    // Computes 2 to the power of n
+    private int PowerOf2(int n)
+    {
+        int res = 1;
+        for (int j = 0; j < n; j++) res <<= 1;
+        return res;
+    }
+
+    //******************************
+    // the Wavelet algorithm itself
+    //******************************
+
+    private float ComputeWaveletPitch(float[] samples, int startsample, int samplecount)
+    {
+        float pitchF = 0.0f;
+        float si;
+        float si1;
+
+        // must be a power of 2
+        samplecount = FloorPowerOf2(samplecount);
+
+        // Prepare sample buffers.
+        // Only instantiate working buffers once per sample count to avoid GC.
+        if (!sampleCountToWorkingBuffers.TryGetValue(samplecount, out WorkingBuffers workingBuffers))
+        {
+            workingBuffers = new(samplecount);
+            sampleCountToWorkingBuffers[samplecount] = workingBuffers;
+        }
+
+        float[] sam = workingBuffers.sam;
+        int[] distances = workingBuffers.distances;
+        int[] mins = workingBuffers.mins;
+        int[] maxs = workingBuffers.maxs;
+        
+        // copy samples into sam
+        for (int index = 0; index < samplecount; index++)
+        {
+            sam[index] = samples[index + startsample];
+        }
+        int curSamNb = samplecount;
+        int nbMins, nbMaxs;
+
+        float ampltitudeThreshold;
+        float theDC = 0.0f;
+
+        { // compute ampltitudeThreshold and theDC
+            float maxValue = -float.MaxValue;
+            float minValue = float.MaxValue;
+            for (int i = 0; i < samplecount; i++)
+            {
+                si = sam[i];
+                theDC = theDC + si;
+                if (si > maxValue) maxValue = si;
+                if (si < minValue) minValue = si;
+            }
+            theDC /= samplecount;
+            maxValue -= theDC;
+            minValue -= theDC;
+            float amplitudeMax = (maxValue > -minValue ? maxValue : -minValue);
+            ampltitudeThreshold = amplitudeMax * MaximaThresholdRatio;
+        }
+
+        int curLevel = 0;
+        float curModeDistance = -1.0f;
+        int delta;
+
+        while (true)
+        {
+            delta = (int)(44100.0f / (PowerOf2(curLevel) * MaxFrequency));
+
+            if (curSamNb < 2) goto cleanup;
+
+            float dv, previousDV = -1000;
+            nbMins = nbMaxs = 0;
+            int lastMinIndex = -1000000;
+            int lastmaxIndex = -1000000;
+            int findMax = 0;
+            int findMin = 0;
+            for (int i = 1; i < curSamNb; i++)
+            {
+                si = sam[i] - theDC;
+                si1 = sam[i - 1] - theDC;
+
+                if (si1 <= 0 && si > 0) { findMax = 1; findMin = 0; }
+                if (si1 >= 0 && si < 0) { findMin = 1; findMax = 0; }
+
+                dv = si - si1;
+
+                if (previousDV > -1000)
+                {
+                    if (findMin != 0 && previousDV < 0 && dv >= 0)
+                    {
+                        if (FloatAbs(si1) >= ampltitudeThreshold)
+                        {
+                            if (i - 1 > lastMinIndex + delta)
+                            {
+                                mins[nbMins++] = i - 1;
+                                lastMinIndex = i - 1;
+                                findMin = 0;
+                            }
+                        }
+                    }
+
+                    if (findMax != 0 && previousDV > 0 && dv <= 0)
+                    {
+                        if (FloatAbs(si1) >= ampltitudeThreshold)
+                        {
+                            if (i - 1 > lastmaxIndex + delta)
+                            {
+                                maxs[nbMaxs++] = i - 1;
+                                lastmaxIndex = i - 1;
+                                findMax = 0;
+                            }
+                        }
+                    }
+                }
+
+                previousDV = dv;
+            }
+
+            if (nbMins == 0 && nbMaxs == 0)
+            {
+                goto cleanup;
+            }
+
+            int d;
+            for (int index = 0; index < distances.Length; index++) distances[index] = 0;
+
+            for (int i = 0; i < nbMins; i++)
+            {
+                for (int j = 1; j < DifferenceLevelsN; j++)
+                {
+                    if (i + j < nbMins)
+                    {
+                        d = IntAbs(mins[i] - mins[i + j]);
+                        distances[d] = distances[d] + 1;
+                    }
+                }
+            }
+            for (int i = 0; i < nbMaxs; i++)
+            {
+                for (int j = 1; j < DifferenceLevelsN; j++)
+                {
+                    if (i + j < nbMaxs)
+                    {
+                        d = IntAbs(maxs[i] - maxs[i + j]);
+                        distances[d] = distances[d] + 1;
+                    }
+                }
+            }
+
+            int bestDistance = -1;
+            int bestValue = -1;
+            for (int i = 0; i < curSamNb; i++)
+            {
+                int summed = 0;
+                for (int j = -delta; j <= delta; j++)
+                {
+                    if (i + j >= 0 && i + j < curSamNb) summed += distances[i + j];
+                }
+                if (summed == bestValue)
+                {
+                    if (i == 2 * bestDistance) bestDistance = i;
+                }
+                else if (summed > bestValue)
+                {
+                    bestValue = summed;
+                    bestDistance = i;
+                }
+            }
+
+            float distAvg = 0.0f;
+            float nbDists = 0;
+            for (int j = -delta; j <= delta; j++)
+            {
+                if (bestDistance + j >= 0 && bestDistance + j < samplecount)
+                {
+                    int nbDist = distances[bestDistance + j];
+                    if (nbDist > 0)
+                    {
+                        nbDists += nbDist;
+                        distAvg += (bestDistance + j) * nbDist;
+                    }
+                }
+            }
+            distAvg /= nbDists;
+
+            if (curModeDistance > -1.0f)
+            {
+                float similarity = FloatAbs(distAvg * 2 - curModeDistance);
+                if (similarity <= 2 * delta)
+                {
+                    pitchF = 44100.0f / (PowerOf2(curLevel - 1) * curModeDistance);
+                    goto cleanup;
+                }
+            }
+
+            curModeDistance = distAvg;
+            curLevel += 1;
+            if (curLevel >= MaxFlwtLevels) goto cleanup;
+
+            if (curSamNb < 2) goto cleanup;
+            for (int i = 0; i < curSamNb / 2; i++)
+            {
+                sam[i] = (sam[2 * i] + sam[2 * i + 1]) / 2.0f;
+            }
+            curSamNb /= 2;
+        }
+
+cleanup:
+        return pitchF;
+    }
+
+    // ***********************************
+    // the dynamic post-processing
+    // ***********************************
+
+    private float DynamicPostProcessing(float pitch)
+    {
+        if (pitch == 0.0f) pitch = -1.0f;
+
+        float estimatedPitch = -1;
+        float acceptedError = 0.2f;
+        int maxConfidence = 5;
+
+        if (pitch != -1)
+        {
+            if (prevPitch == -1)
+            {
+                estimatedPitch = pitch;
+                prevPitch = pitch;
+                pitchConfidence = 1;
+            }
+            else if (FloatAbs(prevPitch - pitch) / pitch < acceptedError)
+            {
+                prevPitch = pitch;
+                estimatedPitch = pitch;
+                pitchConfidence = IntMin(maxConfidence, pitchConfidence + 1);
+            }
+            else if ((pitchConfidence >= maxConfidence - 2) && FloatAbs(prevPitch - 2.0f * pitch) / (2.0f * pitch) < acceptedError)
+            {
+                estimatedPitch = 2.0f * pitch;
+                prevPitch = estimatedPitch;
+            }
+            else if ((pitchConfidence >= maxConfidence - 2) && FloatAbs(prevPitch - 0.5f * pitch) / (0.5f * pitch) < acceptedError)
+            {
+                estimatedPitch = 0.5f * pitch;
+                prevPitch = estimatedPitch;
+            }
+            else
+            {
+                if (pitchConfidence >= 1)
+                {
+                    estimatedPitch = prevPitch;
+                    pitchConfidence = IntMax(0, pitchConfidence - 1);
+                }
+                else
+                {
+                    estimatedPitch = pitch;
+                    prevPitch = pitch;
+                    pitchConfidence = 1;
+                }
+            }
+        }
+        else
+        {
+            if (prevPitch != -1)
+            {
+                if (pitchConfidence >= 1)
+                {
+                    estimatedPitch = prevPitch;
+                    pitchConfidence = IntMax(0, pitchConfidence - 1);
+                }
+                else
+                {
+                    prevPitch = -1;
+                    estimatedPitch = -1.0f;
+                    pitchConfidence = 0;
+                }
+            }
+        }
+
+        if (pitchConfidence >= 1) pitch = estimatedPitch;
+        else pitch = -1;
+
+        if (pitch == -1) pitch = 0.0f;
+        return pitch;
+    }
+    
+    private class WorkingBuffers
+    {
+        public readonly float[] sam;
+        public readonly int[] distances;
+        public readonly int[] mins;
+        public readonly int[] maxs;
+
+        public WorkingBuffers(int size)
+        {
+            sam = new float[size];
+            distances = new int[size];
+            mins = new int[size];
+            maxs = new int[size];
+        }
+    }
+}

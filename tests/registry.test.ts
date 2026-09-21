@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { buildRegistry } from '../tools/shared/registry/src/build';
@@ -20,6 +20,15 @@ describe('registry build', () => {
     expect(registry.counts.subagents).toBe(7);
     expect(registry.counts.abilities).toBe(29);
     expect(registry.counts.workflows).toBe(3);
+  });
+
+  test('includes the version-gated knowledge files in context', () => {
+    const knowledge = registry.context.filter((entry) => entry.path.includes('/knowledge/'));
+    expect(knowledge.length).toBe(21);
+    expect(knowledge.some((entry) => entry.path.endsWith('/knowledge/version-dispatch.md'))).toBe(true);
+    expect(knowledge.some((entry) => entry.path.endsWith('/knowledge/engine/foundations.md'))).toBe(true);
+    expect(knowledge.some((entry) => entry.path.endsWith('/knowledge/middleware/unitask.md'))).toBe(true);
+    expect(registry.counts.context).toBe(registry.context.length);
   });
 
   test('resolves abilities to their command implementations', () => {
@@ -75,6 +84,38 @@ describe('registry build', () => {
     expect(md).toContain('### workflow-ability');
     expect(md).toContain('### workflow-agent');
     expect(md).toContain('`unity-3d-orchestrator` → `gather-unity-context`');
+  });
+});
+
+describe('registry edge hygiene', () => {
+  test('filters malformed abilities, dedupes edges, and warns on dangling ids', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'oac-registry-edges-'));
+    try {
+      mkdirSync(join(dir, 'agent'), { recursive: true });
+      writeFileSync(
+        join(dir, 'sb-domain.json'),
+        JSON.stringify({
+          name: 'test-domain',
+          domain: 'test',
+          subdomain: 'test',
+          agents: ['agent/tester.md'],
+          abilities: ['unity-read-project'],
+        })
+      );
+      writeFileSync(
+        join(dir, 'agent', 'tester.md'),
+        ['---', 'name: tester', 'abilities: [unity-read-project, unity-read-project, 3, nope]', '---', ''].join('\n')
+      );
+
+      const registry = buildRegistry(dir, '2026-09-19T00:00:00.000Z');
+      expect(registry.edges.filter((edge) => edge.type === 'agent-ability' && edge.from === 'tester')).toEqual([
+        { type: 'agent-ability', from: 'tester', to: 'unity-read-project' },
+      ]);
+      expect(registry.warnings.some((warning) => warning.includes('nope'))).toBe(true);
+      expect(registry.warnings.some((warning) => warning.includes('unknown ability'))).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

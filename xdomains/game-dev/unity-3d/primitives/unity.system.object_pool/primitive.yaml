@@ -1,0 +1,39 @@
+id: unity.system.object_pool
+name: BDFramework Generic Object Pool
+engine: Unity
+language: C#
+category: system
+status: extracted
+genre_tags:
+- all
+summary: A highly reusable, generic object pool pattern implementation using a factory and destroy delegates.
+when_to_use:
+- When frequently instantiating and destroying the same type of C# object or GameObject
+- To reduce Garbage Collection (GC) pressure from allocations
+when_not_to_use:
+- When using Unity's newer built-in UnityEngine.Pool APIs (Unity 2021+)
+requires:
+  components: []
+  scene_objects: []
+  primitives: []
+provides:
+  events: []
+  state: []
+config_schema: {}
+compatible_primitives: []
+conflicts_with: []
+setup_steps:
+- Copy ObjectPool.cs and ObjectPoolContainer.cs to your Unity project's Scripts folder.
+- Update the namespace if you prefer not to use BDFramework.ResourceMgr.
+test_plan:
+- Create an ObjectPool<object> with a simple factory method.
+- Call GetItem() to verify it creates a new instance.
+- Call ReleaseItem() and then GetItem() again to ensure it reuses the instance.
+failure_modes:
+- Forgetting to reset object state upon ReleaseItem can cause dirty state bugs.
+- Leaking memory if items are never released back to the pool.
+code_files:
+- Code/ObjectPool.cs
+- Code/ObjectPoolContainer.cs
+source_repo: https://github.com/yimengfan/BDFramework.Core
+license: Apache-2.0

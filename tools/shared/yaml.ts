@@ -112,6 +112,10 @@ function parseInlineObject(raw: string): { [key: string]: YamlValue } {
   return obj;
 }
 
+// Numeric grammar is intentionally narrower than the registry frontmatter parser
+// (frontmatter.ts), which uses `JSON.parse` and therefore also accepts forms
+// such as `1e3` and `-0`. Here only decimal integers and `-?\d+\.\d+` floats are
+// coerced; everything else stays a string.
 export function parseScalar(raw: string): YamlValue {
   const text = unquote(stripComment(raw));
   if (text === '') return '';
@@ -129,18 +133,53 @@ function isSequenceLine(content: string): boolean {
   return content === '-' || content.startsWith('- ');
 }
 
+// A more-indented line that is neither a sequence item nor a mapping entry is a
+// folded continuation of the preceding plain scalar (YAML plain-scalar folding).
+function isContinuationLine(line: YamlLine | undefined, indent: number): boolean {
+  return Boolean(
+    line &&
+      line.indent > indent &&
+      !isSequenceLine(line.content) &&
+      !/^[A-Za-z_][A-Za-z0-9_.-]*:(\s|$)/.test(line.content)
+  );
+}
+
+function foldContinuations(lines: YamlLine[], start: number, indent: number, value: YamlValue): { value: YamlValue; next: number } {
+  if (typeof value !== 'string') return { value, next: start };
+  let folded = value;
+  let i = start;
+  while (isContinuationLine(lines[i], indent)) {
+    folded = `${folded} ${lines[i].content}`;
+    i++;
+  }
+  return { value: folded, next: i };
+}
+
 function parseMapping(lines: YamlLine[], start: number, indent: number): { value: YamlValue; next: number } {
   const obj: { [key: string]: YamlValue } = {};
   let i = start;
-  while (i < lines.length && lines[i].indent === indent && !isSequenceLine(lines[i].content)) {
-    const line = lines[i];
-    const match = /^([^:]+):\s*(.*)$/.exec(line.content);
-    if (!match) break;
+  while (i < lines.length) {
+    if (lines[i].indent < indent) break;
+    // Skip nested lines the block could not interpret (e.g. a quoted key) so
+    // scanning can continue at the next sibling key.
+    if (lines[i].indent > indent) {
+      i++;
+      continue;
+    }
+    // A sequence at this indent ends the mapping; the caller owns it.
+    if (isSequenceLine(lines[i].content)) break;
+    const match = /^([A-Za-z_][A-Za-z0-9_.-]*):(?:\s+(.*)|)$/.exec(lines[i].content);
+    if (!match) {
+      i++;
+      continue;
+    }
     const key = unquote(match[1]);
-    const rest = match[2];
+    const rest = match[2] ?? '';
     if (rest.trim() === '') {
-      if (i + 1 < lines.length && lines[i + 1].indent > indent) {
-        const child = parseBlock(lines, i + 1, lines[i + 1].indent);
+      const next = lines[i + 1];
+      // A nested block, or a block sequence at the same indentation as its key.
+      if (next && (next.indent > indent || (next.indent === indent && isSequenceLine(next.content)))) {
+        const child = parseBlock(lines, i + 1, next.indent);
         obj[key] = child.value;
         i = child.next;
       } else {
@@ -148,8 +187,9 @@ function parseMapping(lines: YamlLine[], start: number, indent: number): { value
         i++;
       }
     } else {
-      obj[key] = parseScalar(rest);
-      i++;
+      const folded = foldContinuations(lines, i + 1, indent, parseScalar(rest));
+      obj[key] = folded.value;
+      i = folded.next;
     }
   }
   return { value: obj, next: i };
@@ -172,11 +212,13 @@ function parseSequence(lines: YamlLine[], start: number, indent: number): { valu
       }
       continue;
     }
-    const match = /^([^:]+):\s*(.*)$/.exec(rest);
+    // A sequence item is a mapping only when it starts with a simple `key:`
+    // (`- key: value`); prose containing a colon (`- see 0:05`) stays a scalar.
+    const match = /^([A-Za-z_][A-Za-z0-9_.-]*):(?:\s+(.*)|)$/.exec(rest);
     if (match) {
       const obj: { [key: string]: YamlValue } = {};
       const key = unquote(match[1]);
-      const value = match[2];
+      const value = match[2] ?? '';
       if (value.trim() === '') {
         if (i + 1 < lines.length && lines[i + 1].indent > indent) {
           const child = parseBlock(lines, i + 1, lines[i + 1].indent);
@@ -192,10 +234,10 @@ function parseSequence(lines: YamlLine[], start: number, indent: number): { valu
       }
       while (i < lines.length && lines[i].indent > indent && !isSequenceLine(lines[i].content)) {
         const cont = lines[i];
-        const contMatch = /^([^:]+):\s*(.*)$/.exec(cont.content);
+        const contMatch = /^([A-Za-z_][A-Za-z0-9_.-]*):(?:\s+(.*)|)$/.exec(cont.content);
         if (!contMatch) break;
         const contKey = unquote(contMatch[1]);
-        const contValue = contMatch[2];
+        const contValue = contMatch[2] ?? '';
         if (contValue.trim() === '') {
           if (i + 1 < lines.length && lines[i + 1].indent > cont.indent) {
             const child = parseBlock(lines, i + 1, lines[i + 1].indent);
@@ -213,8 +255,12 @@ function parseSequence(lines: YamlLine[], start: number, indent: number): { valu
       arr.push(obj);
       continue;
     }
-    arr.push(parseScalar(rest));
-    i++;
+    // A scalar sequence item folds its more-indented continuation lines, just
+    // like the mapping path, so multi-line prose is preserved rather than
+    // silently truncated to its first line.
+    const folded = foldContinuations(lines, i + 1, indent, parseScalar(rest));
+    arr.push(folded.value);
+    i = folded.next;
   }
   return { value: arr, next: i };
 }

@@ -177,7 +177,7 @@ function collectAssets(domainDir, manifest, warnings) {
   };
 
   // Explicit file lists.
-  for (const key of ['agents', 'subagents', 'commands', 'skills', 'sharedContext', 'scripts']) {
+  for (const key of ['agents', 'subagents', 'commands', 'skills', 'sharedContext', 'scripts', 'config']) {
     for (const rel of manifest[key] || []) addFile(rel);
   }
 

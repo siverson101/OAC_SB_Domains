@@ -13,7 +13,7 @@ import { readdirSync, statSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { dirExists, readText, toPosix } from '../../../shared/io';
 import { asRecord, makeResult, str, type ComposeBase, type ComposeOptions, type Json } from './shared';
-import { parseYaml } from './yaml';
+import { parseYaml } from '../../../shared/yaml';
 
 export interface PrimitiveRecord {
   id: string;
@@ -65,9 +65,9 @@ export function toPrimitiveRecord(id: string, path: string, parsed: unknown): Pr
     path,
     summary: str(record, 'summary'),
     requires: asStrings(requiresBlock?.primitives),
-    events: asStrings(record?.wireThroughEvents ?? record?.events),
-    compatiblePrimitives: asStrings(record?.compatiblePrimitives),
-    conflictsWith: asStrings(record?.conflictsWith),
+    events: asStrings(record?.wireThroughEvents ?? record?.wire_through_events ?? record?.events),
+    compatiblePrimitives: asStrings(record?.compatiblePrimitives ?? record?.compatible_primitives),
+    conflictsWith: asStrings(record?.conflictsWith ?? record?.conflicts_with),
   };
 }
 
@@ -150,6 +150,7 @@ export function analyzeComposition(records: PrimitiveRecord[]): CompositionRepor
     }
     for (const conflict of record.conflictsWith) {
       edges.push({ from: record.id, to: conflict, kind: 'conflicts' });
+      if (!ids.has(conflict)) unresolved.push(`${record.id} conflicts with unknown primitive "${conflict}"`);
       const pair = [record.id, conflict].sort().join('|');
       if (seenPairs.has(pair)) continue;
       seenPairs.add(pair);

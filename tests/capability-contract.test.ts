@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { parseFrontmatter } from '../tools/shared/registry/src/frontmatter';
+import { frontmatterString, frontmatterStringArray, parseFrontmatter } from '../tools/shared/registry/src/frontmatter';
 import { validateContract } from '../tools/shared/registry/src/contract';
 
 const repoRoot = resolve(import.meta.dir, '..');
@@ -119,6 +119,54 @@ describe('frontmatter parser', () => {
 
     const fm = parseFrontmatter(content);
     expect(fm.safetyGate).toEqual({ mutates: false, requiresEditor: true, advisory: false });
+  });
+
+  test('parses a block mapping', () => {
+    const content = [
+      '---',
+      'inputs:',
+      '  projectRoot: string',
+      '  depth: 3',
+      '---',
+    ].join('\n');
+
+    const fm = parseFrontmatter(content);
+    expect(fm.inputs).toEqual({ projectRoot: 'string', depth: 3 });
+  });
+
+  test('parses a block mapping that contains a comment line', () => {
+    const content = [
+      '---',
+      'inputs:',
+      '  # where to scan and how deep',
+      '  projectRoot: string',
+      '  depth: 3',
+      '---',
+    ].join('\n');
+
+    const fm = parseFrontmatter(content);
+    expect(fm.inputs).toEqual({ projectRoot: 'string', depth: 3 });
+  });
+});
+
+describe('frontmatter accessors', () => {
+  test('frontmatterString returns only string values', () => {
+    expect(frontmatterString({ name: 'Foo' }, 'name')).toBe('Foo');
+    expect(frontmatterString({ name: 3 }, 'name')).toBeUndefined();
+    expect(frontmatterString({}, 'name')).toBeUndefined();
+  });
+
+  test('frontmatterStringArray keeps string entries and drops the rest', () => {
+    expect(frontmatterStringArray({ abilities: ['unity-read-project', 3] }, 'abilities')).toEqual([
+      'unity-read-project',
+    ]);
+    expect(frontmatterStringArray({ abilities: ['a', 'b'] }, 'abilities')).toEqual(['a', 'b']);
+    expect(frontmatterStringArray({ abilities: [] }, 'abilities')).toEqual([]);
+  });
+
+  test('frontmatterStringArray returns undefined for non-array and absent keys', () => {
+    expect(frontmatterStringArray({ abilities: 'unity-read-project' }, 'abilities')).toBeUndefined();
+    expect(frontmatterStringArray({}, 'abilities')).toBeUndefined();
   });
 });
 

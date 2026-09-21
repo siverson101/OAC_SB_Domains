@@ -1,0 +1,39 @@
+id: csharp.collections.multidictionary
+name: Zero-Alloc MultiDictionary
+engine: Unity
+language: C#
+category: collections
+status: extracted
+genre_tags:
+- any
+summary: A high-performance MultiDictionary that maps a single key to multiple values using a unified
+  pooled LinkedList, achieving zero allocation during operations.
+when_to_use:
+- When you need a dictionary mapping one key to multiple values (e.g. event systems, object tracking).
+- When you need to completely eliminate GC allocations from adding/removing items in collections.
+when_not_to_use:
+- When a simple Dictionary<TKey, List<TValue>> suffices and allocations are not a concern.
+requires:
+  components: []
+  scene_objects: []
+  primitives: []
+provides:
+  events: []
+  state: []
+config_schema: {}
+compatible_primitives: []
+conflicts_with: []
+setup_steps:
+- Include GameFrameworkLinkedList.cs, GameFrameworkLinkedListRange.cs, and GameFrameworkMultiDictionary.cs
+  in your project.
+test_plan:
+- Create a GameFrameworkMultiDictionary, add multiple values to the same key, and iterate through them
+  without triggering GC allocations.
+failure_modes:
+- Improperly holding references to enumerators.
+code_files:
+- GameFrameworkLinkedList.cs
+- GameFrameworkLinkedListRange.cs
+- GameFrameworkMultiDictionary.cs
+source_repo: https://github.com/Alex-Rachel/TEngine
+license: MIT
