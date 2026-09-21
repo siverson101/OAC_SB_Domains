@@ -22,6 +22,23 @@ describe('registry build', () => {
     expect(registry.counts.workflows).toBe(3);
   });
 
+  test('enumerates the full-studio hierarchy when the config selects it', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'oac-registry-full-'));
+    try {
+      writeFileSync(join(dir, 'unity-studio.json'), JSON.stringify({ schemaVersion: 1, studioMode: 'full' }));
+      const full = buildRegistry(unity3dDir, '2026-09-20T00:00:00.000Z', dir);
+
+      expect(full.studioConfig.studioMode).toBe('full');
+      expect(full.counts.agents).toBe(1);
+      expect(full.counts.subagents).toBe(17);
+      expect(full.agents.map((entry) => entry.path)).toEqual(['agent/full-studio/full-studio-orchestrator.md']);
+      expect(full.subagents.every((entry) => entry.path.startsWith('agent/full-studio/'))).toBe(true);
+      expect(full.agents.some((entry) => entry.path.startsWith('agent/subagents/'))).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test('includes the version-gated knowledge files in context', () => {
     const knowledge = registry.context.filter((entry) => entry.path.includes('/knowledge/'));
     expect(knowledge.length).toBe(21);

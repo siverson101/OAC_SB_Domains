@@ -72,6 +72,12 @@ export interface Registry {
   projections: { outputDir: string | null; outputs: { file: string; title: string; consumedBy: string[] }[] };
 }
 
+interface StudioModeRoster {
+  agents?: string[];
+  subagents?: string[];
+  optional?: { path: string; enabledBy?: string }[];
+}
+
 interface Manifest {
   name?: string;
   displayName?: string;
@@ -80,6 +86,7 @@ interface Manifest {
   subdomain?: string;
   agents?: string[];
   subagents?: string[];
+  studioModes?: Record<string, StudioModeRoster>;
   commands?: string[];
   context?: string[];
   abilities?: string[];
@@ -125,6 +132,35 @@ interface TemplateManifest {
 
 function toPosix(path: string): string {
   return path.split(sep).join('/');
+}
+
+// Membership lives only in `studioModes`; a manifest without it falls back to
+// the legacy flat arrays (fail-soft for domains that predate studio modes).
+function selectStudioRoster(
+  manifest: Manifest,
+  studioMode: StudioMode
+): { agents: string[]; subagents: string[] } {
+  const mode = manifest.studioModes?.[studioMode];
+  if (mode) {
+    return {
+      agents: mode.agents ?? [],
+      // Optional Lean extras are part of the mode's declared roster; the
+      // registry documents them even when install-time gating leaves them out.
+      subagents: [...(mode.subagents ?? []), ...(mode.optional ?? []).map((entry) => entry.path)],
+    };
+  }
+  return { agents: manifest.agents ?? [], subagents: manifest.subagents ?? [] };
+}
+
+// Every agent any mode can install, for validating cross-hierarchy workflow
+// edges without depending on the active mode.
+function allStudioAgents(manifest: Manifest): string[] {
+  if (!manifest.studioModes) return [...(manifest.agents ?? []), ...(manifest.subagents ?? [])];
+  const out: string[] = [];
+  for (const mode of Object.values(manifest.studioModes)) {
+    out.push(...(mode.agents ?? []), ...(mode.subagents ?? []), ...(mode.optional ?? []).map((entry) => entry.path));
+  }
+  return out;
 }
 
 function isDir(path: string): boolean {
@@ -251,8 +287,9 @@ export function buildRegistry(domainDir: string, generatedAt: string, opencodeDi
   const mapEntries = (paths: string[] | undefined, layer?: RegistryEntry['layer']): RegistryEntry[] =>
     (paths ?? []).map((rel) => entry(domainDir, rel, basename(rel, '.md'), consumedOutputs(rel, basename(rel, '.md'), consumers), layer));
 
-  const agents = mapEntries(manifest.agents);
-  const subagents = mapEntries(manifest.subagents);
+  const roster = selectStudioRoster(manifest, studioConfig.studioMode);
+  const agents = mapEntries(roster.agents);
+  const subagents = mapEntries(roster.subagents);
   const commands = mapEntries(manifest.commands, 'command');
 
   const abilities: RegistryEntry[] = (manifest.abilities ?? []).map((ability) => {
@@ -324,9 +361,7 @@ export function buildRegistry(domainDir: string, generatedAt: string, opencodeDi
   });
 
   const knownAbilities = new Set(manifest.abilities ?? []);
-  const knownAgents = new Set(
-    [...(manifest.agents ?? []), ...(manifest.subagents ?? [])].map((rel) => basename(rel, '.md'))
-  );
+  const knownAgents = new Set(allStudioAgents(manifest).map((rel) => basename(rel, '.md')));
 
   const warnings: string[] = [];
   const edges: RegistryEdge[] = [];
@@ -348,7 +383,7 @@ export function buildRegistry(domainDir: string, generatedAt: string, opencodeDi
     }
   };
 
-  for (const rel of [...(manifest.agents ?? []), ...(manifest.subagents ?? [])]) {
+  for (const rel of [...roster.agents, ...roster.subagents]) {
     const fm = readFrontmatter(join(domainDir, rel));
     addEdges('agent-ability', basename(rel, '.md'), frontmatterStringArray(fm, 'abilities') ?? []);
   }

@@ -548,6 +548,25 @@ function frontmatterStringArray(fm, key) {
 function toPosix(path) {
   return path.split(sep).join("/");
 }
+function selectStudioRoster(manifest, studioMode) {
+  const mode = manifest.studioModes?.[studioMode];
+  if (mode) {
+    return {
+      agents: mode.agents ?? [],
+      subagents: [...mode.subagents ?? [], ...(mode.optional ?? []).map((entry) => entry.path)]
+    };
+  }
+  return { agents: manifest.agents ?? [], subagents: manifest.subagents ?? [] };
+}
+function allStudioAgents(manifest) {
+  if (!manifest.studioModes)
+    return [...manifest.agents ?? [], ...manifest.subagents ?? []];
+  const out = [];
+  for (const mode of Object.values(manifest.studioModes)) {
+    out.push(...mode.agents ?? [], ...mode.subagents ?? [], ...(mode.optional ?? []).map((entry) => entry.path));
+  }
+  return out;
+}
 function isDir(path) {
   try {
     return statSync2(path).isDirectory();
@@ -654,8 +673,9 @@ function buildRegistry(domainDir, generatedAt, opencodeDir) {
   const consumers = projections.consumers ?? {};
   const studioConfig = buildStudioConfig(domainDir, opencodeDir);
   const mapEntries = (paths, layer) => (paths ?? []).map((rel) => entry(domainDir, rel, basename(rel, ".md"), consumedOutputs(rel, basename(rel, ".md"), consumers), layer));
-  const agents = mapEntries(manifest.agents);
-  const subagents = mapEntries(manifest.subagents);
+  const roster = selectStudioRoster(manifest, studioConfig.studioMode);
+  const agents = mapEntries(roster.agents);
+  const subagents = mapEntries(roster.subagents);
   const commands = mapEntries(manifest.commands, "command");
   const abilities = (manifest.abilities ?? []).map((ability) => {
     const rel = `command/${ability}.md`;
@@ -702,7 +722,7 @@ function buildRegistry(domainDir, generatedAt, opencodeDir) {
     return { file: output.file, title: output.title ?? output.file, consumedBy };
   });
   const knownAbilities = new Set(manifest.abilities ?? []);
-  const knownAgents = new Set([...manifest.agents ?? [], ...manifest.subagents ?? []].map((rel) => basename(rel, ".md")));
+  const knownAgents = new Set(allStudioAgents(manifest).map((rel) => basename(rel, ".md")));
   const warnings = [];
   const edges = [];
   const seenEdges = new Set;
@@ -723,7 +743,7 @@ function buildRegistry(domainDir, generatedAt, opencodeDir) {
       edges.push({ type, from, to });
     }
   };
-  for (const rel of [...manifest.agents ?? [], ...manifest.subagents ?? []]) {
+  for (const rel of [...roster.agents, ...roster.subagents]) {
     const fm = readFrontmatter(join2(domainDir, rel));
     addEdges("agent-ability", basename(rel, ".md"), frontmatterStringArray(fm, "abilities") ?? []);
   }

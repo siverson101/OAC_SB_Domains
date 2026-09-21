@@ -9,12 +9,19 @@ const repoRoot = resolve(import.meta.dir, '..');
 const unity3dDir = join(repoRoot, 'xdomains', 'game-dev', 'unity-3d');
 
 const manifest = JSON.parse(readFileSync(join(unity3dDir, 'sb-domain.json'), 'utf8')) as {
-  agents: string[];
-  subagents: string[];
+  studioModes: {
+    lean: {
+      agents: string[];
+      subagents: string[];
+      optional: { path: string; enabledBy: string }[];
+    };
+  };
   abilities: string[];
 };
 
-const leanAgents = [...manifest.agents, ...manifest.subagents];
+const lean = manifest.studioModes.lean;
+const optionalAgents = lean.optional.map((entry) => entry.path);
+const leanAgents = [...lean.agents, ...lean.subagents, ...optionalAgents];
 const knownAbilities = new Set(manifest.abilities);
 const validTiers = new Set(['router', 'lead', 'specialist']);
 const gatedEnabledBy: Record<string, string> = {
@@ -22,7 +29,7 @@ const gatedEnabledBy: Record<string, string> = {
   'native-plugin': 'native-subproject',
 };
 
-const writingAgents = manifest.subagents;
+const writingAgents = [...lean.subagents, ...optionalAgents];
 const T0 = '2026-01-01T00:00:00.000Z';
 const CLAIM_RULE = /<rule id="claim_before_write">[\s\S]*?<\/rule>/;
 
@@ -37,10 +44,12 @@ function readAgent(rel: string): { content: string; fm: ReturnType<typeof parseF
 
 describe('Lean agent hierarchy', () => {
   test('ships the orchestrator, 7 specialists, and 2 gated extras', () => {
-    expect(manifest.agents).toHaveLength(1);
-    expect(manifest.subagents).toHaveLength(9);
-    expect(manifest.subagents).toContain('agent/subagents/unity/tdd-specialist.md');
-    expect(manifest.subagents).toContain('agent/subagents/unity/native-plugin.md');
+    expect(lean.agents).toHaveLength(1);
+    expect(lean.subagents).toHaveLength(7);
+    expect(optionalAgents).toHaveLength(2);
+    expect(optionalAgents).toContain('agent/subagents/unity/tdd-specialist.md');
+    expect(optionalAgents).toContain('agent/subagents/unity/native-plugin.md');
+    expect(lean.optional.map((entry) => entry.enabledBy).sort()).toEqual(['native-subproject', 'tdd']);
   });
 
   test('every Lean agent declares a valid abstract tier', () => {

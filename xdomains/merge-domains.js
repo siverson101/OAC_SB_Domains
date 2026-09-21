@@ -11,7 +11,7 @@
 // Usage:
 //   node merge-domains.js --domain-dir .opencode/xdomains/game-dev/unity-3d \
 //        --opencode-dir <dir> [--subdomain unity-3d] \
-//        [--mode extend|separate|replace] [--dry-run] \
+//        [--mode extend|separate|replace] [--studio-mode lean|full] [--dry-run] \
 //        [--no-register-metadata] [--no-rewrite-paths] [--force]
 //
 // The domain and sub-domain are read from sb-domain.json; --subdomain is an
@@ -27,6 +27,126 @@ const fs = require('fs');
 const path = require('path');
 
 const DEFAULT_MANIFEST = 'sb-domain.json';
+const STUDIO_MODES = ['lean', 'full'];
+
+// ---------------------------------------------------------------------------
+// Studio-mode selection
+// ---------------------------------------------------------------------------
+
+function normalizeStudioMode(value) {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'lean') return 'lean';
+  if (normalized === 'full' || normalized === 'full-studio' || normalized === 'fullstudio' || normalized === 'full studio') return 'full';
+  return null;
+}
+
+function promptStudioMode(question) {
+  process.stdout.write(question);
+  const chunks = [];
+  const buf = Buffer.alloc(1);
+  for (;;) {
+    let read;
+    try {
+      read = fs.readSync(0, buf, 0, 1, null);
+    } catch (error) {
+      if (error && error.code === 'EAGAIN') continue;
+      return null;
+    }
+    if (read === 0) break;
+    const ch = buf.toString('utf8');
+    if (ch === '\n') break;
+    if (ch !== '\r') chunks.push(ch);
+  }
+  return chunks.join('');
+}
+
+function resolveStudioMode(argv, options) {
+  const opts = options || {};
+  const flag = argv['studio-mode'] !== undefined ? argv['studio-mode'] : argv.studioMode;
+  if (flag !== undefined && flag !== true) {
+    const mode = normalizeStudioMode(String(flag));
+    if (!mode) throw new Error(`Unknown studio mode: ${flag}`);
+    return mode;
+  }
+
+  const interactive = opts.interactive !== undefined ? opts.interactive : Boolean(process.stdin.isTTY);
+  if (!interactive) return 'lean';
+
+  const prompt = opts.prompt || promptStudioMode;
+  const answer = prompt('Studio mode: Lean | Full Studio [lean]: ');
+  return normalizeStudioMode(String(answer === null || answer === undefined ? '' : answer).trim()) || 'lean';
+}
+
+// Membership lives only in `studioModes`; a manifest without it falls back to
+// the legacy flat `agents`/`subagents` arrays (fail-soft for older domains).
+function selectHierarchy(manifest, studioMode, gating) {
+  const gates = gating || {};
+  const modes = manifest.studioModes;
+  if (!modes || typeof modes !== 'object') {
+    return { agents: manifest.agents || [], subagents: manifest.subagents || [] };
+  }
+  const mode = modes[studioMode] || {};
+  const agents = [...(mode.agents || [])];
+  const subagents = [...(mode.subagents || [])];
+  for (const optional of mode.optional || []) {
+    if (!optional || !optional.path) continue;
+    const enabledBy = optional.enabledBy;
+    if (enabledBy === undefined || gates[enabledBy] === true) subagents.push(optional.path);
+  }
+  return { agents, subagents };
+}
+
+// Optional Lean extras gate on the installed `.opencode/unity-studio.json`
+// toggle and on a detected native sub-project. Detection reads the persisted
+// `native-project-state.json` artifact (written by project-scan); when no
+// project-data is supplied the engine looks under `<opencode-dir>/project-data`.
+// A missing artifact means "not detected" — the conservative default.
+function readStudioConfig(opencodeDir) {
+  const file = path.join(opencodeDir, 'unity-studio.json');
+  if (!isFile(file)) return null;
+  try {
+    const config = readJson(file);
+    return config && typeof config === 'object' && !Array.isArray(config) ? config : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function detectNativeSubproject(opencodeDir, projectDataDir) {
+  const dir = typeof projectDataDir === 'string' && projectDataDir ? projectDataDir : path.join(opencodeDir, 'project-data');
+  const file = path.join(dir, 'native-project-state.json');
+  if (!isFile(file)) return false;
+  try {
+    const state = readJson(file);
+    const native = state && state.state;
+    if (!native) return false;
+    return native.solutionExists === true || Boolean(native.solution);
+  } catch (_) {
+    return false;
+  }
+}
+
+function resolveGating(opencodeDir, projectDataDir) {
+  const config = readStudioConfig(opencodeDir);
+  const toggles = config && config.toggles && typeof config.toggles === 'object' ? config.toggles : {};
+  return {
+    tdd: toggles.tdd === true,
+    'native-subproject': detectNativeSubproject(opencodeDir, projectDataDir),
+  };
+}
+
+function persistStudioMode(opencodeDir, studioMode, warnings) {
+  const file = path.join(opencodeDir, 'unity-studio.json');
+  let config = readStudioConfig(opencodeDir);
+  if (!config) {
+    if (isFile(file)) warnings.push(`unity-studio.json is not a JSON object; rewriting with studioMode only`);
+    config = {};
+  }
+  config.studioMode = studioMode;
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify(config, null, 2) + '\n');
+}
 
 // ---------------------------------------------------------------------------
 // Argument parsing
@@ -144,7 +264,8 @@ function computeDestination(rootDest, relPath, subdomain, mergeMode) {
 // Manifest-driven asset selection
 // ---------------------------------------------------------------------------
 
-function collectAssets(domainDir, manifest, warnings) {
+function collectAssets(domainDir, manifest, warnings, options) {
+  const opts = options || {};
   const assets = [];
   const seen = new Set();
 
@@ -176,8 +297,14 @@ function collectAssets(domainDir, manifest, warnings) {
     }
   };
 
+  // The selected hierarchy (mode membership + optional gating) then the
+  // always-installed shared assets.
+  const hierarchy = selectHierarchy(manifest, opts.studioMode || 'lean', opts.gating);
+  for (const rel of hierarchy.agents) addFile(rel);
+  for (const rel of hierarchy.subagents) addFile(rel);
+
   // Explicit file lists.
-  for (const key of ['agents', 'subagents', 'commands', 'skills', 'sharedContext', 'scripts', 'config']) {
+  for (const key of ['commands', 'skills', 'sharedContext', 'scripts', 'config']) {
     for (const rel of manifest[key] || []) addFile(rel);
   }
 
@@ -324,7 +451,7 @@ function main() {
   const force = argv.force === true;
 
   if (!domainDirArg) {
-    console.error('Usage: merge-domains.js --domain-dir .opencode/xdomains/<domain>/<subdomain> --opencode-dir <dir> [--mode extend|separate|replace] [--dry-run]');
+    console.error('Usage: merge-domains.js --domain-dir .opencode/xdomains/<domain>/<subdomain> --opencode-dir <dir> [--mode extend|separate|replace] [--studio-mode lean|full] [--dry-run]');
     process.exit(2);
   }
 
@@ -333,6 +460,14 @@ function main() {
 
   if (!['extend', 'separate', 'replace'].includes(mode)) {
     console.error(`Unknown merge mode: ${mode}`);
+    process.exit(2);
+  }
+
+  let studioMode;
+  try {
+    studioMode = resolveStudioMode(argv);
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
     process.exit(2);
   }
 
@@ -346,8 +481,9 @@ function main() {
   const domain = manifest.domain || path.basename(path.dirname(domainDir));
   const subdomain = argv.subdomain || manifest.subdomain || path.basename(domainDir);
   const warnings = [];
+  const gating = resolveGating(opencodeDir, argv['project-data']);
 
-  const assets = collectAssets(domainDir, manifest, warnings);
+  const assets = collectAssets(domainDir, manifest, warnings, { studioMode, gating });
 
   const adaptations = readAdaptations(domainDir);
   const copied = new Set();
@@ -375,7 +511,7 @@ function main() {
   }
 
   if (dryRun) {
-    console.log(`Dry-run merge plan (${domain}/${subdomain}, mode=${mode}):`);
+    console.log(`Dry-run merge plan (${domain}/${subdomain}, mode=${mode}, studioMode=${studioMode}):`);
     for (const p of planned) {
       console.log(`  ${p.rel}  ->  ${path.relative(process.cwd(), p.dest)}`);
     }
@@ -383,12 +519,14 @@ function main() {
     return;
   }
 
+  persistStudioMode(opencodeDir, studioMode, warnings);
+
   let metadataAdded = 0;
   if (doRegister) {
     metadataAdded = registerMetadata(opencodeDir, domain, subdomain, assets, copied, warnings);
   }
 
-  console.log(`Applied domain ${domain}/${subdomain} (mode=${mode})`);
+  console.log(`Applied domain ${domain}/${subdomain} (mode=${mode}, studioMode=${studioMode})`);
   console.log(`  Files copied: ${copied.size}`);
   if (doRegister) console.log(`  Agents registered: ${metadataAdded}`);
   if (adaptations.paths.size > 0) {
@@ -402,8 +540,16 @@ if (require.main === module) {
 }
 
 module.exports = {
+  STUDIO_MODES,
   parseArgs,
   parseFrontmatter,
+  normalizeStudioMode,
+  resolveStudioMode,
+  selectHierarchy,
+  readStudioConfig,
+  detectNativeSubproject,
+  resolveGating,
+  persistStudioMode,
   computeDestination,
   collectAssets,
   registerMetadata,
