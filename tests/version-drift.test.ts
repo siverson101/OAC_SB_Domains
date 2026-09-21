@@ -187,6 +187,32 @@ describe('version-drift: offline detection', () => {
     const snapshot = JSON.parse(readFileSync(join(fixture.baselineDir, 'package-versions.json'), 'utf8'));
     expect(snapshot.packages).toEqual(CURRENT_PACKAGES);
   });
+
+  test('present-but-malformed project files report unknown, not "no project files"', () => {
+    const fixture = makeFixture();
+    writeFileSync(join(fixture.projectRoot, 'ProjectSettings', 'ProjectVersion.txt'), 'not a version file\n');
+    writeFileSync(join(fixture.projectRoot, 'Packages', 'manifest.json'), '{ not json');
+
+    const result = runVersionDrift(options(fixture));
+
+    expect(result.status).toBe('unknown');
+    expect(result.summary).toContain('Version state unknown');
+    expect(result.summary).not.toContain('No Unity project files found');
+    expect(result.errors.length).toBeGreaterThan(0);
+    expect(result.report).toContain('[Editor] unknown');
+    expect(result.report).toContain('[Packages] unknown');
+  });
+
+  test('genuinely absent project files report the no-project-files wording', () => {
+    const fixture = makeFixture();
+    rmSync(join(fixture.projectRoot, 'ProjectSettings', 'ProjectVersion.txt'));
+    rmSync(join(fixture.projectRoot, 'Packages', 'manifest.json'));
+
+    const result = runVersionDrift(options(fixture));
+
+    expect(result.status).toBe('unavailable');
+    expect(result.summary).toBe('No Unity project files found under the project root');
+  });
 });
 
 describe('version-drift: CLI drift', () => {
@@ -199,6 +225,7 @@ describe('version-drift: CLI drift', () => {
     expect(result.cli.status).toBe('unavailable');
     expect(result.cli.available).toBe(false);
     expect(result.errors).toEqual([]);
+    expect(result.route).toBe('offline');
   });
 
   test('a CLI version change diffs the command catalog and surfaces docs', () => {
@@ -216,15 +243,34 @@ describe('version-drift: CLI drift', () => {
     };
     const result = runVersionDrift(options(fixture, { cliCommand: 'unity', cliProbe: probe }));
 
+    expect(result.route).toBe('batch');
     expect(result.cli.status).toBe('changed');
     expect(result.cli.commandsAdded).toEqual(['doctor', 'run']);
     expect(result.cli.commandsRemoved).toEqual(['test']);
     expect(result.cli.actionFiles).toContain('context/unity-3d/commands.md');
     expect(result.cli.action).toContain('doctor');
-    expect(result.cli.action).toContain('context/unity-3d/commands.md');
+    expect(result.report).toContain('→ Updated context files: context/unity-3d/commands.md');
     expect(readFileSync(join(fixture.baselineDir, 'unity-cli-version.txt'), 'utf8').trim()).toBe('0.1.0-beta.4');
     const catalog = JSON.parse(readFileSync(join(fixture.baselineDir, 'unity-cli-commands.json'), 'utf8'));
     expect(catalog.commands).toEqual(['compile', 'doctor', 'run']);
+  });
+
+  test('an unchanged CLI captures a missing command catalog', () => {
+    const fixture = makeFixture();
+    unchangedBaselines(fixture);
+    writeBaselines(fixture, { cliVersion: '0.1.0-beta.4' });
+
+    const probe: CliProbe = {
+      version: () => ({ available: true, version: '0.1.0-beta.4' }),
+      commands: () => ['compile', 'run'],
+    };
+    const result = runVersionDrift(options(fixture, { cliCommand: 'unity', cliProbe: probe }));
+
+    expect(result.cli.status).toBe('unchanged');
+    expect(result.cli.commandCount).toBe(2);
+    expect(result.baselinesUpdated).toContain('version-baselines/unity-cli-commands.json');
+    const catalog = JSON.parse(readFileSync(join(fixture.baselineDir, 'unity-cli-commands.json'), 'utf8'));
+    expect(catalog.commands).toEqual(['compile', 'run']);
   });
 
   test('an unchanged CLI captures no catalog', () => {
@@ -317,5 +363,20 @@ describe('version-drift: cadence', () => {
     expect(JSON.parse(readFileSync(join(fixture.baselineDir, 'last-run.json'), 'utf8')).lastRunUtc).toBe(
       '2026-09-22T03:00:00.000Z'
     );
+  });
+
+  test('a future last-run bases nextDueUtc on now, not the skewed stamp', () => {
+    const fixture = makeFixture();
+    unchangedBaselines(fixture);
+    writeText(
+      join(fixture.baselineDir, 'last-run.json'),
+      JSON.stringify({ schemaVersion: 1, lastRunUtc: '2026-09-23T00:00:00.000Z' })
+    );
+
+    const now = '2026-09-21T00:00:00.000Z';
+    const result = runVersionDrift(options(fixture, { now }));
+
+    expect(result.cadence.nextDueUtc).toBe('2026-09-22T00:00:00.000Z');
+    expect(Date.parse(result.cadence.nextDueUtc as string)).toBeGreaterThan(Date.parse(now));
   });
 });

@@ -9,7 +9,18 @@ import { dirname, join, relative } from 'node:path';
 import { asArray, asRecord, str } from '../../../shared/json-helpers';
 import { fileExists, readJson, readText, toPosix, writeJson } from '../../../shared/io';
 import { editorVersionInfo, findExecutable, run, stripAnsi } from '../../../shared/toolchain';
-import { baselineDir, baselineRelPath, makeResult } from './shared';
+import { readManifestDependencies } from '../../../shared/unity-manifest';
+import type { Route } from '../../../shared/tool-routing';
+import {
+  CLI_COMMANDS_BASELINE,
+  CLI_VERSION_BASELINE,
+  EDITOR_BASELINE,
+  LAST_RUN,
+  PACKAGE_BASELINE,
+  baselineDir,
+  baselineRelPath,
+  makeResult,
+} from './shared';
 import type {
   CliProbe,
   CliVersionProbe,
@@ -19,11 +30,6 @@ import type {
   VersionDriftStatus,
 } from './types';
 
-const EDITOR_BASELINE = 'unity-editor-version.txt';
-const PACKAGE_BASELINE = 'package-versions.json';
-const CLI_VERSION_BASELINE = 'unity-cli-version.txt';
-const CLI_COMMANDS_BASELINE = 'unity-cli-commands.json';
-const LAST_RUN = 'last-run.json';
 const CLI_COMMAND_DOC_PATTERN = /unity\s+command\b/i;
 const CLI_DOC_SKIP_DIRS = new Set(['node_modules', '.git', 'scripts', 'project-data', 'dist', 'Library', 'Temp']);
 
@@ -195,13 +201,21 @@ function computeCadence(options: VersionDriftOptions, lastRunUtc: string | null)
   // A last-run in the future (clock skew) is treated as fresh so we never
   // re-run in a tight loop; an unparseable timestamp is not fresh.
   const fresh = hasValidLast && Number.isFinite(nowMs) && nowMs - lastMs < windowMs;
+  // A last-run in the future (clock skew) would otherwise compute a `nextDueUtc`
+  // in the past; base it on `now` so the next window starts from the observed
+  // clock rather than the skewed stamp.
+  let nextDueUtc: string | null = null;
+  if (hasValidLast) {
+    const base = Number.isFinite(nowMs) && lastMs > nowMs ? nowMs : lastMs;
+    nextDueUtc = new Date(base + windowMs).toISOString();
+  }
   return {
     ifDue: options.ifDue,
     maxAgeHours: options.maxAgeHours,
     skipped: options.ifDue && fresh,
     lastRunUtc,
     nowUtc: options.now,
-    nextDueUtc: hasValidLast ? new Date(lastMs + windowMs).toISOString() : null,
+    nextDueUtc,
   };
 }
 
@@ -261,19 +275,18 @@ function detectPackages(options: VersionDriftOptions, errors: string[]): Package
     action: null,
   };
   const manifestPath = join(options.projectRoot, 'Packages', 'manifest.json');
-  if (!fileExists(manifestPath)) {
+  const manifest = readManifestDependencies(manifestPath);
+  if (!manifest.present) {
     section.status = 'unavailable';
     return section;
   }
-  const dependencies = asRecord(asRecord(readJson<unknown>(manifestPath))?.dependencies);
-  if (!dependencies) {
+  if (manifest.malformed || !manifest.dependencies) {
     section.status = 'unknown';
     errors.push('Packages/manifest.json is malformed or has no dependencies object; baseline left untouched');
     return section;
   }
 
-  const current: Record<string, string> = {};
-  for (const [name, value] of Object.entries(dependencies)) current[name] = String(value);
+  const current = manifest.dependencies;
   section.count = Object.keys(current).length;
 
   const path = join(baselineDir(options), PACKAGE_BASELINE);
@@ -320,8 +333,28 @@ function detectPackages(options: VersionDriftOptions, errors: string[]): Package
 function cliActionText(section: CliSection, from: string, to: string): string {
   const added = section.commandsAdded.length > 0 ? section.commandsAdded.join(', ') : '(none)';
   const removed = section.commandsRemoved.length > 0 ? section.commandsRemoved.join(', ') : '(none)';
-  const files = section.actionFiles.length > 0 ? ` Update: ${section.actionFiles.join(', ')}.` : '';
-  return `Review CLI command catalog changes for ${from} → ${to} (new: ${added}; removed: ${removed}) and update context files/docs that enumerate Unity CLI commands.${files}`;
+  return `Review CLI command catalog changes for ${from} → ${to} (new: ${added}; removed: ${removed}) and update context files/docs that enumerate Unity CLI commands.`;
+}
+
+// Captures the CLI command catalog into its baseline. Returns true when a
+// snapshot was written; a failed probe is reported with `failureMessage`.
+function captureCommands(
+  options: VersionDriftOptions,
+  probe: CliProbe,
+  section: CliSection,
+  errors: string[],
+  cliVersion: string,
+  failureMessage: string
+): boolean {
+  const commands = probe.commands(options.cliCommand);
+  if (!commands) {
+    errors.push(failureMessage);
+    return false;
+  }
+  writeCommandsBaseline(options, commands, cliVersion);
+  section.commandCount = commands.length;
+  section.updated.push(baselineRelPath(CLI_COMMANDS_BASELINE));
+  return true;
 }
 
 function detectCli(options: VersionDriftOptions, errors: string[]): CliSection {
@@ -359,19 +392,32 @@ function detectCli(options: VersionDriftOptions, errors: string[]): CliSection {
     writeBaselineText(versionPath, probeResult.version);
     section.status = 'baseline_created';
     section.updated.push(baselineRelPath(CLI_VERSION_BASELINE));
-    const commands = probe.commands(options.cliCommand);
-    if (commands) {
-      writeCommandsBaseline(options, commands, probeResult.version);
-      section.commandCount = commands.length;
-      section.updated.push(baselineRelPath(CLI_COMMANDS_BASELINE));
-    } else {
-      errors.push('could not capture the Unity command catalog; version baseline recorded');
-    }
+    captureCommands(
+      options,
+      probe,
+      section,
+      errors,
+      probeResult.version,
+      'could not capture the Unity command catalog; version baseline recorded'
+    );
     return section;
   }
 
   if (baseline === probeResult.version) {
     section.status = 'unchanged';
+    // A fresh install may have recorded only the version baseline (the catalog
+    // probe failed). Capture the catalog now even though the version is
+    // unchanged, or it would never be populated.
+    if (!fileExists(join(baselineDir(options), CLI_COMMANDS_BASELINE))) {
+      captureCommands(
+        options,
+        probe,
+        section,
+        errors,
+        probeResult.version,
+        'Unity CLI version unchanged but the command catalog could not be captured'
+      );
+    }
     return section;
   }
 
@@ -460,9 +506,19 @@ function isObserved(status: VersionDriftChange): boolean {
 }
 
 function overallStatus(editor: EditorSection, packages: PackagesSection, cli: CliSection): VersionDriftStatus {
-  return isObserved(editor.status) || isObserved(packages.status) || isObserved(cli.status)
-    ? 'observed_locally'
-    : 'unavailable';
+  if (isObserved(editor.status) || isObserved(packages.status) || isObserved(cli.status)) return 'observed_locally';
+  // A category that was read but could not be parsed is `unknown`, not
+  // `unavailable` — reporting "no project files" there would be a false negative.
+  if (editor.status === 'unknown' || packages.status === 'unknown' || cli.status === 'unknown') return 'unknown';
+  return 'unavailable';
+}
+
+function unknownReasons(editor: EditorSection, packages: PackagesSection, cli: CliSection): string[] {
+  const reasons: string[] = [];
+  if (editor.status === 'unknown') reasons.push('ProjectSettings/ProjectVersion.txt is present but unreadable');
+  if (packages.status === 'unknown') reasons.push('Packages/manifest.json or package-versions.json is present but malformed');
+  if (cli.status === 'unknown') reasons.push('the Unity CLI is present but its version could not be read');
+  return reasons;
 }
 
 function summarize(
@@ -472,6 +528,7 @@ function summarize(
   cli: CliSection
 ): string {
   if (status === 'unavailable') return 'No Unity project files found under the project root';
+  if (status === 'unknown') return `Version state unknown: ${unknownReasons(editor, packages, cli).join('; ')}`;
   const changes: string[] = [];
   if (editor.status === 'changed') changes.push(`Editor ${editor.baseline} → ${editor.current}`);
   if (packages.status === 'changed') {
@@ -531,7 +588,7 @@ function renderPackages(section: PackagesSection): string[] {
       lines.push('[Packages] unavailable — no Packages/manifest.json');
       break;
     default:
-      lines.push('[Packages] unknown — Packages/manifest.json is malformed');
+      lines.push('[Packages] unknown — manifest or baseline is malformed');
       break;
   }
   for (const file of section.updated) lines.push(`  → Updated ${file}`);
@@ -565,6 +622,9 @@ function renderCli(section: CliSection): string[] {
       break;
   }
   for (const file of section.updated) lines.push(`  → Updated ${file}`);
+  if (section.actionFiles.length > 0) {
+    lines.push(`  → Updated context files: ${section.actionFiles.join(', ')}`);
+  }
   if (section.action) lines.push(`  → ACTION REQUIRED: ${section.action}`);
   return lines;
 }
@@ -618,8 +678,11 @@ export function runVersionDrift(options: VersionDriftOptions): VersionDriftResul
   const actions = [editor.action, packages.action, cli.action].filter((action): action is string => action !== null);
   const baselinesUpdated = [...editor.updated, ...packages.updated, ...cli.updated];
   const status = overallStatus(editor, packages, cli);
+  // The route reflects what actually ran: `batch` once the Unity CLI probe
+  // resolved, `offline` when the run was purely on-disk.
+  const route: Route = cli.available ? 'batch' : 'offline';
   const result: VersionDriftResult = {
-    ...makeResult(options.ability, status, summarize(status, editor, packages, cli), errors),
+    ...makeResult(options.ability, status, summarize(status, editor, packages, cli), errors, route),
     cadence,
     editor,
     packages,
