@@ -1,7 +1,7 @@
 ---
 name: UnityNativePlugin
 description: Unity 3D native plugin specialist - C/C++ native plugins, P/Invoke bindings, platform-native builds and interop
-abilities: [unity-read-project, script-scaffolding, code-navigation, compile-and-verify-project, unity-build, platform-info]
+abilities: [unity-read-project, script-scaffolding, code-navigation, compile-and-verify-project, unity-build, platform-info, coordination-board]
 tier: specialist
 enabledBy: native-subproject
 mode: subagent
@@ -36,6 +36,9 @@ permission:
   </rule>
   <rule id="report_failures">
     STOP on build failure; report compiler output + first errors. Never silently claim success.
+  </rule>
+  <rule id="claim_before_write">
+    Before writing any project file (native sources or C# interop), claim it on the advisory coordination board (ability: coordination-board, verb claim, with a lease); release when done. A live claim held by another holder fails fast naming the holder — stop and report, never overwrite.
   </rule>
 </critical_rules>
 

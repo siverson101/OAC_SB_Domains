@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { buildRegistry } from '../tools/shared/registry/src/build';
 import { frontmatterString, frontmatterStringArray, parseFrontmatter } from '../tools/shared/registry/src/frontmatter';
+import { claimResource, emptyBoard } from '../tools/unity/unity-compose/src/coordination-board';
 
 const repoRoot = resolve(import.meta.dir, '..');
 const unity3dDir = join(repoRoot, 'xdomains', 'game-dev', 'unity-3d');
@@ -20,6 +21,10 @@ const gatedEnabledBy: Record<string, string> = {
   'tdd-specialist': 'tdd',
   'native-plugin': 'native-subproject',
 };
+
+const writingAgents = manifest.subagents;
+const T0 = '2026-01-01T00:00:00.000Z';
+const CLAIM_RULE = /<rule id="claim_before_write">[\s\S]*?<\/rule>/;
 
 function agentId(rel: string): string {
   return rel.slice(rel.lastIndexOf('/') + 1).replace(/\.md$/, '');
@@ -102,5 +107,46 @@ describe('Lean agent registry edges', () => {
       const abilities = frontmatterStringArray(readAgent(rel).fm, 'abilities') ?? [];
       for (const ability of abilities) expect(hasEdge(id, ability), `${id} -> ${ability}`).toBe(true);
     }
+  });
+});
+
+describe('coordination board wiring', () => {
+  test('every writing Lean agent allowlists coordination-board', () => {
+    for (const rel of writingAgents) {
+      const abilities = frontmatterStringArray(readAgent(rel).fm, 'abilities') ?? [];
+      expect(abilities, `${rel} allowlist`).toContain('coordination-board');
+    }
+  });
+
+  test('every writing Lean agent states the claim-before-write rule', () => {
+    for (const rel of writingAgents) {
+      const { content } = readAgent(rel);
+      const rule = content.match(CLAIM_RULE)?.[0] ?? '';
+      expect(rule, `${rel} claim_before_write rule`).not.toBe('');
+      expect(rule, `${rel} references the ability`).toContain('coordination-board');
+      expect(rule, `${rel} leases the claim`).toMatch(/lease/i);
+      expect(rule, `${rel} releases the claim`).toMatch(/release/i);
+      expect(rule, `${rel} fails fast naming the holder`).toMatch(/fails fast naming the holder/);
+    }
+  });
+
+  test('the orchestrator documents the one-holder Editor hold serialising compile/test/capture', () => {
+    const { content } = readAgent('agent/unity-3d-orchestrator.md');
+    const rule = content.match(/<rule id="editor_hold_serialises"[\s\S]*?<\/rule>/)?.[0] ?? '';
+    expect(rule).not.toBe('');
+    expect(rule).toMatch(/one-holder Editor hold/i);
+    expect(rule).toContain('coordination-board');
+    expect(rule).toContain('compile/test/capture');
+  });
+
+  test('a claim conflict between two writing agents fails fast naming the holder', () => {
+    const first = claimResource(emptyBoard(T0), { resource: 'Assets/Shared.cs', holder: 'implementer' }, T0);
+    expect(first.ok).toBe(true);
+
+    const second = claimResource(first.board, { resource: 'Assets/Shared.cs', holder: 'scene' }, T0);
+    expect(second.ok).toBe(false);
+    expect(second.status).toBe('conflict');
+    expect(second.errors.join(' ')).toContain('implementer');
+    expect(second.board.claims).toHaveLength(1);
   });
 });
