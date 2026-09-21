@@ -12,6 +12,7 @@ const COMPOSE_ABILITY_NAMES = [
   'primitive-composition',
   'contract-aware-design',
   'ci-status-baseline',
+  'plan-feature',
 ] as const;
 
 export type ComposeAbility = (typeof COMPOSE_ABILITY_NAMES)[number];
@@ -20,13 +21,14 @@ export const COMPOSE_ABILITIES: ComposeAbility[] = [...COMPOSE_ABILITY_NAMES];
 
 export type ComposeMode = 'offline' | 'live' | 'both';
 
-// All four abilities are offline-first. The CI baseline can additionally be
+// All five abilities are offline-first. The CI baseline can additionally be
 // recorded from a live CI run, hence `both`.
 export const COMPOSE_MODES: Record<ComposeAbility, ComposeMode> = {
   'coordination-board': 'offline',
   'primitive-composition': 'offline',
   'contract-aware-design': 'offline',
   'ci-status-baseline': 'both',
+  'plan-feature': 'offline',
 };
 
 export type ComposeStatus =
@@ -37,6 +39,8 @@ export type ComposeStatus =
   | 'recorded'
   | 'observed_locally'
   | 'refused'
+  | 'loopback'
+  | 'aborted'
   | 'unknown';
 
 export interface ComposeSafetyGate {
@@ -80,4 +84,11 @@ export interface ComposeOptions {
   schema?: string;
   source?: string;
   cliCommand: string;
+  feature?: string;
+  context?: string;
+  design?: string;
+  testCases?: string;
+  testingDecisions?: string;
+  testability?: string;
+  tradeOffs?: string;
 }
