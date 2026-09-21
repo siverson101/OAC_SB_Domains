@@ -1163,7 +1163,10 @@ function tradeOffsBody(options, verdict) {
 ${warning}` : warning;
 }
 function readLoopbackAttempts(options, slug) {
-  return num(readJson(loopbackPath(options, slug)), "attempts") ?? 0;
+  const state = readJson(loopbackPath(options, slug));
+  if (num(state, "schemaVersion") !== PLAN_SCHEMA_VERSION)
+    return 0;
+  return num(state, "attempts") ?? 0;
 }
 function writeLoopback(options, slug, attempts) {
   const state = {
@@ -1230,7 +1233,7 @@ function runPlanFeature(options) {
         instruction: "Revise the Implementation Design to address the testability issues, then re-run plan-feature. This is the one permitted retry."
       };
     }
-    writeLoopback(options, slug, attempts + 1);
+    clearLoopback(options, slug);
     const base = makeResult("plan-feature", "aborted", `Testability FAIL persists for "${slug}" after one retry; aborting`, [], {
       writesState: true
     });
@@ -1755,6 +1758,12 @@ function renderTestPlan(artifact) {
     }
     for (const problem of section.problems)
       lines.push("", `> Problem: ${problem}`);
+  }
+  if (artifact.duplicateSteps.length > 0) {
+    lines.push("", "## Duplicate Steps Dropped", "");
+    lines.push("Declared by more than one capability; shown once in the checklist above:");
+    for (const step of artifact.duplicateSteps)
+      lines.push(`- ${step}`);
   }
   lines.push("");
   return lines.join(`

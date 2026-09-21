@@ -4,9 +4,12 @@
 // `plan-feature` skill's plan file does: it assembles the Test Cases (carried
 // verbatim from test-designer) plus the design/testing decisions into
 // `.opencode/plans/<slug>.md` and returns the Testability verdict. It is gated
-// by `toggles.tdd`; a `FAIL` loops back once, then aborts. Offline and
-// fail-soft: it reads/writes plain files under `.opencode/plans/` only and
-// never needs the Editor.
+// by `toggles.tdd`; a `FAIL` loops back once, then aborts. The loopback marker
+// is the one-retry enforcement point within a cycle: the first `FAIL` writes
+// it, a second consecutive `FAIL` aborts and CLEARS it, so a genuine design
+// revision starts a fresh cycle with one retry again. Offline and fail-soft: it
+// reads/writes plain files under `.opencode/plans/` only and never needs the
+// Editor.
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { nowIso, readJson, toPosix, writeJson } from '../../../shared/io';
@@ -134,8 +137,13 @@ function tradeOffsBody(options: ComposeOptions, verdict: TestabilityVerdict): st
   return base ? `${base}\n${warning}` : warning;
 }
 
+// A marker with an unknown `schemaVersion` is ignored (fail-soft): its shape is
+// not ours to interpret, so it must not silently enforce a retry from a prior
+// format. A missing marker reads as zero attempts (a fresh cycle).
 function readLoopbackAttempts(options: ComposeOptions, slug: string): number {
-  return num(readJson<Json>(loopbackPath(options, slug)), 'attempts') ?? 0;
+  const state = readJson<Json>(loopbackPath(options, slug));
+  if (num(state, 'schemaVersion') !== PLAN_SCHEMA_VERSION) return 0;
+  return num(state, 'attempts') ?? 0;
 }
 
 function writeLoopback(options: ComposeOptions, slug: string, attempts: number): void {
@@ -228,7 +236,10 @@ export function runPlanFeature(options: ComposeOptions): PlanFeatureResult {
           'Revise the Implementation Design to address the testability issues, then re-run plan-feature. This is the one permitted retry.',
       };
     }
-    writeLoopback(options, slug, attempts + 1);
+    // A second consecutive FAIL aborts and clears the marker: the retry was
+    // already spent within this cycle, and a fresh cycle must not inherit the
+    // abort. The user can revise the design and re-run to earn one retry again.
+    clearLoopback(options, slug);
     const base = makeResult('plan-feature', 'aborted', `Testability FAIL persists for "${slug}" after one retry; aborting`, [], {
       writesState: true,
     });

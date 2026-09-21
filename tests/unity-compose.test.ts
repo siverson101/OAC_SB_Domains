@@ -446,17 +446,14 @@ describe('plan-feature', () => {
     }
 
     expect(markdown).toContain(TEST_CASES);
-    for (const rule of [
-      'Red before green',
-      'One vertical slice at a time',
-      'pre-agreed public seams',
-      'Refactoring belongs to review',
-      'Implementation-coupled',
-      'Tautological',
-      'Horizontally sliced',
-    ]) {
-      expect(markdown, rule).toContain(rule);
-    }
+
+    // The Development Workflow prose is expected to evolve, so assert its
+    // structure (four tdd rules + three rejected anti-patterns) rather than
+    // pinning exact phrases.
+    const workflow = markdown.slice(markdown.indexOf('## Development Workflow'));
+    expect(workflow).toContain('Reject these test anti-patterns');
+    expect(workflow.match(/^\d+\. \*\*/gm)?.length).toBe(4);
+    expect(workflow.match(/^- \*\*/gm)?.length).toBe(3);
   });
 
   test('refuses when TDD is off and writes nothing', () => {
@@ -487,6 +484,37 @@ describe('plan-feature', () => {
     expect(second.action).toBe('abort');
     expect(second.written).toBe(false);
     expect(existsSync(join(oc, 'plans', 'player-jump.md'))).toBe(false);
+    // The abort clears the marker so the next invocation starts a fresh cycle.
+    expect(existsSync(join(oc, 'plans', 'player-jump.loopback.json'))).toBe(false);
+  });
+
+  test('an abort clears the marker so a revised design gets one retry in a fresh cycle', () => {
+    const oc = join(fixture, 'plan-abort-reset', '.opencode');
+    enableTdd(oc);
+    const options = planOptions(oc, { feature: 'player-jump', testCases: TEST_CASES, testability: 'FAIL' });
+
+    expect(runPlanFeature(options).status).toBe('loopback');
+    expect(runPlanFeature(options).status).toBe('aborted');
+
+    // A fresh cycle after the abort gets its one retry again, not an immediate abort.
+    const fresh = runPlanFeature(options);
+    expect(fresh.status).toBe('loopback');
+    expect(fresh.action).toBe('loopback');
+    expect(fresh.attempt).toBe(1);
+  });
+
+  test('an unknown loopback schemaVersion is ignored (fail-soft)', () => {
+    const oc = join(fixture, 'plan-bad-schema', '.opencode');
+    enableTdd(oc);
+    mkdirSync(join(oc, 'plans'), { recursive: true });
+    writeFileSync(
+      join(oc, 'plans', 'player-jump.loopback.json'),
+      JSON.stringify({ schemaVersion: 99, feature: 'player-jump', attempts: 5, updatedAt: '2026-01-01T00:00:00.000Z' })
+    );
+
+    const result = runPlanFeature(planOptions(oc, { feature: 'player-jump', testCases: TEST_CASES, testability: 'FAIL' }));
+    expect(result.status).toBe('loopback');
+    expect(result.attempt).toBe(1);
   });
 
   test('a Testability WARN writes the plan and records the warning under Known Trade-offs', () => {
@@ -568,7 +596,10 @@ describe('test-plan', () => {
     expect(markdown).toContain('## beta');
     expect(markdown).toContain('- [ ] alpha only');
     expect(markdown).toContain('- [ ] beta only');
-    expect(markdown.match(/shared step/g)?.length).toBe(1);
+    expect(markdown.match(/- \[ \] shared step/g)?.length).toBe(1);
+    // The dropped duplicate is surfaced so a reader can tell a step was removed.
+    expect(markdown).toContain('## Duplicate Steps Dropped');
+    expect(markdown).toContain('shared step');
   });
 
   test('a missing capability and a missing testPlan are problems, not crashes', () => {

@@ -45,6 +45,10 @@ export interface Removal {
   // `--tests-json` descriptor has no source to edit, so its removals stay
   // proposed even under `--apply`.
   applied: boolean;
+  // Present only when `--apply` declined to splice this removal (a risky string
+  // literal in the body, or a failed post-splice integrity check). The removal
+  // stays proposed and the source file is left untouched.
+  applyNote?: string;
 }
 
 export interface MergeCase {
@@ -356,21 +360,76 @@ export function scanCsTests(dir: string): TestDescriptor[] {
 // Remove only the removals whose recorded file is this file: a bare method name
 // is never removed across every file, so a same-named test in another suite is
 // untouched.
-export function removeTestMethods(text: string, removals: Removal[], file: string): { text: string; removed: string[] } {
+//
+// Splice safety (this is the one ability that writes project source):
+//   - A method whose body contains an interpolated/verbatim/raw string literal
+//     (`$"`, `$@"`, `@$"`, `"""`) is never spliced: brace matching cannot see
+//     inside those literals, so the extracted bounds may be wrong. It is left
+//     as a proposal with a reason.
+//   - After splicing, the edited text is re-parsed and checked: every keeper
+//     named by a removal in this file must still be present, and every removed
+//     name must be gone. If the check fails, the original text is returned and
+//     nothing is written.
+export interface RemoveMethodsResult {
+  text: string;
+  removed: string[];
+  skipped: { name: string; reason: string }[];
+}
+
+const RISKY_STRING_TOKENS = ['$"', '$@"', '@$"', '"""'];
+
+export function methodHasRiskyString(method: CsTestMethod): boolean {
+  const body = `${method.condition}\n${method.assertion}`;
+  return RISKY_STRING_TOKENS.some((token) => body.includes(token));
+}
+
+export function removeTestMethods(text: string, removals: Removal[], file: string): RemoveMethodsResult {
   const target = toPosix(file);
   const names = new Set(
     removals.filter((removal) => removal.file !== null && toPosix(removal.file) === target).map((removal) => removal.name)
   );
   const methods = extractTestMethods(text).filter((method) => names.has(method.name));
-  const removed: string[] = [];
+  const risky = methods.filter(methodHasRiskyString);
+  const safe = methods.filter((method) => !methodHasRiskyString(method));
+  const skipped = risky.map((method) => ({
+    name: method.name,
+    reason: 'method body contains an interpolated/verbatim/raw string literal; not spliced (proposed only)',
+  }));
+
+  if (safe.length === 0) return { text, removed: [], skipped };
+
   let out = text;
-  for (const method of [...methods].sort((a, b) => b.start - a.start)) {
+  const removed: string[] = [];
+  for (const method of [...safe].sort((a, b) => b.start - a.start)) {
     let end = method.end;
     while (end < out.length && (out[end] === '\r' || out[end] === '\n')) end++;
     out = out.slice(0, method.start) + out.slice(end);
     removed.push(method.name);
   }
-  return { text: out, removed };
+
+  const originalNames = new Set(extractTestMethods(text).map((method) => method.name));
+  const keeperNames = removals
+    .filter((removal) => removal.file !== null && toPosix(removal.file) === target)
+    .map((removal) => removal.keptName)
+    .filter((name) => originalNames.has(name));
+  const afterNames = new Set(extractTestMethods(out).map((method) => method.name));
+  const removedGone = removed.every((name) => !afterNames.has(name));
+  const keepersIntact = keeperNames.every((name) => afterNames.has(name));
+  if (!removedGone || !keepersIntact) {
+    return {
+      text,
+      removed: [],
+      skipped: [
+        ...skipped,
+        ...removed.map((name) => ({
+          name,
+          reason: 'post-splice integrity check failed (keeper missing or removed method still present); not applied',
+        })),
+      ],
+    };
+  }
+
+  return { text: out, removed, skipped };
 }
 
 // ---------------------------------------------------------------------------
@@ -460,11 +519,13 @@ export function runTestDeduplication(options: VerifyOptions): TestDeduplicationR
 
   const removedFromFiles: string[] = [];
   const appliedKeys = new Set<string>();
+  const applyNotes = new Map<string, string>();
   if (apply && !clean && testsDir) {
     for (const file of walkCsFiles(resolve(options.projectRoot, testsDir))) {
       const text = readText(file);
       if (text === null) continue;
       const result = removeTestMethods(text, plan.removals, file);
+      for (const skip of result.skipped) applyNotes.set(`${toPosix(file)}::${skip.name}`, skip.reason);
       if (result.removed.length > 0) {
         writeFileSync(file, result.text);
         removedFromFiles.push(toPosix(file));
@@ -473,10 +534,12 @@ export function runTestDeduplication(options: VerifyOptions): TestDeduplicationR
     }
   }
 
-  const removals: Removal[] = plan.removals.map((removal) => ({
-    ...removal,
-    applied: removal.file !== null && appliedKeys.has(`${toPosix(removal.file)}::${removal.name}`),
-  }));
+  const removals: Removal[] = plan.removals.map((removal) => {
+    const key = removal.file !== null ? `${toPosix(removal.file)}::${removal.name}` : null;
+    const applied = key !== null && appliedKeys.has(key);
+    const applyNote = applied || key === null ? undefined : applyNotes.get(key);
+    return { ...removal, applied, ...(applyNote ? { applyNote } : {}) };
+  });
   const appliedCount = removals.filter((removal) => removal.applied).length;
   const proposedCount = removals.length - appliedCount;
 

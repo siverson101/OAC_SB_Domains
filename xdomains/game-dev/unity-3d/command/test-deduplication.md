@@ -62,6 +62,13 @@ node .opencode/xdomains/scripts/unity/unity-verify.mjs \
   records the same artifact. Only a removal applied to a source file is marked
   `applied: true`; a `--tests-json` descriptor has no source to edit, so its
   removals stay **proposed** even under `--apply`.
+- `--apply` is fail-soft when it cannot splice safely. A method whose body
+  contains an interpolated/verbatim/raw string literal (`$"`, `$@"`, `@$"`,
+  `"""`) is left as a proposal with an `applyNote` (brace matching cannot see
+  inside those literals). After splicing, the edited file is re-parsed and
+  checked: the keeper must still be present and the removed method gone. If that
+  integrity check fails, the file is not written and the removal stays proposed
+  with an `applyNote`.
 - Parameterizable merges are recorded as proposals only — rewriting a source
   method into a parameterized one without a C# parser risks dropping coverage, so
   the merge is handed off with its proposed body rather than applied blindly.

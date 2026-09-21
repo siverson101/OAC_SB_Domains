@@ -1042,7 +1042,15 @@ function containsReason(message, expectedReason) {
   return (message ?? "").toLowerCase().includes(expectedReason.toLowerCase());
 }
 function decideRedStep(input) {
-  const { test, expectedReason, observation } = input;
+  const { test, expectedReason, observation, notFound, source } = input;
+  if (notFound) {
+    const where = source ? ` in ${source}` : " in the supplied test results";
+    return {
+      verdict: "NG",
+      reason: "test-not-found",
+      detail: `"${test}" was not found${where}; the red step requires the named test to run and fail — abort`
+    };
+  }
   if (observation.result === null) {
     return containsReason(observation.message, expectedReason) ? {
       verdict: "UNKNOWN",
@@ -1129,11 +1137,13 @@ function runFailingTestFirst(options) {
       return refuse(`test results not found: ${resultsPath}`);
     const testCase = findTestCase(parseTestCases(xml), test);
     if (!testCase) {
-      const decision = {
-        verdict: "NG",
-        reason: "test-not-found",
-        detail: `"${test}" was not found in ${resultsPath}; the red step requires the named test to run and fail — abort`
-      };
+      const decision = decideRedStep({
+        test,
+        expectedReason,
+        observation: { result: null, message: null },
+        notFound: true,
+        source: resultsPath
+      });
       return finalize(options, test, expectedReason, tdd.enabled, { result: null, message: null }, decision);
     }
     observation = { result: testCase.result, message: testCase.message ?? failureMessage };
@@ -1440,13 +1450,27 @@ function scanCsTests(dir) {
   }
   return out;
 }
+var RISKY_STRING_TOKENS = ['$"', '$@"', '@$"', '"""'];
+function methodHasRiskyString(method) {
+  const body = `${method.condition}
+${method.assertion}`;
+  return RISKY_STRING_TOKENS.some((token) => body.includes(token));
+}
 function removeTestMethods(text, removals, file) {
   const target = toPosix(file);
   const names = new Set(removals.filter((removal) => removal.file !== null && toPosix(removal.file) === target).map((removal) => removal.name));
   const methods = extractTestMethods(text).filter((method) => names.has(method.name));
-  const removed = [];
+  const risky = methods.filter(methodHasRiskyString);
+  const safe = methods.filter((method) => !methodHasRiskyString(method));
+  const skipped = risky.map((method) => ({
+    name: method.name,
+    reason: "method body contains an interpolated/verbatim/raw string literal; not spliced (proposed only)"
+  }));
+  if (safe.length === 0)
+    return { text, removed: [], skipped };
   let out = text;
-  for (const method of [...methods].sort((a, b) => b.start - a.start)) {
+  const removed = [];
+  for (const method of [...safe].sort((a, b) => b.start - a.start)) {
     let end = method.end;
     while (end < out.length && (out[end] === "\r" || out[end] === `
 `))
@@ -1454,7 +1478,25 @@ function removeTestMethods(text, removals, file) {
     out = out.slice(0, method.start) + out.slice(end);
     removed.push(method.name);
   }
-  return { text: out, removed };
+  const originalNames = new Set(extractTestMethods(text).map((method) => method.name));
+  const keeperNames = removals.filter((removal) => removal.file !== null && toPosix(removal.file) === target).map((removal) => removal.keptName).filter((name) => originalNames.has(name));
+  const afterNames = new Set(extractTestMethods(out).map((method) => method.name));
+  const removedGone = removed.every((name) => !afterNames.has(name));
+  const keepersIntact = keeperNames.every((name) => afterNames.has(name));
+  if (!removedGone || !keepersIntact) {
+    return {
+      text,
+      removed: [],
+      skipped: [
+        ...skipped,
+        ...removed.map((name) => ({
+          name,
+          reason: "post-splice integrity check failed (keeper missing or removed method still present); not applied"
+        }))
+      ]
+    };
+  }
+  return { text: out, removed, skipped };
 }
 function parseDescriptors(value) {
   const raw = Array.isArray(value) ? value : asRecord(value)?.tests;
@@ -1533,12 +1575,15 @@ function runTestDeduplication(options) {
   const clean = plan.removals.length === 0 && plan.merges.length === 0;
   const removedFromFiles = [];
   const appliedKeys = new Set;
+  const applyNotes = new Map;
   if (apply && !clean && testsDir) {
     for (const file of walkCsFiles(resolve2(options.projectRoot, testsDir))) {
       const text = readText(file);
       if (text === null)
         continue;
       const result = removeTestMethods(text, plan.removals, file);
+      for (const skip of result.skipped)
+        applyNotes.set(`${toPosix(file)}::${skip.name}`, skip.reason);
       if (result.removed.length > 0) {
         writeFileSync3(file, result.text);
         removedFromFiles.push(toPosix(file));
@@ -1547,10 +1592,12 @@ function runTestDeduplication(options) {
       }
     }
   }
-  const removals = plan.removals.map((removal) => ({
-    ...removal,
-    applied: removal.file !== null && appliedKeys.has(`${toPosix(removal.file)}::${removal.name}`)
-  }));
+  const removals = plan.removals.map((removal) => {
+    const key = removal.file !== null ? `${toPosix(removal.file)}::${removal.name}` : null;
+    const applied = key !== null && appliedKeys.has(key);
+    const applyNote = applied || key === null ? undefined : applyNotes.get(key);
+    return { ...removal, applied, ...applyNote ? { applyNote } : {} };
+  });
   const appliedCount = removals.filter((removal) => removal.applied).length;
   const proposedCount = removals.length - appliedCount;
   const mergePart = `${plan.merges.length} parameterizable group(s) proposed for merge`;

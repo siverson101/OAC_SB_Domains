@@ -36,7 +36,10 @@ node .opencode/xdomains/scripts/unity/unity-verify.mjs \
 - **Validate** (default) requires a declared change scope (`--change-scope`, comma-separated
   files/symbols). Without one it returns `refused` and a `null` delta — never `verified`. The declared
   scope is recorded on the result and bounds the delta: only issues matching a scope token count as
-  new/resolved, so a mutation cannot claim a verdict outside its declared scope.
+  new/resolved, so a mutation cannot claim a verdict outside its declared scope. Scope tokens are
+  **substring hints, not exact file matches** — a token `Player` also matches `PlayerController`,
+  `PlayerSpawner`, and unrelated message text. The match over-counts rather than under-counts (the
+  conservative direction); a scope that matches nothing is reported via `delta.scopeUnmatched`.
 - **Validate** re-scans and diffs against the stored checkpoint: `newIssues` are issues present after
   the mutation but not before; `resolvedIssues` are the reverse.
 - `delta.newIssues`/`delta.resolvedIssues` are `null` — never `[]` — when no delta was computed

@@ -387,6 +387,11 @@ describe('external verdict folding', () => {
     expect(foldGates([{ gate: 'scene', status: 'failed', externalVerdict: 'confirmed' }], 'full').status).toBe('failed');
     expect(foldGates([{ gate: 'scene', status: 'warning', externalVerdict: 'confirmed' }], 'full').status).toBe('warning');
     expect(foldGates([{ gate: 'scene', status: 'unknown', externalVerdict: 'confirmed' }], 'full').status).toBe('unknown');
+    // Only `not_run` is promoted to `passed`; `unavailable` is at least as strict
+    // as the external `passed` contribution and must win.
+    expect(foldGates([{ gate: 'scene', status: 'unavailable', externalVerdict: 'confirmed' }], 'full').status).toBe(
+      'unavailable'
+    );
   });
 
   test('strictest-wins is unchanged: uncertain never masks a hard failure', () => {
@@ -1001,6 +1006,162 @@ describe('test-deduplication run', () => {
     const own = removeTestMethods(source, [removal], 'Assets/Tests/Other.cs');
     expect(own.removed).toEqual(['Duplicate']);
     expect(own.text).not.toContain('Duplicate');
+    expect(own.skipped).toEqual([]);
+  });
+
+  test('removeTestMethods leaves a risky-string method as a proposal (no splice)', () => {
+    const source = [
+      'public class A',
+      '{',
+      '    [Test]',
+      '    public void Dup()',
+      '    {',
+      '        var label = $"value {this.x}";',
+      '        Assert.IsTrue(true);',
+      '    }',
+      '}',
+      '',
+    ].join('\n');
+    const removal: Removal = {
+      name: 'Dup',
+      keptName: 'Keeper',
+      file: 'Assets/Tests/A.cs',
+      condition: '',
+      assertion: '',
+      reason: 'identical condition and identical assertion',
+      applied: false,
+    };
+    const result = removeTestMethods(source, [removal], 'Assets/Tests/A.cs');
+    expect(result.removed).toEqual([]);
+    expect(result.text).toBe(source);
+    expect(result.skipped).toHaveLength(1);
+    expect(result.skipped[0].reason).toContain('interpolated');
+  });
+
+  test('removeTestMethods reverts when the post-splice integrity check fails', () => {
+    const source = [
+      'public class A',
+      '{',
+      '    [Test]',
+      '    public void Dup()',
+      '    {',
+      '        Assert.IsTrue(true);',
+      '    }',
+      '}',
+      '',
+    ].join('\n');
+    // A keeper with the same name as the removal forces the check to fail: the
+    // splice removes the keeper too, so the original text must be returned.
+    const removal: Removal = {
+      name: 'Dup',
+      keptName: 'Dup',
+      file: 'Assets/Tests/A.cs',
+      condition: '',
+      assertion: '',
+      reason: 'identical condition and identical assertion',
+      applied: false,
+    };
+    const result = removeTestMethods(source, [removal], 'Assets/Tests/A.cs');
+    expect(result.removed).toEqual([]);
+    expect(result.text).toBe(source);
+    expect(result.skipped[0].reason).toContain('integrity');
+  });
+
+  test('--apply leaves a risky-string duplicate proposed and the file untouched', () => {
+    const root = join(fixture, 'dedup-risky');
+    const oc = join(root, '.opencode');
+    const testsDir = join(root, 'Tests');
+    const source = [
+      'using NUnit.Framework;',
+      '',
+      'public class PlayerTests',
+      '{',
+      '    [Test]',
+      '    public void Jump_raises_the_player()',
+      '    {',
+      '        var label = $"Height {player.Height}";',
+      '        player.Jump();',
+      '        Assert.AreEqual(2f, player.Height);',
+      '    }',
+      '',
+      '    [Test]',
+      '    public void Jump_test()',
+      '    {',
+      '        var label = $"Height {player.Height}";',
+      '        player.Jump();',
+      '        Assert.AreEqual(2f, player.Height);',
+      '    }',
+      '}',
+      '',
+    ].join('\n');
+    write(join(testsDir, 'PlayerTests.cs'), source);
+
+    const result = runTestDeduplication(dedupOptions(oc, { feature: 'player-jump', testsDir, apply: true }));
+    expect(result.removals).toHaveLength(1);
+    expect(result.removals[0].name).toBe('Jump_test');
+    expect(result.removals[0].applied).toBe(false);
+    expect(result.removals[0].applyNote).toContain('interpolated');
+    expect(result.applied).toBe(false);
+    expect(result.removedFromFiles).toEqual([]);
+    expect(readFileSync(join(testsDir, 'PlayerTests.cs'), 'utf8')).toBe(source);
+  });
+
+  test('--apply with both inputs applies a source-matched removal and leaves a JSON-only removal proposed', () => {
+    const root = join(fixture, 'dedup-mixed');
+    const oc = join(root, '.opencode');
+    const testsDir = join(root, 'Tests');
+    const csPath = join(testsDir, 'PlayerTests.cs');
+    const source = [
+      'using NUnit.Framework;',
+      '',
+      'public class PlayerTests',
+      '{',
+      '    [Test]',
+      '    public void Jump_raises_the_player()',
+      '    {',
+      '        var player = new Player();',
+      '        player.Jump();',
+      '        Assert.AreEqual(2f, player.Height);',
+      '    }',
+      '',
+      '    [Test]',
+      '    public void Jump_increases_height()',
+      '    {',
+      '        var player = new Player();',
+      '        player.Jump();',
+      '        Assert.AreEqual(2f, player.Height);',
+      '    }',
+      '}',
+      '',
+    ].join('\n');
+    write(csPath, source);
+    const jsonPath = join(root, 'tests.json');
+    write(
+      jsonPath,
+      JSON.stringify({
+        tests: [
+          {
+            name: 'Jump_increases_height',
+            condition: 'var player = new Player();\nplayer.Jump();',
+            assertion: 'Assert.AreEqual(2f, player.Height);',
+            file: csPath,
+          },
+          { name: 'Other_dup', condition: 'calculator.Add(1, 2);', assertion: 'Assert.Greater(result, 0);' },
+          { name: 'Other_keeper', condition: 'calculator.Add(1, 2);', assertion: 'Assert.Greater(result, 0);' },
+        ],
+      })
+    );
+
+    const result = runTestDeduplication(
+      dedupOptions(oc, { feature: 'player-jump', testsDir, testsJson: jsonPath, apply: true })
+    );
+    expect(result.removals.filter((removal) => removal.applied).map((removal) => removal.name)).toContain(
+      'Jump_increases_height'
+    );
+    expect(result.removals.filter((removal) => !removal.applied).map((removal) => removal.name)).toContain('Other_dup');
+    const updated = readFileSync(csPath, 'utf8');
+    expect(updated).not.toContain('Jump_increases_height');
+    expect(updated).toContain('Jump_raises_the_player');
   });
 
   test('reports "no duplicates found" for a clean suite and writes nothing in dry-run', () => {

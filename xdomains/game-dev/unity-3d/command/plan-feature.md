@@ -46,8 +46,11 @@ belongs to review; reject implementation-coupled, tautological and horizontally-
 - `PASS` — write the artifact.
 - `WARN` — write the artifact and record the testability warning under Known Trade-offs.
 - `FAIL` — do **not** write the plan; return a loopback instruction to revise the design and re-run.
-  The `.opencode/plans/<slug>.loopback.json` marker is the one-retry enforcement point: the first
-  `FAIL` writes it and returns a loopback, a second consecutive `FAIL` aborts.
+  The `.opencode/plans/<slug>.loopback.json` marker is the one-retry enforcement point **within a
+  cycle**: the first `FAIL` writes it and returns a loopback, a second consecutive `FAIL` aborts and
+  **clears** the marker. So after an abort, a genuine design revision and re-run starts a fresh cycle
+  with one retry again, rather than aborting immediately. A marker whose `schemaVersion` is unknown is
+  ignored (fail-soft), so a stale format never enforces a retry.
 
 ## Gating
 

@@ -74,6 +74,13 @@ export interface VerifyBase {
   // validation, or `null` when none was declared. `compile-and-verify-project
   // --phase validate` refuses without one; the declared scope bounds the
   // reported delta (see `VerifyDelta`).
+  //
+  // Scope tokens are SUBSTRING HINTS, not exact file matches: a token matches
+  // when it appears anywhere in an issue's id or message (case-insensitive). So
+  // `Player` is broader than the user may expect — it also matches
+  // `PlayerController`, `PlayerSpawner`, and unrelated message text. This
+  // over-counts rather than under-counts (the conservative direction for a
+  // bounded delta), and an unmatched scope is reported via `scopeUnmatched`.
   changeScope: string[] | null;
   checkpoint: VerifySnapshot | null;
   delta: VerifyDelta;
@@ -88,6 +95,8 @@ export interface VerifyOptions {
   phase: VerifyPhase;
   cliCommand: string;
   reviewIntensity: ReviewIntensity;
+  // Substring hints, not exact file matches (see `VerifyBase.changeScope`): a
+  // token `Player` also matches `PlayerController` and message text.
   changeScope?: string[];
   gatesJson?: string;
   test?: string;
