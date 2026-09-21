@@ -4,7 +4,7 @@
 // package baselines are read from disk, and the Unity CLI probe is best-effort.
 // A missing CLI reports `unavailable` rather than throwing, and the only files
 // ever written are the baseline files under `version-baselines/`.
-import type { Route } from '../../../shared/tool-routing';
+import type { ResultEnvelope } from '../../../shared/result-envelope';
 
 const VERSION_DRIFT_ABILITY_NAMES = ['version-drift'] as const;
 
@@ -24,16 +24,18 @@ export type VersionDriftChange =
   | 'unknown'
   | 'not_checked';
 
-export interface VersionDriftBase {
-  schemaVersion: number;
-  generatedAt: string;
-  ability: VersionDriftAbility;
-  family: 'sense';
-  mode: 'both';
-  route: Route;
-  status: VersionDriftStatus;
-  summary: string;
-  errors: string[];
+// The declared gate from the command frontmatter, emitted verbatim on the
+// runtime result so the envelope and its declaration cannot drift.
+export interface VersionDriftSafetyGate {
+  mutates: boolean;
+  requiresEditor: boolean;
+  requiresApproval: boolean;
+  writesState: boolean;
+}
+
+export interface VersionDriftBase
+  extends ResultEnvelope<VersionDriftAbility, 'sense', 'both', VersionDriftStatus> {
+  safetyGate: VersionDriftSafetyGate;
 }
 
 export interface CliVersionProbe {

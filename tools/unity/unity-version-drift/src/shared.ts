@@ -5,7 +5,13 @@ export { asRecord, str } from '../../../shared/json-helpers';
 import { join } from 'node:path';
 import { makeEnvelope } from '../../../shared/result-envelope';
 import type { Route } from '../../../shared/tool-routing';
-import type { VersionDriftAbility, VersionDriftBase, VersionDriftOptions, VersionDriftStatus } from './types';
+import type {
+  VersionDriftAbility,
+  VersionDriftBase,
+  VersionDriftOptions,
+  VersionDriftSafetyGate,
+  VersionDriftStatus,
+} from './types';
 
 export const BASELINE_DIR = 'version-baselines';
 
@@ -35,6 +41,18 @@ export function makeResult(
   route: Route = 'offline'
 ): VersionDriftBase {
   // The Editor/package reads are on-disk; the route reports `batch` only when the
-  // best-effort Unity CLI probe actually ran.
-  return makeEnvelope({ ability, family: 'sense', mode: 'both', route, status, summary, errors });
+  // best-effort Unity CLI probe actually answered.
+  return {
+    ...makeEnvelope({ ability, family: 'sense', mode: 'both', route, status, summary, errors }),
+    safetyGate: { ...VERSION_DRIFT_SAFETY_GATE },
+  };
 }
+
+// Mirrors the command frontmatter `safetyGate`; `tests/version-drift.test.ts`
+// asserts the runtime value equals the declaration.
+export const VERSION_DRIFT_SAFETY_GATE: VersionDriftSafetyGate = {
+  mutates: false,
+  requiresEditor: false,
+  requiresApproval: false,
+  writesState: true,
+};

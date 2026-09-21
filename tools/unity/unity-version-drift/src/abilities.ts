@@ -5,7 +5,7 @@
 // `project-data/version-baselines/`; anything needing judgement is surfaced as
 // ACTION REQUIRED, never applied silently.
 import { mkdirSync, readdirSync, writeFileSync } from 'node:fs';
-import { dirname, join, relative } from 'node:path';
+import { basename, dirname, join, relative } from 'node:path';
 import { asArray, asRecord, str } from '../../../shared/json-helpers';
 import { fileExists, readJson, readText, toPosix, writeJson } from '../../../shared/io';
 import { editorVersionInfo, findExecutable, run, stripAnsi } from '../../../shared/toolchain';
@@ -118,15 +118,18 @@ function commandNamesFrom(parsed: unknown): string[] | null {
 
 export const defaultCliProbe: CliProbe = {
   version(command: string): CliVersionProbe {
-    if (!findExecutable(command)) return { available: false, version: null };
-    const res = run(command, ['--version'], { timeout: 10000 });
+    const resolved = findExecutable(command);
+    if (!resolved) return { available: false, version: null };
+    const res = run(resolved, ['--version'], { timeout: 10000 });
     if (!res.ok) return { available: true, version: null };
     const text = stripAnsi(res.stdout || res.stderr).split(/\r?\n/)[0]?.trim() ?? '';
     return { available: true, version: text || null };
   },
   commands(command: string): string[] | null {
+    const resolved = findExecutable(command);
+    if (!resolved) return null;
     const res = run(
-      command,
+      resolved,
       ['command', '--format', 'json', '--no-banner', '--quiet', '--non-interactive'],
       { timeout: 30000 }
     );
@@ -157,6 +160,18 @@ function readBaselineText(path: string): string | null {
 function writeBaselineText(path: string, value: string): void {
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, value.endsWith('\n') ? value : `${value}\n`);
+}
+
+// Every baseline write goes through here so a read-only install cannot fail the
+// run: a write failure is recorded and the caller keeps going.
+function writeBaseline(errors: string[], path: string, write: () => void): boolean {
+  try {
+    write();
+    return true;
+  } catch (error) {
+    errors.push(`could not write version-baselines/${basename(path)}: ${messageOf(error)}`);
+    return false;
+  }
 }
 
 function readLastRun(path: string): string | null {
@@ -248,18 +263,28 @@ function detectEditor(options: VersionDriftOptions, errors: string[]): EditorSec
 
   const path = join(baselineDir(options), EDITOR_BASELINE);
   const baseline = readBaselineText(path);
+  const current = info.version;
   section.baseline = baseline;
   if (baseline === null) {
-    writeBaselineText(path, info.version);
+    if (fileExists(path)) {
+      section.status = 'unknown';
+      errors.push(`version-baselines/${EDITOR_BASELINE} is present but empty; baseline left untouched`);
+      return section;
+    }
+    if (!writeBaseline(errors, path, () => writeBaselineText(path, current))) {
+      section.status = 'unknown';
+      return section;
+    }
     section.status = 'baseline_created';
     section.updated.push(baselineRelPath(EDITOR_BASELINE));
-  } else if (baseline === info.version) {
+  } else if (baseline === current) {
     section.status = 'unchanged';
   } else {
-    writeBaselineText(path, info.version);
     section.status = 'changed';
-    section.updated.push(baselineRelPath(EDITOR_BASELINE));
-    section.action = `Review the Unity ${info.version} upgrade guide for breaking changes (deprecations, API removals, behaviour changes) and the project's deprecation checks.`;
+    section.action = `Review the Unity ${current} upgrade guide for breaking changes (deprecations, API removals, behaviour changes) and the project's deprecation checks.`;
+    if (writeBaseline(errors, path, () => writeBaselineText(path, current))) {
+      section.updated.push(baselineRelPath(EDITOR_BASELINE));
+    }
   }
   return section;
 }
@@ -291,7 +316,14 @@ function detectPackages(options: VersionDriftOptions, errors: string[]): Package
 
   const path = join(baselineDir(options), PACKAGE_BASELINE);
   if (!fileExists(path)) {
-    writeJson(path, { schemaVersion: 1, generatedAt: options.now, packages: current });
+    if (
+      !writeBaseline(errors, path, () =>
+        writeJson(path, { schemaVersion: 1, generatedAt: options.now, packages: current })
+      )
+    ) {
+      section.status = 'unknown';
+      return section;
+    }
     section.status = 'baseline_created';
     section.updated.push(baselineRelPath(PACKAGE_BASELINE));
     return section;
@@ -317,9 +349,14 @@ function detectPackages(options: VersionDriftOptions, errors: string[]): Package
     return section;
   }
 
-  writeJson(path, { schemaVersion: 1, generatedAt: options.now, packages: current });
   section.status = 'changed';
-  section.updated.push(baselineRelPath(PACKAGE_BASELINE));
+  if (
+    writeBaseline(errors, path, () =>
+      writeJson(path, { schemaVersion: 1, generatedAt: options.now, packages: current })
+    )
+  ) {
+    section.updated.push(baselineRelPath(PACKAGE_BASELINE));
+  }
   const pipelineChanged = [...section.added, ...section.removed, ...section.bumped.map((b) => b.name)].includes(
     'com.unity.pipeline'
   );
@@ -351,7 +388,8 @@ function captureCommands(
     errors.push(failureMessage);
     return false;
   }
-  writeCommandsBaseline(options, commands, cliVersion);
+  const path = join(baselineDir(options), CLI_COMMANDS_BASELINE);
+  if (!writeBaseline(errors, path, () => writeCommandsBaseline(options, commands, cliVersion))) return false;
   section.commandCount = commands.length;
   section.updated.push(baselineRelPath(CLI_COMMANDS_BASELINE));
   return true;
@@ -372,24 +410,33 @@ function detectCli(options: VersionDriftOptions, errors: string[]): CliSection {
   };
   const probe = options.cliProbe ?? defaultCliProbe;
   const probeResult = probe.version(options.cliCommand);
+  const cliVersion = probeResult.version;
   section.available = probeResult.available;
   if (!probeResult.available) {
     section.status = 'unavailable';
     return section;
   }
-  if (!probeResult.version) {
+  if (!cliVersion) {
     section.status = 'unknown';
     errors.push(`could not read \`${options.cliCommand} --version\``);
     return section;
   }
-  section.current = probeResult.version;
+  section.current = cliVersion;
 
   const versionPath = join(baselineDir(options), CLI_VERSION_BASELINE);
   const baseline = readBaselineText(versionPath);
   section.baseline = baseline;
 
   if (baseline === null) {
-    writeBaselineText(versionPath, probeResult.version);
+    if (fileExists(versionPath)) {
+      section.status = 'unknown';
+      errors.push(`version-baselines/${CLI_VERSION_BASELINE} is present but empty; baseline left untouched`);
+      return section;
+    }
+    if (!writeBaseline(errors, versionPath, () => writeBaselineText(versionPath, cliVersion))) {
+      section.status = 'unknown';
+      return section;
+    }
     section.status = 'baseline_created';
     section.updated.push(baselineRelPath(CLI_VERSION_BASELINE));
     captureCommands(
@@ -397,13 +444,13 @@ function detectCli(options: VersionDriftOptions, errors: string[]): CliSection {
       probe,
       section,
       errors,
-      probeResult.version,
+      cliVersion,
       'could not capture the Unity command catalog; version baseline recorded'
     );
     return section;
   }
 
-  if (baseline === probeResult.version) {
+  if (baseline === cliVersion) {
     section.status = 'unchanged';
     // A fresh install may have recorded only the version baseline (the catalog
     // probe failed). Capture the catalog now even though the version is
@@ -414,21 +461,22 @@ function detectCli(options: VersionDriftOptions, errors: string[]): CliSection {
         probe,
         section,
         errors,
-        probeResult.version,
+        cliVersion,
         'Unity CLI version unchanged but the command catalog could not be captured'
       );
     }
     return section;
   }
 
-  writeBaselineText(versionPath, probeResult.version);
   section.status = 'changed';
-  section.updated.push(baselineRelPath(CLI_VERSION_BASELINE));
+  if (writeBaseline(errors, versionPath, () => writeBaselineText(versionPath, cliVersion))) {
+    section.updated.push(baselineRelPath(CLI_VERSION_BASELINE));
+  }
 
   const commands = probe.commands(options.cliCommand);
   if (!commands) {
     errors.push('Unity CLI version changed but the command catalog could not be captured; review the CLI release notes manually');
-    section.action = `Review CLI command catalog changes for ${baseline} → ${probeResult.version} and update context files/docs that enumerate Unity CLI commands.`;
+    section.action = `Review CLI command catalog changes for ${baseline} → ${cliVersion} and update context files/docs that enumerate Unity CLI commands.`;
     return section;
   }
 
@@ -439,19 +487,26 @@ function detectCli(options: VersionDriftOptions, errors: string[]): CliSection {
   section.commandsAdded = commands.filter((command) => !baseSet.has(command)).sort();
   section.commandsRemoved = baselineCommands.filter((command) => !currentSet.has(command)).sort();
   section.commandCount = commands.length;
-  writeCommandsBaseline(options, commands, probeResult.version);
-  section.updated.push(baselineRelPath(CLI_COMMANDS_BASELINE));
+  if (
+    writeBaseline(errors, join(baselineDir(options), CLI_COMMANDS_BASELINE), () =>
+      writeCommandsBaseline(options, commands, cliVersion)
+    )
+  ) {
+    section.updated.push(baselineRelPath(CLI_COMMANDS_BASELINE));
+  }
   section.actionFiles = findCliCommandDocs(options.opencodeDir);
-  section.action = cliActionText(section, baseline, probeResult.version);
+  section.action = cliActionText(section, baseline, cliVersion);
   return section;
 }
 
 // Docs that enumerate CLI commands are surfaced, never auto-edited. A bounded,
-// read-only scan of the opencode dir; unreadable dirs are skipped.
+// read-only scan of the opencode dir; unreadable dirs are skipped. Once the cap
+// is hit the rest are counted so the list carries a `(+N more)` truncation note.
 function findCliCommandDocs(root: string, limit = 25): string[] {
   const found: string[] = [];
+  let extra = 0;
   const walk = (dir: string, depth: number): void => {
-    if (found.length >= limit || depth > 6) return;
+    if (depth > 6) return;
     let entries;
     try {
       entries = readdirSync(dir, { withFileTypes: true });
@@ -459,7 +514,6 @@ function findCliCommandDocs(root: string, limit = 25): string[] {
       return;
     }
     for (const entry of entries) {
-      if (found.length >= limit) return;
       if (entry.isDirectory()) {
         if (!CLI_DOC_SKIP_DIRS.has(entry.name)) walk(join(dir, entry.name), depth + 1);
         continue;
@@ -467,11 +521,15 @@ function findCliCommandDocs(root: string, limit = 25): string[] {
       if (!entry.isFile() || !entry.name.endsWith('.md')) continue;
       const full = join(dir, entry.name);
       const text = readText(full);
-      if (text && CLI_COMMAND_DOC_PATTERN.test(text)) found.push(toPosix(relative(root, full)));
+      if (!text || !CLI_COMMAND_DOC_PATTERN.test(text)) continue;
+      if (found.length < limit) found.push(toPosix(relative(root, full)));
+      else extra += 1;
     }
   };
   walk(root, 0);
-  return found.sort();
+  found.sort();
+  if (extra > 0) found.push(`(+${extra} more)`);
+  return found;
 }
 
 // ---------------------------------------------------------------------------
@@ -521,6 +579,16 @@ function unknownReasons(editor: EditorSection, packages: PackagesSection, cli: C
   return reasons;
 }
 
+// `unavailable` categories must be named in an `unknown` summary too, or a
+// missing Editor file reads as if it were present but merely unreadable.
+function missingReasons(editor: EditorSection, packages: PackagesSection, cli: CliSection): string[] {
+  const reasons: string[] = [];
+  if (editor.status === 'unavailable') reasons.push('ProjectSettings/ProjectVersion.txt');
+  if (packages.status === 'unavailable') reasons.push('Packages/manifest.json');
+  if (cli.status === 'unavailable') reasons.push('the Unity CLI');
+  return reasons;
+}
+
 function summarize(
   status: VersionDriftStatus,
   editor: EditorSection,
@@ -528,7 +596,12 @@ function summarize(
   cli: CliSection
 ): string {
   if (status === 'unavailable') return 'No Unity project files found under the project root';
-  if (status === 'unknown') return `Version state unknown: ${unknownReasons(editor, packages, cli).join('; ')}`;
+  if (status === 'unknown') {
+    const parts = [...unknownReasons(editor, packages, cli)];
+    const missing = missingReasons(editor, packages, cli);
+    if (missing.length > 0) parts.push(`not found: ${missing.join(', ')}`);
+    return `Version state unknown: ${parts.join('; ')}`;
+  }
   const changes: string[] = [];
   if (editor.status === 'changed') changes.push(`Editor ${editor.baseline} → ${editor.current}`);
   if (packages.status === 'changed') {
@@ -545,23 +618,25 @@ function summarize(
 
 function renderEditor(section: EditorSection): string[] {
   const lines: string[] = [];
+  let head: string;
   switch (section.status) {
     case 'unchanged':
-      lines.push(`[Editor] No change (${section.current})`);
+      head = `[Editor] No change (${section.current})`;
       break;
     case 'baseline_created':
-      lines.push(`[Editor] Baseline created: ${section.current}`);
+      head = `[Editor] Baseline created: ${section.current}`;
       break;
     case 'changed':
-      lines.push(`[Editor] Version changed: ${section.baseline} → ${section.current}`);
+      head = `[Editor] Version changed: ${section.baseline} → ${section.current}`;
       break;
     case 'unavailable':
-      lines.push('[Editor] unavailable — no ProjectSettings/ProjectVersion.txt');
+      head = '[Editor] unavailable — no ProjectSettings/ProjectVersion.txt';
       break;
     default:
-      lines.push('[Editor] unknown — ProjectVersion.txt present but unreadable');
+      head = '[Editor] unknown — ProjectVersion.txt present but unreadable';
       break;
   }
+  lines.push(section.revision ? `${head} [revision ${section.revision}]` : head);
   for (const file of section.updated) lines.push(`  → Updated ${file}`);
   if (section.action) lines.push(`  → ACTION REQUIRED: ${section.action}`);
   return lines;
@@ -679,8 +754,8 @@ export function runVersionDrift(options: VersionDriftOptions): VersionDriftResul
   const baselinesUpdated = [...editor.updated, ...packages.updated, ...cli.updated];
   const status = overallStatus(editor, packages, cli);
   // The route reflects what actually ran: `batch` once the Unity CLI probe
-  // resolved, `offline` when the run was purely on-disk.
-  const route: Route = cli.available ? 'batch' : 'offline';
+  // answered with a version, `offline` when the run was purely on-disk.
+  const route: Route = cli.available && cli.current !== null ? 'batch' : 'offline';
   const result: VersionDriftResult = {
     ...makeResult(options.ability, status, summarize(status, editor, packages, cli), errors, route),
     cadence,
