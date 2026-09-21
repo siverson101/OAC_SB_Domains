@@ -51,7 +51,7 @@ function runCli(config) {
 }
 
 // tools/unity/unity-verify/src/abilities.ts
-import { join as join7 } from "node:path";
+import { join as join8 } from "node:path";
 
 // tools/shared/io.ts
 import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
@@ -519,7 +519,8 @@ var VERIFY_ABILITY_NAMES = [
   "run-edit-mode-tests",
   "run-play-mode-tests",
   "gate-review",
-  "failing-test-first"
+  "failing-test-first",
+  "test-deduplication"
 ];
 var VERIFY_ABILITIES = [...VERIFY_ABILITY_NAMES];
 var VERIFY_MODES = {
@@ -527,7 +528,8 @@ var VERIFY_MODES = {
   "run-edit-mode-tests": "both",
   "run-play-mode-tests": "both",
   "gate-review": "offline",
-  "failing-test-first": "both"
+  "failing-test-first": "both",
+  "test-deduplication": "offline"
 };
 // tools/shared/json-helpers.ts
 function asRecord(value) {
@@ -571,10 +573,10 @@ function makeEnvelope(input) {
 function projectDataDir(options) {
   return join4(options.opencodeDir, "project-data");
 }
-function makeResult(ability, status, summary, errors, route, requiresEditor = false) {
+function makeResult(ability, status, summary, errors, route, requiresEditor = false, gate = {}) {
   return {
     ...makeEnvelope({ ability, family: "verify", mode: "offline", status, summary, errors, route }),
-    safetyGate: { mutates: false, requiresEditor },
+    safetyGate: { mutates: false, requiresEditor, ...gate },
     changeScope: null,
     checkpoint: null,
     delta: {
@@ -1142,6 +1144,420 @@ function finalize(options, test, expectedReason, tddEnabled, observation, decisi
   };
 }
 
+// tools/unity/unity-verify/src/test-deduplication.ts
+import { readdirSync as readdirSync2, statSync as statSync3, writeFileSync as writeFileSync3 } from "node:fs";
+import { join as join7, resolve as resolve2 } from "node:path";
+
+// tools/shared/slug.ts
+var SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+function isValidSlug(value) {
+  return SLUG_PATTERN.test(value);
+}
+
+// tools/unity/unity-verify/src/test-deduplication.ts
+var TEST_DEDUP_DIR = "test-dedup";
+var TEST_DEDUP_SCHEMA_VERSION = 1;
+function literalPattern() {
+  return /"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|-?\d+(?:\.\d+)?[fFmMdDlL]?|\btrue\b|\bfalse\b|\bnull\b/g;
+}
+function canonical(text) {
+  return text.replace(/\s+/g, " ").trim().toLowerCase();
+}
+function conditionTemplate(condition) {
+  return canonical(condition).replace(literalPattern(), "#");
+}
+function conditionLiterals(condition) {
+  return canonical(condition).match(literalPattern()) ?? [];
+}
+function substituteLiterals(text, params) {
+  let index = 0;
+  return text.replace(literalPattern(), (match) => index < params.length ? params[index++] : match);
+}
+var STOPWORDS = new Set([
+  "the",
+  "and",
+  "for",
+  "with",
+  "test",
+  "tests",
+  "var",
+  "new",
+  "assert",
+  "areequal",
+  "isequal",
+  "returns",
+  "return",
+  "should",
+  "when",
+  "given",
+  "then",
+  "that",
+  "this",
+  "result",
+  "value",
+  "expected",
+  "actual",
+  "true",
+  "false",
+  "null"
+]);
+function tokens(text) {
+  return text.replace(/([a-z0-9])([A-Z])/g, "$1 $2").split(/[^A-Za-z0-9]+/).map((token) => token.toLowerCase()).filter((token) => token.length > 0);
+}
+function significantTokens(condition, assertion) {
+  const out = new Set;
+  for (const token of [...tokens(condition), ...tokens(assertion)]) {
+    if (token.length >= 3 && !STOPWORDS.has(token))
+      out.add(token);
+  }
+  return out;
+}
+function nameScore(name, condition, assertion) {
+  const significant = significantTokens(condition, assertion);
+  return tokens(name).filter((token) => significant.has(token)).length;
+}
+function chooseKeeper(group) {
+  return [...group].sort((a, b) => {
+    const scoreA = nameScore(a.name, a.condition, a.assertion);
+    const scoreB = nameScore(b.name, b.condition, b.assertion);
+    if (scoreA !== scoreB)
+      return scoreB - scoreA;
+    if (a.name.length !== b.name.length)
+      return b.name.length - a.name.length;
+    return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
+  })[0];
+}
+function groupBy(items, key) {
+  const map = new Map;
+  for (const item of items) {
+    const groupKey = key(item);
+    const list = map.get(groupKey);
+    if (list)
+      list.push(item);
+    else
+      map.set(groupKey, [item]);
+  }
+  return map;
+}
+function renderParameterizedBody(keeper, group) {
+  const params = conditionLiterals(keeper.condition).map((_, index) => `p${index}`);
+  const lines = [];
+  for (const test of group)
+    lines.push(`[TestCase(${conditionLiterals(test.condition).join(", ")})]`);
+  lines.push(`public void ${keeper.name}(${params.map((name) => `object ${name}`).join(", ")})`);
+  lines.push("{");
+  lines.push(`    ${substituteLiterals(keeper.condition.trim(), params)}`);
+  lines.push(`    ${keeper.assertion.trim()}`);
+  lines.push("}");
+  return lines.join(`
+`);
+}
+function planDeduplication(tests) {
+  const removals = [];
+  const merges = [];
+  for (const assertionGroup of groupBy(tests, (test) => canonical(test.assertion)).values()) {
+    if (assertionGroup.length < 2)
+      continue;
+    for (const templateGroup of groupBy(assertionGroup, (test) => conditionTemplate(test.condition)).values()) {
+      const representatives = [];
+      for (const exactGroup of groupBy(templateGroup, (test) => canonical(test.condition)).values()) {
+        const keeper = chooseKeeper(exactGroup);
+        representatives.push(keeper);
+        for (const test of exactGroup) {
+          if (test === keeper)
+            continue;
+          removals.push({
+            name: test.name,
+            keptName: keeper.name,
+            file: test.file,
+            condition: test.condition,
+            assertion: test.assertion,
+            reason: "identical condition and identical assertion"
+          });
+        }
+      }
+      if (representatives.length < 2)
+        continue;
+      if (conditionLiterals(representatives[0].condition).length === 0)
+        continue;
+      const template = conditionTemplate(representatives[0].condition);
+      if (/\b(if|switch)\b/.test(template))
+        continue;
+      const keeper = chooseKeeper(representatives);
+      merges.push({
+        keptName: keeper.name,
+        removedNames: representatives.filter((test) => test !== keeper).map((test) => test.name),
+        assertion: keeper.assertion,
+        cases: representatives.map((test) => ({ name: test.name, arguments: conditionLiterals(test.condition) })),
+        body: renderParameterizedBody(keeper, representatives),
+        reason: "same assertion; conditions differ only by literal arguments in the same equivalence partition"
+      });
+    }
+  }
+  return { removals, merges };
+}
+var ATTR_HEAD_SOURCE = "\\[(?:Test|UnityTest|TestCase|TestCaseSource)\\b[^\\]]*\\](?:\\s*\\[[^\\]]*\\])*\\s*" + "(?:(?:public|private|protected|internal|static|async|sealed|override|virtual)\\s+)*" + "(?:void|IEnumerator|Task<[^>]+>|Task)\\s+([A-Za-z_]\\w*)\\s*\\([^)]*\\)\\s*\\{";
+function skipString(text, index) {
+  const quote = text[index];
+  if (text[index - 1] === "@") {
+    for (let i = index + 1;i < text.length; i++) {
+      if (text[i] === '"') {
+        if (text[i + 1] === '"') {
+          i++;
+          continue;
+        }
+        return i;
+      }
+    }
+    return text.length;
+  }
+  for (let i = index + 1;i < text.length; i++) {
+    if (text[i] === "\\") {
+      i++;
+      continue;
+    }
+    if (text[i] === quote)
+      return i;
+  }
+  return text.length;
+}
+function matchBrace(text, openIndex) {
+  let depth = 0;
+  for (let i = openIndex;i < text.length; i++) {
+    const ch = text[i];
+    if (ch === '"' || ch === "'") {
+      i = skipString(text, i);
+      continue;
+    }
+    if (ch === "/" && text[i + 1] === "/") {
+      const newline = text.indexOf(`
+`, i);
+      i = newline === -1 ? text.length : newline;
+      continue;
+    }
+    if (ch === "/" && text[i + 1] === "*") {
+      const close = text.indexOf("*/", i + 2);
+      i = close === -1 ? text.length : close + 1;
+      continue;
+    }
+    if (ch === "{")
+      depth++;
+    else if (ch === "}") {
+      depth--;
+      if (depth === 0)
+        return i;
+    }
+  }
+  return text.length;
+}
+function splitBody(body) {
+  const conditionLines = [];
+  const assertionLines = [];
+  for (const raw of body.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (line === "")
+      continue;
+    if (/\bAssert\./.test(line))
+      assertionLines.push(line);
+    else
+      conditionLines.push(line);
+  }
+  return { condition: conditionLines.join(`
+`), assertion: assertionLines.join(`
+`) };
+}
+function lineStart(text, index) {
+  const newline = text.lastIndexOf(`
+`, index - 1);
+  return newline === -1 ? 0 : newline + 1;
+}
+function extractTestMethods(text) {
+  const out = [];
+  const head = new RegExp(ATTR_HEAD_SOURCE, "g");
+  let match;
+  while ((match = head.exec(text)) !== null) {
+    const open = head.lastIndex - 1;
+    const close = matchBrace(text, open);
+    const { condition, assertion } = splitBody(text.slice(open + 1, close));
+    out.push({ name: match[1], start: lineStart(text, match.index), end: close + 1, condition, assertion });
+    head.lastIndex = close + 1;
+  }
+  return out;
+}
+function walkCsFiles(dir, out = []) {
+  let entries;
+  try {
+    entries = readdirSync2(dir);
+  } catch {
+    return out;
+  }
+  for (const entry of entries) {
+    const full = join7(dir, entry);
+    let directory = false;
+    try {
+      directory = statSync3(full).isDirectory();
+    } catch {
+      continue;
+    }
+    if (directory)
+      walkCsFiles(full, out);
+    else if (entry.endsWith(".cs"))
+      out.push(full);
+  }
+  return out;
+}
+function scanCsTests(dir) {
+  const out = [];
+  for (const file of walkCsFiles(dir).sort()) {
+    const text = readText(file);
+    if (text === null)
+      continue;
+    for (const method of extractTestMethods(text)) {
+      out.push({ name: method.name, condition: method.condition, assertion: method.assertion, file: toPosix(file) });
+    }
+  }
+  return out;
+}
+function removeTestMethods(text, names) {
+  const methods = extractTestMethods(text).filter((method) => names.has(method.name));
+  const removed = [];
+  let out = text;
+  for (const method of [...methods].sort((a, b) => b.start - a.start)) {
+    let end = method.end;
+    while (end < out.length && (out[end] === "\r" || out[end] === `
+`))
+      end++;
+    out = out.slice(0, method.start) + out.slice(end);
+    removed.push(method.name);
+  }
+  return { text: out, removed };
+}
+function parseDescriptors(value) {
+  const raw = Array.isArray(value) ? value : asRecord(value)?.tests;
+  const list = Array.isArray(raw) ? raw : [];
+  const descriptors = [];
+  const errors = [];
+  for (const item of list) {
+    const record = asRecord(item);
+    const name = str(record, "name");
+    const condition = str(record, "condition");
+    const assertion = str(record, "assertion");
+    if (!record || !name || condition === null || assertion === null) {
+      errors.push(`ignored malformed test descriptor: ${JSON.stringify(item)}`);
+      continue;
+    }
+    descriptors.push({ name, condition, assertion, file: str(record, "file") });
+  }
+  return { descriptors, errors };
+}
+function dedupDir(options) {
+  return join7(options.opencodeDir, TEST_DEDUP_DIR);
+}
+function dedupArtifactPath(options, slug) {
+  return join7(dedupDir(options), `${slug}.json`);
+}
+function runTestDeduplication(options) {
+  const slug = (options.feature ?? "").trim();
+  const apply = options.apply === true;
+  const artifactPath = slug ? toPosix(dedupArtifactPath(options, slug)) : toPosix(dedupDir(options));
+  const refuse = (message) => {
+    const base = makeResult(options.ability, "refused", message, [message], "offline");
+    base.mode = VERIFY_MODES[options.ability];
+    base.delta = notComputedDelta("test-deduplication refused; no dedup plan computed");
+    return {
+      ...base,
+      action: apply ? "apply" : "propose",
+      feature: slug || null,
+      artifactPath,
+      written: false,
+      applied: false,
+      totalTests: 0,
+      removals: [],
+      merges: [],
+      removedFromFiles: []
+    };
+  };
+  if (!slug)
+    return refuse("a --feature <slug> is required");
+  if (!isValidSlug(slug))
+    return refuse(`invalid feature slug "${slug}"; use kebab-case (a-z, 0-9, -)`);
+  const testsDir = (options.testsDir ?? "").trim() || null;
+  const testsJson = (options.testsJson ?? "").trim() || null;
+  if (!testsDir && !testsJson)
+    return refuse("one of --tests <dir> or --tests-json <file> is required");
+  const descriptors = [];
+  const errors = [];
+  let source = { testsDir: null, testsJson: null };
+  if (testsJson) {
+    const jsonPath = resolve2(options.projectRoot, testsJson);
+    const json = readJson(jsonPath);
+    if (json === null)
+      return refuse(`test descriptor JSON not found: ${testsJson}`);
+    const parsed = parseDescriptors(json);
+    descriptors.push(...parsed.descriptors);
+    errors.push(...parsed.errors);
+    source = { ...source, testsJson: toPosix(jsonPath) };
+  }
+  if (testsDir) {
+    const dirPath = resolve2(options.projectRoot, testsDir);
+    if (!dirExists(dirPath))
+      return refuse(`tests directory not found: ${testsDir}`);
+    descriptors.push(...scanCsTests(dirPath));
+    source = { ...source, testsDir: toPosix(dirPath) };
+  }
+  const plan = planDeduplication(descriptors);
+  const clean = plan.removals.length === 0 && plan.merges.length === 0;
+  const removedFromFiles = [];
+  if (apply && !clean && testsDir) {
+    const names = new Set(plan.removals.map((removal) => removal.name));
+    for (const file of walkCsFiles(resolve2(options.projectRoot, testsDir))) {
+      const text = readText(file);
+      if (text === null)
+        continue;
+      const result = removeTestMethods(text, names);
+      if (result.removed.length > 0) {
+        writeFileSync3(file, result.text);
+        removedFromFiles.push(toPosix(file));
+      }
+    }
+  }
+  const verb = apply ? "removed" : "proposed";
+  const summary = clean ? "no duplicates found" : `${plan.removals.length} duplicate(s) ${verb}, ${plan.merges.length} parameterizable group(s) ${apply ? "merged" : "proposed for merge"}`;
+  if (apply) {
+    const artifact = {
+      schemaVersion: TEST_DEDUP_SCHEMA_VERSION,
+      generatedAt: nowIso(),
+      feature: slug,
+      applied: !clean,
+      sources: source,
+      totalTests: descriptors.length,
+      removals: plan.removals,
+      merges: plan.merges,
+      summary
+    };
+    writeJson(dedupArtifactPath(options, slug), artifact);
+  }
+  const base = makeResult(options.ability, clean ? "passed" : "observed_locally", summary, errors, "offline", false, {
+    mutates: apply && !clean,
+    dryRunFirst: true,
+    writesState: apply
+  });
+  base.mode = VERIFY_MODES[options.ability];
+  base.delta = notComputedDelta("test-deduplication reads test descriptors; no mutation delta computed");
+  return {
+    ...base,
+    action: apply ? "apply" : "propose",
+    feature: slug,
+    artifactPath,
+    written: apply,
+    applied: apply && !clean,
+    totalTests: descriptors.length,
+    removals: plan.removals,
+    merges: plan.merges,
+    removedFromFiles
+  };
+}
+
 // tools/unity/unity-verify/src/gates.ts
 var EXTERNAL_VERDICTS = ["confirmed", "uncertain"];
 var GATE_ORDER = [
@@ -1330,7 +1746,7 @@ function parseGateOverrides(json) {
 
 // tools/unity/unity-verify/src/abilities.ts
 function readData(options, file) {
-  return readJson(join7(projectDataDir(options), file));
+  return readJson(join8(projectDataDir(options), file));
 }
 function compileAndVerifyProject(options) {
   const changeScope = (options.changeScope ?? []).map((token) => token.trim()).filter((token) => token !== "");
@@ -1380,7 +1796,7 @@ function runModeTests(options, mode) {
   }
   const testOptions = {
     projectRoot: options.projectRoot,
-    scratchDir: join7(options.opencodeDir, ".scratch", "unity"),
+    scratchDir: join8(options.opencodeDir, ".scratch", "unity"),
     cliCommand: options.cliCommand
   };
   const instance = findLiveInstance(options.projectRoot, options.cliCommand);
@@ -1448,6 +1864,8 @@ function runVerify(options) {
       return gateReview(options);
     case "failing-test-first":
       return runFailingTestFirst(options);
+    case "test-deduplication":
+      return runTestDeduplication(options);
     default: {
       const exhaustive = options.ability;
       throw new Error(`unsupported Verify ability: ${String(exhaustive)}`);
@@ -1456,7 +1874,7 @@ function runVerify(options) {
 }
 
 // tools/unity/unity-verify/src/cli.ts
-import { join as join8, resolve as resolve2 } from "node:path";
+import { join as join9, resolve as resolve3 } from "node:path";
 
 // tools/shared/cli-args.ts
 function isFlag(token) {
@@ -1514,8 +1932,8 @@ var INTENSITIES = ["full", "lean", "solo"];
 function resolveOptions(argv) {
   const { values: args, positional } = parseArgs(argv);
   rejectPositionals(positional);
-  const projectRoot = resolve2(String(args["project-root"] || process.cwd()));
-  const opencodeDir = resolve2(String(args["opencode-dir"] || join8(projectRoot, ".opencode")));
+  const projectRoot = resolve3(String(args["project-root"] || process.cwd()));
+  const opencodeDir = resolve3(String(args["opencode-dir"] || join9(projectRoot, ".opencode")));
   const requested = String(args.ability || "compile-and-verify-project");
   const ability = resolveAbility(requested, VERIFY_ABILITIES, "compile-and-verify-project");
   const phaseRaw = firstString(args, ["phase"]);
@@ -1537,7 +1955,11 @@ function resolveOptions(argv) {
     expectedReason: firstString(args, ["expected-reason", "expectedReason"]),
     failureMessage: firstString(args, ["failure-message", "failureMessage"]),
     testResults: firstString(args, ["test-results", "testResults"]),
-    tdd: firstString(args, ["tdd"])
+    tdd: firstString(args, ["tdd"]),
+    feature: firstString(args, ["feature", "slug"]),
+    testsDir: firstString(args, ["tests", "tests-dir", "testsDir"]),
+    testsJson: firstString(args, ["tests-json", "testsJson"]),
+    apply: Boolean(args.apply)
   };
 }
 
@@ -1557,6 +1979,13 @@ function render(result) {
     lines.push(`  gates: ${result.gates.status} (${result.gates.strictest ?? "none"})`);
   if ("redStep" in result && result.redStep)
     lines.push(`  STATUS: ${result.redStep}`);
+  if ("removals" in result) {
+    lines.push(`  action: ${result.action} · tests: ${result.totalTests} · removals: ${result.removals.length} · merges: ${result.merges.length} · written: ${result.written}`);
+    for (const removal of result.removals)
+      lines.push(`  remove ${removal.name} (keep ${removal.keptName})`);
+    for (const merge of result.merges)
+      lines.push(`  merge ${merge.removedNames.join(", ")} into ${merge.keptName}`);
+  }
   for (const error of result.errors)
     lines.push(`  error: ${error}`);
   return lines.join(`

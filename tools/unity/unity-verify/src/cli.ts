@@ -44,5 +44,9 @@ export function resolveOptions(argv: string[]): VerifyOptions {
     failureMessage: firstString(args, ['failure-message', 'failureMessage']),
     testResults: firstString(args, ['test-results', 'testResults']),
     tdd: firstString(args, ['tdd']),
+    feature: firstString(args, ['feature', 'slug']),
+    testsDir: firstString(args, ['tests', 'tests-dir', 'testsDir']),
+    testsJson: firstString(args, ['tests-json', 'testsJson']),
+    apply: Boolean(args.apply),
   };
 }

@@ -11,6 +11,7 @@ safetyGate: { mutates: false, requiresEditor: false, writesState: true }
 uses: [gather-unity-context, compile-and-verify-project]
 provides: [ci-status-baseline]
 requires: [compile-state, log-digest, unity-verification-report]
+testPlan: ["Record a green baseline from clean project data", "Confirm errors or failing tests yield a red baseline", "Confirm reading a missing baseline is not_found"]
 versionCompatibility: { unity: ["6.0", "6.3", "6.5", "LTS+"] }
 ---
 

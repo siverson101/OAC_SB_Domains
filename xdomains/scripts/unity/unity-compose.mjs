@@ -95,7 +95,8 @@ var COMPOSE_ABILITY_NAMES = [
   "primitive-composition",
   "contract-aware-design",
   "ci-status-baseline",
-  "plan-feature"
+  "plan-feature",
+  "test-plan"
 ];
 var COMPOSE_ABILITIES = [...COMPOSE_ABILITY_NAMES];
 var COMPOSE_MODES = {
@@ -103,7 +104,8 @@ var COMPOSE_MODES = {
   "primitive-composition": "offline",
   "contract-aware-design": "offline",
   "ci-status-baseline": "both",
-  "plan-feature": "offline"
+  "plan-feature": "offline",
+  "test-plan": "offline"
 };
 // tools/shared/json-helpers.ts
 function asRecord(value) {
@@ -436,6 +438,16 @@ function parseFrontmatter(content) {
     i = block.nextIndex;
   }
   return fm;
+}
+function frontmatterString(fm, key) {
+  const value = fm[key];
+  return typeof value === "string" ? value : undefined;
+}
+function frontmatterStringArray(fm, key) {
+  const value = fm[key];
+  if (!Array.isArray(value))
+    return;
+  return value.filter((item) => typeof item === "string");
 }
 
 // tools/shared/registry/src/contract.ts
@@ -866,6 +878,12 @@ function toResult(mutation, extraErrors, options) {
 import { mkdirSync as mkdirSync3, rmSync, writeFileSync as writeFileSync3 } from "node:fs";
 import { join as join4 } from "node:path";
 
+// tools/shared/slug.ts
+var SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+function isValidSlug(value) {
+  return SLUG_PATTERN.test(value);
+}
+
 // tools/unity/studio-config/src/types.ts
 var STUDIO_MODES = ["lean", "full"];
 var REVIEW_INTENSITIES = ["full", "lean", "solo"];
@@ -1053,7 +1071,6 @@ function loadStudioConfig(path) {
 var PLAN_DIR = "plans";
 var LOOPBACK_SUFFIX = ".loopback.json";
 var PLAN_SCHEMA_VERSION = 1;
-var SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 var PLAN_SECTIONS = [
   "Context",
   "Implementation Design",
@@ -1180,7 +1197,7 @@ function runPlanFeature(options) {
   const target = slug ? toPosix(planPath(options, slug)) : toPosix(plansDir(options));
   if (!slug)
     return refuse(null, target, null, "a --feature <slug> is required");
-  if (!SLUG_PATTERN.test(slug)) {
+  if (!isValidSlug(slug)) {
     return refuse(slug, target, null, `invalid feature slug "${slug}"; use kebab-case (a-z, 0-9, -)`);
   }
   const load = loadStudioConfig(join4(options.opencodeDir, "unity-studio.json"));
@@ -1654,6 +1671,148 @@ function runPrimitiveComposition(options) {
   return { ...base, primitivesDir: toPosix(dir), report };
 }
 
+// tools/unity/unity-compose/src/test-plan.ts
+import { mkdirSync as mkdirSync4, writeFileSync as writeFileSync4 } from "node:fs";
+import { join as join6 } from "node:path";
+var TEST_PLAN_DIR = "test-plans";
+var TEST_PLAN_SCHEMA_VERSION = 1;
+var FEATURES_FILE = "features.json";
+function testPlansDir(options) {
+  return join6(options.opencodeDir, TEST_PLAN_DIR);
+}
+function testPlanPath(options, slug) {
+  return join6(testPlansDir(options), `${slug}.md`);
+}
+function commandsDir(options) {
+  return options.commandsDir ?? options.capabilitiesDir ?? defaultCapabilitiesDir(options);
+}
+function canonicalStep(step) {
+  return step.replace(/\s+/g, " ").trim().toLowerCase();
+}
+function resolveFeatureAbilities(options, feature) {
+  if (options.planAbilities && options.planAbilities.length > 0) {
+    return { abilities: options.planAbilities, error: null };
+  }
+  const mapPath = options.featuresMap ?? join6(testPlansDir(options), FEATURES_FILE);
+  const map = readJson(mapPath);
+  if (!map) {
+    return { abilities: [], error: `no --abilities and no feature→abilities mapping at ${toPosix(mapPath)}` };
+  }
+  const entry = map[feature];
+  if (!Array.isArray(entry)) {
+    return { abilities: [], error: `no abilities mapped for feature "${feature}" in ${toPosix(mapPath)}` };
+  }
+  return { abilities: entry.filter((item) => typeof item === "string"), error: null };
+}
+function readCapabilitySection(options, ability) {
+  const path = join6(commandsDir(options), `${ability}.md`);
+  const text = readText(path);
+  if (text === null) {
+    return { ability, id: null, summary: null, steps: [], problems: [`capability not found at ${toPosix(path)}`] };
+  }
+  const frontmatter = parseFrontmatter(text);
+  const steps = frontmatterStringArray(frontmatter, "testPlan") ?? [];
+  return {
+    ability,
+    id: frontmatterString(frontmatter, "id") ?? ability,
+    summary: frontmatterString(frontmatter, "summary") ?? null,
+    steps: [...steps],
+    problems: steps.length === 0 ? ["no testPlan declared in the capability contract"] : []
+  };
+}
+function renderTestPlan(artifact) {
+  const lines = [
+    `# Test Plan: ${artifact.feature}`,
+    "",
+    "Generated from the capability contract `testPlan` fields — the contract is the single source of truth."
+  ];
+  for (const section of artifact.sections) {
+    lines.push("", `## ${section.ability}`, "");
+    lines.push(section.summary ?? "_No summary declared._");
+    if (section.steps.length > 0) {
+      lines.push("");
+      for (const step of section.steps)
+        lines.push(`- [ ] ${step}`);
+    }
+    for (const problem of section.problems)
+      lines.push("", `> Problem: ${problem}`);
+  }
+  lines.push("");
+  return lines.join(`
+`);
+}
+function runTestPlan(options) {
+  const slug = (options.feature ?? "").trim();
+  const target = slug ? toPosix(testPlanPath(options, slug)) : toPosix(testPlansDir(options));
+  const refuse = (message) => {
+    const base = makeResult("test-plan", "refused", message, [message], { writesState: true });
+    return {
+      ...base,
+      action: "refuse",
+      feature: slug || null,
+      planPath: target,
+      written: false,
+      sections: 0,
+      checklist: 0,
+      problems: [message]
+    };
+  };
+  if (!slug)
+    return refuse("a --feature <slug> is required");
+  if (!isValidSlug(slug))
+    return refuse(`invalid feature slug "${slug}"; use kebab-case (a-z, 0-9, -)`);
+  const resolved = resolveFeatureAbilities(options, slug);
+  if (resolved.error)
+    return refuse(resolved.error);
+  if (resolved.abilities.length === 0)
+    return refuse(`no abilities resolved for feature "${slug}"`);
+  const sections = resolved.abilities.map((ability) => readCapabilitySection(options, ability));
+  const seen = new Set;
+  const checklist = [];
+  const duplicateSteps = [];
+  for (const section of sections) {
+    const kept = [];
+    for (const step of section.steps) {
+      const key = canonicalStep(step);
+      if (seen.has(key)) {
+        duplicateSteps.push(step);
+        continue;
+      }
+      seen.add(key);
+      kept.push(step);
+      checklist.push(step);
+    }
+    section.steps = kept;
+  }
+  const problems = sections.flatMap((section) => section.problems.map((problem) => `${section.ability}: ${problem}`));
+  const artifact = {
+    schemaVersion: TEST_PLAN_SCHEMA_VERSION,
+    generatedAt: nowIso(),
+    feature: slug,
+    abilities: resolved.abilities,
+    sections,
+    checklist,
+    duplicateSteps,
+    problems
+  };
+  const path = testPlanPath(options, slug);
+  mkdirSync4(testPlansDir(options), { recursive: true });
+  writeFileSync4(path, renderTestPlan(artifact));
+  const status = problems.length > 0 ? "observed_locally" : "ok";
+  const summary = `wrote test plan for "${slug}" (${sections.length} capability section(s), ${checklist.length} checklist step(s))`;
+  const base = makeResult("test-plan", status, summary, problems, { writesState: true });
+  return {
+    ...base,
+    action: "write",
+    feature: slug,
+    planPath: toPosix(path),
+    written: true,
+    sections: sections.length,
+    checklist: checklist.length,
+    problems
+  };
+}
+
 // tools/unity/unity-compose/src/abilities.ts
 async function runCompose(options) {
   switch (options.ability) {
@@ -1667,6 +1826,8 @@ async function runCompose(options) {
       return runCiStatusBaseline(options);
     case "plan-feature":
       return runPlanFeature(options);
+    case "test-plan":
+      return runTestPlan(options);
     default: {
       const exhaustive = options.ability;
       throw new Error(`unsupported Compose ability: ${String(exhaustive)}`);
@@ -1675,7 +1836,7 @@ async function runCompose(options) {
 }
 
 // tools/unity/unity-compose/src/cli.ts
-import { join as join6, resolve } from "node:path";
+import { join as join7, resolve } from "node:path";
 
 // tools/shared/cli-args.ts
 function isFlag(token) {
@@ -1740,11 +1901,13 @@ function resolveOptions(argv) {
   const { values: args, positional } = parseArgs(argv);
   rejectPositionals(positional);
   const projectRoot = resolve(String(args["project-root"] || process.cwd()));
-  const opencodeDir = resolve(String(args["opencode-dir"] || join6(projectRoot, ".opencode")));
+  const opencodeDir = resolve(String(args["opencode-dir"] || join7(projectRoot, ".opencode")));
   const requested = String(args.ability || "coordination-board");
   const ability = resolveAbility(requested, COMPOSE_ABILITIES, "coordination-board");
   const leaseRaw = args["lease-seconds"] ?? args.leaseSeconds;
   const waitRaw = args["wait-seconds"] ?? args.waitSeconds;
+  const abilitiesRaw = firstString(args, ["abilities", "plan-abilities", "planAbilities"]);
+  const planAbilities = abilitiesRaw ? abilitiesRaw.split(",").map((token) => token.trim()).filter((token) => token !== "") : undefined;
   return {
     projectRoot,
     opencodeDir,
@@ -1769,7 +1932,10 @@ function resolveOptions(argv) {
     testCases: firstString(args, ["test-cases", "testCases"]),
     testingDecisions: firstString(args, ["testing-decisions", "testingDecisions"]),
     testability: firstString(args, ["testability"]),
-    tradeOffs: firstString(args, ["trade-offs", "tradeOffs"])
+    tradeOffs: firstString(args, ["trade-offs", "tradeOffs"]),
+    planAbilities,
+    commandsDir: firstString(args, ["commands-dir", "commandsDir"]),
+    featuresMap: firstString(args, ["features-map", "featuresMap", "map"])
   };
 }
 
@@ -1803,7 +1969,12 @@ function render(result) {
   if ("baselinePath" in result) {
     lines.push(`  action: ${result.action} · baseline: ${result.baseline?.status ?? "none"}`);
   }
-  if ("planPath" in result) {
+  if ("checklist" in result && "planPath" in result) {
+    lines.push(`  action: ${result.action} · feature: ${result.feature ?? "n/a"} · sections: ${result.sections} · checklist: ${result.checklist} · written: ${result.written}`);
+    for (const problem of result.problems)
+      lines.push(`  problem: ${problem}`);
+  }
+  if ("planPath" in result && "testability" in result) {
     lines.push(`  action: ${result.action} · feature: ${result.feature ?? "n/a"} · testability: ${result.testability ?? "n/a"} · written: ${result.written}`);
     if (result.instruction)
       lines.push(`  instruction: ${result.instruction}`);

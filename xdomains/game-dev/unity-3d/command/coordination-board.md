@@ -11,6 +11,7 @@ safetyGate: { mutates: true, requiresEditor: false, advisory: true, writesState:
 uses: []
 provides: [coordination-board, coordination-claims, editor-hold]
 requires: [opencode-coordination-dir]
+testPlan: ["Claim a resource and confirm a conflicting claim fails fast naming the holder", "Confirm a lease expires and frees the resource", "Confirm a second holder cannot take the Editor hold"]
 versionCompatibility: { unity: ["6.0", "6.3", "6.5", "LTS+"] }
 ---
 

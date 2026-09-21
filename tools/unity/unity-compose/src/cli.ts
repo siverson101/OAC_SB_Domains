@@ -12,6 +12,10 @@ export function resolveOptions(argv: string[]): ComposeOptions {
 
   const leaseRaw = args['lease-seconds'] ?? args.leaseSeconds;
   const waitRaw = args['wait-seconds'] ?? args.waitSeconds;
+  const abilitiesRaw = firstString(args, ['abilities', 'plan-abilities', 'planAbilities']);
+  const planAbilities = abilitiesRaw
+    ? abilitiesRaw.split(',').map((token) => token.trim()).filter((token) => token !== '')
+    : undefined;
 
   return {
     projectRoot,
@@ -38,5 +42,8 @@ export function resolveOptions(argv: string[]): ComposeOptions {
     testingDecisions: firstString(args, ['testing-decisions', 'testingDecisions']),
     testability: firstString(args, ['testability']),
     tradeOffs: firstString(args, ['trade-offs', 'tradeOffs']),
+    planAbilities,
+    commandsDir: firstString(args, ['commands-dir', 'commandsDir']),
+    featuresMap: firstString(args, ['features-map', 'featuresMap', 'map']),
   };
 }

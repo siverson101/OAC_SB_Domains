@@ -14,6 +14,14 @@ import {
   parseGateOverrides,
 } from '../tools/unity/unity-verify/src/gates';
 import { decideRedStep, parseTestCases } from '../tools/unity/unity-verify/src/failing-test-first';
+import {
+  chooseKeeper,
+  parseDescriptors,
+  planDeduplication,
+  runTestDeduplication,
+  scanCsTests,
+  type TestDescriptor,
+} from '../tools/unity/unity-verify/src/test-deduplication';
 import { makeSnapshot } from '../tools/unity/unity-verify/src/shared';
 import { VERIFY_ABILITIES, VERIFY_MODES, type VerifyOptions } from '../tools/unity/unity-verify/src/types';
 import type { TestCounts } from '../tools/unity/gather-unity-context/src/gate';
@@ -719,16 +727,224 @@ describe('failing-test-first', () => {
   });
 });
 
+describe('test-deduplication planning', () => {
+  function descriptor(name: string, condition: string, assertion: string): TestDescriptor {
+    return { name, condition, assertion, file: null };
+  }
+
+  test('a true duplicate yields one removal, keeping the better-named test', () => {
+    const plan = planDeduplication([
+      descriptor('Jump_raises_the_player', 'player.Jump();', 'Assert.AreEqual(2f, player.Height);'),
+      descriptor('Test1', 'player.Jump();', 'Assert.AreEqual(2f, player.Height);'),
+    ]);
+    expect(plan.removals).toHaveLength(1);
+    expect(plan.removals[0].keptName).toBe('Jump_raises_the_player');
+    expect(plan.removals[0].name).toBe('Test1');
+    expect(plan.merges).toHaveLength(0);
+  });
+
+  test('a pair sharing a condition but not an assertion is retained', () => {
+    const plan = planDeduplication([
+      descriptor('Jump_sets_height', 'player.Jump();', 'Assert.AreEqual(2f, player.Height);'),
+      descriptor('Jump_sets_velocity', 'player.Jump();', 'Assert.AreEqual(1f, player.Velocity);'),
+    ]);
+    expect(plan.removals).toHaveLength(0);
+    expect(plan.merges).toHaveLength(0);
+  });
+
+  test('same-condition tests are never merged into one multi-assert test', () => {
+    const plan = planDeduplication([
+      descriptor('A', 'player.Jump();', 'Assert.AreEqual(2f, player.Height);'),
+      descriptor('B', 'player.Jump();', 'Assert.Greater(player.Velocity, 0f);'),
+    ]);
+    expect(plan.merges).toHaveLength(0);
+  });
+
+  test('a parameterizable group merges without if or switch and keeps the assertion', () => {
+    const plan = planDeduplication([
+      descriptor('Add_positive_numbers', 'var result = Calculator.Add(1, 2);', 'Assert.Greater(result, 0);'),
+      descriptor('Add_larger_positive_numbers', 'var result = Calculator.Add(5, 6);', 'Assert.Greater(result, 0);'),
+    ]);
+    expect(plan.removals).toHaveLength(0);
+    expect(plan.merges).toHaveLength(1);
+    const merge = plan.merges[0];
+    expect(merge.cases.map((testCase) => testCase.arguments)).toEqual([['1', '2'], ['5', '6']]);
+    expect(merge.body).toContain('[TestCase(1, 2)]');
+    expect(merge.body).toContain('Assert.Greater(result, 0);');
+    expect(/\bif\b/.test(merge.body)).toBe(false);
+    expect(/\bswitch\b/.test(merge.body)).toBe(false);
+  });
+
+  test('chooseKeeper keeps the more accurately named test', () => {
+    const keeper = chooseKeeper([
+      descriptor('Test1', 'player.Jump();', 'Assert.AreEqual(2f, player.Height);'),
+      descriptor('Jump_updates_height', 'player.Jump();', 'Assert.AreEqual(2f, player.Height);'),
+    ]);
+    expect(keeper.name).toBe('Jump_updates_height');
+  });
+
+  test('parseDescriptors accepts an array or { tests } and reports malformed entries', () => {
+    const parsed = parseDescriptors({
+      tests: [
+        { name: 'A', condition: 'c', assertion: 'a' },
+        { name: 'bad' },
+      ],
+    });
+    expect(parsed.descriptors).toHaveLength(1);
+    expect(parsed.errors).toHaveLength(1);
+    expect(parseDescriptors([{ name: 'A', condition: 'c', assertion: 'a' }]).descriptors).toHaveLength(1);
+  });
+});
+
+describe('test-deduplication run', () => {
+  function dedupOptions(oc: string, extra: Partial<VerifyOptions> = {}): VerifyOptions {
+    return { ...options, ability: 'test-deduplication', opencodeDir: oc, ...extra };
+  }
+
+  const redundantPair = [
+    { name: 'Jump_raises_the_player', condition: 'player.Jump();', assertion: 'Assert.AreEqual(2f, player.Height);' },
+    { name: 'Test1', condition: 'player.Jump();', assertion: 'Assert.AreEqual(2f, player.Height);' },
+  ];
+
+  test('dry-run proposes a removal and writes nothing', () => {
+    const root = join(fixture, 'dedup-dry');
+    const oc = join(root, '.opencode');
+    const jsonPath = join(root, 'tests.json');
+    write(jsonPath, JSON.stringify({ tests: redundantPair }));
+
+    const result = runTestDeduplication(dedupOptions(oc, { feature: 'player-jump', testsJson: jsonPath }));
+    expect(result.status).toBe('observed_locally');
+    expect(result.written).toBe(false);
+    expect(result.applied).toBe(false);
+    expect(result.removals).toHaveLength(1);
+    expect(existsSync(join(oc, 'test-dedup'))).toBe(false);
+  });
+
+  test('--apply records the removal in .opencode/test-dedup/<feature>.json', () => {
+    const root = join(fixture, 'dedup-apply-json');
+    const oc = join(root, '.opencode');
+    const jsonPath = join(root, 'tests.json');
+    write(jsonPath, JSON.stringify({ tests: redundantPair }));
+
+    const result = runTestDeduplication(dedupOptions(oc, { feature: 'player-jump', testsJson: jsonPath, apply: true }));
+    expect(result.written).toBe(true);
+    expect(result.applied).toBe(true);
+
+    const artifactPath = join(oc, 'test-dedup', 'player-jump.json');
+    expect(existsSync(artifactPath)).toBe(true);
+    const artifact = JSON.parse(readFileSync(artifactPath, 'utf8'));
+    expect(artifact.removals).toHaveLength(1);
+    expect(artifact.removals[0].name).toBe('Test1');
+    expect(artifact.removals[0].keptName).toBe('Jump_raises_the_player');
+  });
+
+  test('--apply removes a true duplicate from a *.cs suite and records it', () => {
+    const root = join(fixture, 'dedup-cs');
+    const oc = join(root, '.opencode');
+    const testsDir = join(root, 'Tests');
+    const source = [
+      'using NUnit.Framework;',
+      '',
+      'public class PlayerTests',
+      '{',
+      '    [Test]',
+      '    public void Jump_raises_the_player()',
+      '    {',
+      '        var player = new Player();',
+      '        player.Jump();',
+      '        Assert.AreEqual(2f, player.Height);',
+      '    }',
+      '',
+      '    [Test]',
+      '    public void Jump_increases_height()',
+      '    {',
+      '        var player = new Player();',
+      '        player.Jump();',
+      '        Assert.AreEqual(2f, player.Height);',
+      '    }',
+      '',
+      '    [Test]',
+      '    public void Jump_uses_a_different_height()',
+      '    {',
+      '        var player = new Player();',
+      '        player.Jump();',
+      '        Assert.AreEqual(3f, player.Height);',
+      '    }',
+      '',
+      '    [Test]',
+      '    public void Add_positive_numbers()',
+      '    {',
+      '        var result = Calculator.Add(1, 2);',
+      '        Assert.Greater(result, 0);',
+      '    }',
+      '',
+      '    [Test]',
+      '    public void Add_larger_positive_numbers()',
+      '    {',
+      '        var result = Calculator.Add(5, 6);',
+      '        Assert.Greater(result, 0);',
+      '    }',
+      '}',
+      '',
+    ].join('\n');
+    write(join(testsDir, 'PlayerTests.cs'), source);
+
+    const scan = scanCsTests(testsDir);
+    expect(scan.map((test) => test.name)).toContain('Jump_raises_the_player');
+
+    const result = runTestDeduplication(dedupOptions(oc, { feature: 'player-jump', testsDir, apply: true }));
+    expect(result.removals).toHaveLength(1);
+    expect(result.removals[0].name).toBe('Jump_increases_height');
+    expect(result.removals[0].keptName).toBe('Jump_raises_the_player');
+    expect(result.merges).toHaveLength(1);
+    expect(result.removedFromFiles).toHaveLength(1);
+
+    const updated = readFileSync(join(testsDir, 'PlayerTests.cs'), 'utf8');
+    expect(updated).not.toContain('Jump_increases_height');
+    expect(updated).toContain('Jump_raises_the_player');
+    expect(updated).toContain('Jump_uses_a_different_height');
+    expect(updated).toContain('Add_positive_numbers');
+    expect(existsSync(join(oc, 'test-dedup', 'player-jump.json'))).toBe(true);
+  });
+
+  test('reports "no duplicates found" for a clean suite and writes nothing in dry-run', () => {
+    const root = join(fixture, 'dedup-clean');
+    const oc = join(root, '.opencode');
+    const jsonPath = join(root, 'tests.json');
+    write(
+      jsonPath,
+      JSON.stringify({
+        tests: [
+          { name: 'Jump_sets_height', condition: 'player.Jump();', assertion: 'Assert.AreEqual(2f, player.Height);' },
+          { name: 'Move_sets_velocity', condition: 'player.Move();', assertion: 'Assert.AreEqual(1f, player.Velocity);' },
+        ],
+      })
+    );
+
+    const result = runTestDeduplication(dedupOptions(oc, { feature: 'player-jump', testsJson: jsonPath }));
+    expect(result.status).toBe('passed');
+    expect(result.summary).toContain('no duplicates found');
+    expect(existsSync(join(oc, 'test-dedup'))).toBe(false);
+  });
+
+  test('refuses without a feature slug, an input, or with a non-kebab slug', () => {
+    const oc = join(fixture, 'dedup-refuse', '.opencode');
+    expect(runTestDeduplication(dedupOptions(oc, { feature: 'player-jump' })).status).toBe('refused');
+    expect(runTestDeduplication(dedupOptions(oc, { feature: '../escape', testsJson: 'x.json' })).status).toBe('refused');
+  });
+});
+
 describe('Verify command contracts', () => {
   const schema = JSON.parse(readFileSync(schemaPath, 'utf8'));
 
-  test('declares exactly the five abilities', () => {
+  test('declares exactly the six abilities', () => {
     expect(VERIFY_ABILITIES).toEqual([
       'compile-and-verify-project',
       'run-edit-mode-tests',
       'run-play-mode-tests',
       'gate-review',
       'failing-test-first',
+      'test-deduplication',
     ]);
   });
 

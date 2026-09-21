@@ -11,6 +11,7 @@ safetyGate: { mutates: false, requiresEditor: false, writesState: true }
 uses: []
 provides: [plan-feature, plan-artifact]
 requires: [unity-studio-config, test-cases]
+testPlan: ["Confirm a PASS writes the plan artifact with every section in order", "Confirm TDD off refuses and writes nothing", "Confirm a Testability FAIL loops back once then aborts"]
 versionCompatibility: { unity: ["6.0", "6.3", "6.5", "LTS+"] }
 ---
 

@@ -110,7 +110,9 @@
     "primitive-composition",
     "contract-aware-design",
     "ci-status-baseline",
-    "plan-feature"
+    "plan-feature",
+    "test-plan",
+    "test-deduplication"
   ],
     "skills": [],
     "tools": [

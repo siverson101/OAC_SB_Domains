@@ -12,6 +12,7 @@
 //   unity-compose ... --ability ci-status-baseline --verb record --json
 //   unity-compose ... --ability plan-feature --feature <slug> \
 //     --test-cases "<verbatim>" --testability PASS --json
+//   unity-compose ... --ability test-plan --feature <slug> --abilities a,b,c --json
 //   unity-compose --list
 //
 // Every ability is offline and fail-soft: it reads/writes plain files under
@@ -44,7 +45,13 @@ function render(result: ComposeResult): string {
   if ('baselinePath' in result) {
     lines.push(`  action: ${result.action} · baseline: ${result.baseline?.status ?? 'none'}`);
   }
-  if ('planPath' in result) {
+  if ('checklist' in result && 'planPath' in result) {
+    lines.push(
+      `  action: ${result.action} · feature: ${result.feature ?? 'n/a'} · sections: ${result.sections} · checklist: ${result.checklist} · written: ${result.written}`
+    );
+    for (const problem of result.problems) lines.push(`  problem: ${problem}`);
+  }
+  if ('planPath' in result && 'testability' in result) {
     lines.push(
       `  action: ${result.action} · feature: ${result.feature ?? 'n/a'} · testability: ${result.testability ?? 'n/a'} · written: ${result.written}`
     );

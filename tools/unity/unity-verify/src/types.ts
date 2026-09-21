@@ -16,6 +16,7 @@ const VERIFY_ABILITY_NAMES = [
   'run-play-mode-tests',
   'gate-review',
   'failing-test-first',
+  'test-deduplication',
 ] as const;
 
 export type VerifyAbility = (typeof VERIFY_ABILITY_NAMES)[number];
@@ -32,6 +33,7 @@ export const VERIFY_MODES: Record<VerifyAbility, VerifyMode> = {
   'run-play-mode-tests': 'both',
   'gate-review': 'offline',
   'failing-test-first': 'both',
+  'test-deduplication': 'offline',
 };
 
 export type VerifyStatus =
@@ -51,8 +53,10 @@ export type VerifyPhase = 'checkpoint' | 'validate';
 export type ReviewIntensity = 'full' | 'lean' | 'solo';
 
 export interface VerifySafetyGate {
-  mutates: false;
+  mutates: boolean;
   requiresEditor: boolean;
+  dryRunFirst?: boolean;
+  writesState?: boolean;
 }
 
 export interface VerifyBase {
@@ -91,6 +95,10 @@ export interface VerifyOptions {
   failureMessage?: string;
   testResults?: string;
   tdd?: string;
+  feature?: string;
+  testsDir?: string;
+  testsJson?: string;
+  apply?: boolean;
 }
 
 export type IssueKind = 'compile' | 'editMode' | 'playMode';

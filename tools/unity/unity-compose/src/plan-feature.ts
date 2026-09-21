@@ -10,13 +10,13 @@
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { nowIso, readJson, toPosix, writeJson } from '../../../shared/io';
+import { isValidSlug } from '../../../shared/slug';
 import { loadStudioConfig } from '../../studio-config/src/config';
 import { makeResult, num, type ComposeBase, type ComposeOptions, type Json } from './shared';
 
 export const PLAN_DIR = 'plans';
 export const LOOPBACK_SUFFIX = '.loopback.json';
 export const PLAN_SCHEMA_VERSION = 1;
-export const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 export type TestabilityVerdict = 'PASS' | 'WARN' | 'FAIL';
 
@@ -180,7 +180,7 @@ export function runPlanFeature(options: ComposeOptions): PlanFeatureResult {
   const target = slug ? toPosix(planPath(options, slug)) : toPosix(plansDir(options));
 
   if (!slug) return refuse(null, target, null, 'a --feature <slug> is required');
-  if (!SLUG_PATTERN.test(slug)) {
+  if (!isValidSlug(slug)) {
     return refuse(slug, target, null, `invalid feature slug "${slug}"; use kebab-case (a-z, 0-9, -)`);
   }
 

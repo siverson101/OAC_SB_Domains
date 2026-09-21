@@ -12,6 +12,7 @@ uses: [gather-unity-context]
 provides: [run-play-mode-tests]
 requires: [unity-cli, test-inventory]
 usedBy: [gate-review]
+testPlan: ["Run the PlayMode gate with an Editor available and confirm the counts", "Confirm the ability fails soft with no Unity CLI"]
 versionCompatibility: { unity: ["6.0", "6.3", "6.5", "LTS+"] }
 ---
 

@@ -11,6 +11,7 @@ safetyGate: { mutates: false, requiresEditor: false }
 uses: []
 provides: [contract-aware-design, contract-validation]
 requires: [capability-contract-schema]
+testPlan: ["Validate a good contract with no errors", "Confirm a missing id and an invalid family are reported", "Confirm a missing schema is unavailable not thrown"]
 versionCompatibility: { unity: ["6.0", "6.3", "6.5", "LTS+"] }
 ---
 
