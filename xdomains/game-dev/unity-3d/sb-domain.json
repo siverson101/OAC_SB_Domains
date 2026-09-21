@@ -90,6 +90,7 @@
     "unity-api-lookup",
     "platform-info",
     "code-navigation",
+    "version-drift",
     "scene-editing",
     "prefab-automation",
     "script-scaffolding",

@@ -133,6 +133,7 @@ matching command is reported as a warning, never silently invented.
 | `plan-feature` | command `plan-feature` (shipped, Phase 5) | Plan artifact + Testability verdict; `MattSkills/skills/engineering` design reference |
 | `test-plan` | command `test-plan` (shipped, Phase 5) | Capability/primitive `testPlan` data |
 | `test-deduplication` | command `test-deduplication` (shipped, Phase 5) | Test descriptors / `*.cs` test scan; `unity-coding-skills` design reference |
+| `version-drift` | command `version-drift` (shipped) | `ProjectSettings/ProjectVersion.txt`, `Packages/manifest.json`, Unity CLI (`unity --version`, `unity command --format json`); baselines under `project-data/version-baselines/` |
 
 Phase 5 also modified two existing abilities without changing their source: `gate-review` gained an
 `externalVerdict` (`confirmed`/`uncertain`) fold, and `compile-and-verify-project` now requires a

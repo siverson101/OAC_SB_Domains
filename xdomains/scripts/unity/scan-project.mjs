@@ -710,12 +710,32 @@ function probeToolchain(projectRoot, cliCommand = "unity") {
 
 // tools/unity/project-scan/src/unity-packages.ts
 import { join as join7 } from "node:path";
+
+// tools/shared/json-helpers.ts
+function asRecord(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? value : null;
+}
+
+// tools/shared/unity-manifest.ts
+function readManifestDependencies(manifestPath) {
+  if (!fileExists(manifestPath))
+    return { present: false, malformed: false, dependencies: null };
+  const dependencies = asRecord(asRecord(readJson(manifestPath))?.dependencies);
+  if (!dependencies)
+    return { present: true, malformed: true, dependencies: null };
+  const out = {};
+  for (const [name, version] of Object.entries(dependencies))
+    out[name] = String(version);
+  return { present: true, malformed: false, dependencies: out };
+}
+
+// tools/unity/project-scan/src/unity-packages.ts
 function readUnityPackages(projectRoot, info) {
   const manifestPath = join7(projectRoot, "Packages", "manifest.json");
   const lockPath = join7(projectRoot, "Packages", "packages-lock.json");
-  const manifest = readJson(manifestPath);
+  const manifest = readManifestDependencies(manifestPath);
   const lock = readJson(lockPath);
-  const manifestDeps = manifest?.dependencies ?? {};
+  const manifestDeps = manifest.dependencies ?? {};
   const lockDeps = lock?.dependencies ?? {};
   const map = {};
   if (info?.packages)
@@ -740,7 +760,7 @@ function readUnityPackages(projectRoot, info) {
     lockPath,
     manifestHash: sha256(manifestPath),
     lockHash: sha256(lockPath),
-    hasManifest: fileExists(manifestPath),
+    hasManifest: manifest.present,
     hasLock: fileExists(lockPath)
   };
 }

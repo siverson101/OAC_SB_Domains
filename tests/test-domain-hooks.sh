@@ -45,6 +45,18 @@ for sd in unity-2d unity-3d; do
 done
 pass "all expected hooks present"
 
+# --- the stage-3 hook records the version baseline -------------------------
+HOOK_STAGE3="$XD/game-dev/unity-3d/hooks/instead/stage-3-identify-use-cases.md"
+grep -q "scripts/unity/version-drift.mjs" "$HOOK_STAGE3" \
+    || fail "stage-3 hook does not run version-drift.mjs"
+# The daily cadence is load-bearing (the command doc says "first thing each day"),
+# so pin the flags too, not just the script path.
+grep -q -- "--if-due" "$HOOK_STAGE3" \
+    || fail "stage-3 hook does not pass --if-due"
+grep -q -- "--max-age-hours" "$HOOK_STAGE3" \
+    || fail "stage-3 hook does not pass --max-age-hours"
+pass "stage-3 hook runs the version-drift baseline check"
+
 # --- every hook begins with YAML frontmatter --------------------------------
 for f in "$XD"/game-dev/*/hooks/*/*.md; do
     [ -f "$f" ] || continue
