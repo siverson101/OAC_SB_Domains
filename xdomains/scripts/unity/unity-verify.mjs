@@ -51,7 +51,7 @@ function runCli(config) {
 }
 
 // tools/unity/unity-verify/src/abilities.ts
-import { join as join6 } from "node:path";
+import { join as join8 } from "node:path";
 
 // tools/shared/io.ts
 import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
@@ -282,6 +282,17 @@ import { join as join5 } from "node:path";
 import { readdirSync, statSync as statSync2 } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname as dirname2, isAbsolute, join as join3, relative } from "node:path";
+
+// tools/shared/xml.ts
+function decodeXmlEntities(value) {
+  const codePoint = (match, digits, radix) => {
+    const code = Number.parseInt(digits, radix);
+    return Number.isFinite(code) && code >= 0 && code <= 1114111 ? String.fromCodePoint(code) : match;
+  };
+  return value.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&#x([0-9a-fA-F]+);/g, (match, digits) => codePoint(match, digits, 16)).replace(/&#(\d+);/g, (match, digits) => codePoint(match, digits, 10)).replace(/&amp;/g, "&");
+}
+
+// tools/unity/gather-unity-context/src/offline.ts
 var OFFLINE_ROUTE = selectRoute({ live: null, cliAvailable: false }).route;
 function makeBase(status, errors = []) {
   return { schemaVersion: 1, generatedAt: nowIso(), status, route: OFFLINE_ROUTE, errors };
@@ -518,14 +529,18 @@ var VERIFY_ABILITY_NAMES = [
   "compile-and-verify-project",
   "run-edit-mode-tests",
   "run-play-mode-tests",
-  "gate-review"
+  "gate-review",
+  "failing-test-first",
+  "test-deduplication"
 ];
 var VERIFY_ABILITIES = [...VERIFY_ABILITY_NAMES];
 var VERIFY_MODES = {
   "compile-and-verify-project": "both",
   "run-edit-mode-tests": "both",
   "run-play-mode-tests": "both",
-  "gate-review": "offline"
+  "gate-review": "offline",
+  "failing-test-first": "both",
+  "test-deduplication": "offline"
 };
 // tools/shared/json-helpers.ts
 function asRecord(value) {
@@ -541,6 +556,10 @@ function str(obj, key) {
 function bool(obj, key) {
   const value = obj?.[key];
   return typeof value === "boolean" ? value : null;
+}
+function stringArray(obj, key) {
+  const value = obj?.[key];
+  return Array.isArray(value) ? value.filter((item) => typeof item === "string") : [];
 }
 
 // tools/unity/unity-verify/src/shared.ts
@@ -565,10 +584,11 @@ function makeEnvelope(input) {
 function projectDataDir(options) {
   return join4(options.opencodeDir, "project-data");
 }
-function makeResult(ability, status, summary, errors, route, requiresEditor = false) {
+function makeResult(ability, status, summary, errors, route, requiresEditor = false, gate = {}) {
   return {
     ...makeEnvelope({ ability, family: "verify", mode: "offline", status, summary, errors, route }),
-    safetyGate: { mutates: false, requiresEditor },
+    safetyGate: { mutates: false, requiresEditor, ...gate },
+    changeScope: null,
     checkpoint: null,
     delta: {
       computed: false,
@@ -576,6 +596,7 @@ function makeResult(ability, status, summary, errors, route, requiresEditor = fa
       resolvedIssues: null,
       validateScanFailed: false,
       compilePending: false,
+      scopeUnmatched: false,
       reasons: ["no delta computed"]
     }
   };
@@ -605,6 +626,13 @@ function issueKey(issue) {
 var MAX_ISSUES = 50;
 function normalizeMessage(text) {
   return text.replace(/\s+/g, " ").trim();
+}
+function issueInScope(issue, scope) {
+  const tokens = scope.map((token) => token.trim().toLowerCase()).filter((token) => token !== "");
+  if (tokens.length === 0)
+    return true;
+  const haystack = `${issue.id} ${issue.message}`.toLowerCase();
+  return tokens.some((token) => haystack.includes(token));
 }
 function pushIssue(issues, seen, issue) {
   if (issues.length >= MAX_ISSUES)
@@ -651,7 +679,7 @@ function compilePending(compile) {
     return true;
   return false;
 }
-function computeDelta(before, after, scan = { ok: true }) {
+function computeDelta(before, after, scan = { ok: true }, changeScope = []) {
   const reasons = [];
   const validateScanFailed = !scan.ok || after === null || isCompileUnavailable(after?.compile);
   const pending = !validateScanFailed && compilePending(after?.compile);
@@ -675,18 +703,30 @@ function computeDelta(before, after, scan = { ok: true }) {
       resolvedIssues: null,
       validateScanFailed,
       compilePending: pending,
+      scopeUnmatched: false,
       reasons
     };
   }
   const beforeKeys = new Set(before.issues.map(issueKey));
   const afterKeys = new Set(after.issues.map(issueKey));
+  const rawNew = after.issues.filter((issue) => !beforeKeys.has(issueKey(issue)));
+  const rawResolved = before.issues.filter((issue) => !afterKeys.has(issueKey(issue)));
+  const scoped = changeScope.some((token) => token.trim() !== "");
+  const newIssues = scoped ? rawNew.filter((issue) => issueInScope(issue, changeScope)) : rawNew;
+  const resolvedIssues = scoped ? rawResolved.filter((issue) => issueInScope(issue, changeScope)) : rawResolved;
+  const excluded = rawNew.length - newIssues.length + (rawResolved.length - resolvedIssues.length);
+  const scopeUnmatched = scoped && ![...before.issues, ...after.issues].some((issue) => issueInScope(issue, changeScope));
+  const deltaReasons = excluded > 0 ? [`${excluded} out-of-scope issue(s) excluded from the delta`] : [];
+  if (scopeUnmatched)
+    deltaReasons.push("declared change scope matched no issues; the delta may under-report");
   return {
     computed: true,
-    newIssues: after.issues.filter((issue) => !beforeKeys.has(issueKey(issue))),
-    resolvedIssues: before.issues.filter((issue) => !afterKeys.has(issueKey(issue))),
+    newIssues,
+    resolvedIssues,
     validateScanFailed: false,
     compilePending: false,
-    reasons: []
+    scopeUnmatched,
+    reasons: deltaReasons
   };
 }
 function notComputedDelta(reason) {
@@ -696,6 +736,7 @@ function notComputedDelta(reason) {
     resolvedIssues: null,
     validateScanFailed: false,
     compilePending: false,
+    scopeUnmatched: false,
     reasons: [reason]
   };
 }
@@ -762,7 +803,843 @@ function writeCheckpoint(options, snapshot) {
   return path;
 }
 
+// tools/unity/unity-verify/src/failing-test-first.ts
+import { join as join6, resolve } from "node:path";
+
+// tools/unity/studio-config/src/types.ts
+var STUDIO_MODES = ["lean", "full"];
+var REVIEW_INTENSITIES = ["full", "lean", "solo"];
+var MODEL_TIERS = ["router", "lead", "specialist"];
+var STUDIO_CONFIG_SCHEMA_VERSION = 1;
+var DEFAULT_STUDIO_CONFIG = {
+  schemaVersion: STUDIO_CONFIG_SCHEMA_VERSION,
+  studioMode: "lean",
+  reviewIntensity: "full",
+  toggles: { tdd: false, ftf: false },
+  patterns: [],
+  packages: [],
+  modelTiers: {}
+};
+
+// tools/unity/studio-config/src/config.ts
+var KNOWN_KEYS = new Set([
+  "$schema",
+  "schemaVersion",
+  "studioMode",
+  "reviewIntensity",
+  "toggles",
+  "patterns",
+  "packages",
+  "modelTiers"
+]);
+var KNOWN_TOGGLE_KEYS = new Set(["tdd", "ftf"]);
+function defaultStudioConfig() {
+  return {
+    ...DEFAULT_STUDIO_CONFIG,
+    toggles: { ...DEFAULT_STUDIO_CONFIG.toggles },
+    patterns: [],
+    packages: [],
+    modelTiers: { ...DEFAULT_STUDIO_CONFIG.modelTiers }
+  };
+}
+function parseStringArray(value, field, problems) {
+  if (value === undefined)
+    return [];
+  if (!Array.isArray(value)) {
+    problems.push({ field, message: "expected an array of strings" });
+    return [];
+  }
+  const out = [];
+  for (const item of value) {
+    if (typeof item === "string" && item.trim() !== "") {
+      const id = item.trim();
+      if (!out.includes(id))
+        out.push(id);
+    } else {
+      problems.push({ field, message: `ignored non-string entry ${JSON.stringify(item)}` });
+    }
+  }
+  return out;
+}
+function parseMode(value, problems) {
+  if (value === undefined)
+    return DEFAULT_STUDIO_CONFIG.studioMode;
+  if (typeof value === "string" && STUDIO_MODES.includes(value)) {
+    return value;
+  }
+  problems.push({ field: "studioMode", message: `expected one of ${STUDIO_MODES.join("|")}, got ${JSON.stringify(value)}` });
+  return DEFAULT_STUDIO_CONFIG.studioMode;
+}
+function parseIntensity(value, problems) {
+  if (value === undefined)
+    return DEFAULT_STUDIO_CONFIG.reviewIntensity;
+  if (typeof value === "string" && REVIEW_INTENSITIES.includes(value)) {
+    return value;
+  }
+  problems.push({
+    field: "reviewIntensity",
+    message: `expected one of ${REVIEW_INTENSITIES.join("|")}, got ${JSON.stringify(value)}`
+  });
+  return DEFAULT_STUDIO_CONFIG.reviewIntensity;
+}
+function parseToggles(value, problems) {
+  const toggles = { ...DEFAULT_STUDIO_CONFIG.toggles };
+  if (value === undefined)
+    return toggles;
+  const record = asRecord(value);
+  if (!record) {
+    problems.push({ field: "toggles", message: "expected an object with boolean tdd/ftf flags" });
+    return toggles;
+  }
+  for (const key of Object.keys(record)) {
+    if (!KNOWN_TOGGLE_KEYS.has(key))
+      problems.push({ field: `toggles.${key}`, message: "unknown toggle" });
+  }
+  for (const key of KNOWN_TOGGLE_KEYS) {
+    const flag = record[key];
+    if (flag === undefined)
+      continue;
+    if (typeof flag === "boolean")
+      toggles[key] = flag;
+    else
+      problems.push({ field: `toggles.${key}`, message: `expected a boolean, got ${JSON.stringify(flag)}` });
+  }
+  return toggles;
+}
+function parseModelTiers(value, problems) {
+  const tiers = {};
+  if (value === undefined)
+    return tiers;
+  const record = asRecord(value);
+  if (!record) {
+    problems.push({
+      field: "modelTiers",
+      message: `expected an object mapping ${MODEL_TIERS.join("|")} to a model id`
+    });
+    return tiers;
+  }
+  for (const key of Object.keys(record)) {
+    if (!MODEL_TIERS.includes(key)) {
+      problems.push({ field: `modelTiers.${key}`, message: `unknown tier; expected one of ${MODEL_TIERS.join("|")}` });
+      continue;
+    }
+    const model = record[key];
+    if (typeof model !== "string" || model.trim() === "") {
+      problems.push({
+        field: `modelTiers.${key}`,
+        message: `expected a non-empty model id string, got ${JSON.stringify(model)}`
+      });
+      continue;
+    }
+    tiers[key] = model.trim();
+  }
+  return tiers;
+}
+function parseStudioConfig(value) {
+  const problems = [];
+  const record = asRecord(value);
+  if (!record) {
+    problems.push({ field: "$", message: "config must be a JSON object" });
+    return { config: defaultStudioConfig(), problems };
+  }
+  for (const key of Object.keys(record)) {
+    if (!KNOWN_KEYS.has(key))
+      problems.push({ field: key, message: "unknown property" });
+  }
+  let schemaVersion = DEFAULT_STUDIO_CONFIG.schemaVersion;
+  if (record.schemaVersion !== undefined) {
+    if (typeof record.schemaVersion !== "number" || !Number.isFinite(record.schemaVersion)) {
+      problems.push({ field: "schemaVersion", message: `expected a number, got ${JSON.stringify(record.schemaVersion)}` });
+    } else if (record.schemaVersion !== STUDIO_CONFIG_SCHEMA_VERSION) {
+      problems.push({
+        field: "schemaVersion",
+        message: `unsupported schema version ${JSON.stringify(record.schemaVersion)}, expected ${STUDIO_CONFIG_SCHEMA_VERSION}`
+      });
+    } else {
+      schemaVersion = record.schemaVersion;
+    }
+  }
+  const config = {
+    schemaVersion,
+    studioMode: parseMode(record.studioMode, problems),
+    reviewIntensity: parseIntensity(record.reviewIntensity, problems),
+    toggles: parseToggles(record.toggles, problems),
+    patterns: parseStringArray(record.patterns, "patterns", problems),
+    packages: parseStringArray(record.packages, "packages", problems),
+    modelTiers: parseModelTiers(record.modelTiers, problems)
+  };
+  return { config, problems };
+}
+function loadStudioConfig(path) {
+  const text = readText(path);
+  if (text === null)
+    return { present: false, path, config: defaultStudioConfig(), problems: [] };
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch (error) {
+    return {
+      present: true,
+      path,
+      config: defaultStudioConfig(),
+      problems: [{ field: "$", message: `invalid JSON: ${error instanceof Error ? error.message : String(error)}` }]
+    };
+  }
+  const { config, problems } = parseStudioConfig(parsed);
+  return { present: true, path, config, problems };
+}
+
+// tools/unity/unity-verify/src/failing-test-first.ts
+function decodeXml(text) {
+  return decodeXmlEntities(text.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1"));
+}
+function attribute(attrs, name) {
+  const match = new RegExp(`\\b${name}="([^"]*)"`).exec(attrs);
+  return match ? decodeXml(match[1]) : null;
+}
+function normalizeResult(value) {
+  const lower = (value ?? "").toLowerCase();
+  if (lower === "passed")
+    return "Passed";
+  if (lower === "failed" || lower === "error")
+    return "Failed";
+  if (lower === "skipped" || lower === "ignored")
+    return "Skipped";
+  if (lower === "inconclusive")
+    return "Inconclusive";
+  return "Unknown";
+}
+function firstMessage(body) {
+  const match = /<message>([\s\S]*?)<\/message>/.exec(body);
+  if (!match)
+    return null;
+  const text = decodeXml(match[1]).trim();
+  return text === "" ? null : text;
+}
+function parseTestCases(xml) {
+  const out = [];
+  const tag = /<test-case\b([^>]*?)(\/?)>/g;
+  let match;
+  while ((match = tag.exec(xml)) !== null) {
+    const name = attribute(match[1], "name") ?? "";
+    const result = normalizeResult(attribute(match[1], "result"));
+    let message = null;
+    if (match[2] !== "/") {
+      const close = xml.indexOf("</test-case>", tag.lastIndex);
+      if (close !== -1) {
+        message = firstMessage(xml.slice(tag.lastIndex, close));
+        tag.lastIndex = close + "</test-case>".length;
+      }
+    }
+    out.push({ name, result, message });
+  }
+  return out;
+}
+function findTestCase(cases, name) {
+  return cases.find((testCase) => testCase.name === name) ?? null;
+}
+function containsReason(message, expectedReason) {
+  return (message ?? "").toLowerCase().includes(expectedReason.toLowerCase());
+}
+function decideRedStep(input) {
+  const { test, expectedReason, observation, notFound, source } = input;
+  if (notFound) {
+    const where = source ? ` in ${source}` : " in the supplied test results";
+    return {
+      verdict: "NG",
+      reason: "test-not-found",
+      detail: `"${test}" was not found${where}; the red step requires the named test to run and fail — abort`
+    };
+  }
+  if (observation.result === null) {
+    return containsReason(observation.message, expectedReason) ? {
+      verdict: "UNKNOWN",
+      reason: "unobserved-failure",
+      detail: `"${test}" was self-reported as failing for the expected reason ("${expectedReason}") but no test result was observed; provide --test-results to confirm`
+    } : {
+      verdict: "NG",
+      reason: "unrelated-failure",
+      detail: `"${test}" was self-reported as failing for a different reason than expected ("${expectedReason}"); abort`
+    };
+  }
+  if (observation.result === "Passed") {
+    return {
+      verdict: "NG",
+      reason: "unexpected-pass",
+      detail: `"${test}" passed unexpectedly; the red step requires a failing test — abort`
+    };
+  }
+  if (observation.result === "Failed") {
+    return containsReason(observation.message, expectedReason) ? {
+      verdict: "OK",
+      reason: "expected-failure",
+      detail: `"${test}" failed for the expected reason ("${expectedReason}")`
+    } : {
+      verdict: "NG",
+      reason: "unrelated-failure",
+      detail: `"${test}" failed for a different reason than expected ("${expectedReason}"); abort`
+    };
+  }
+  return {
+    verdict: "NG",
+    reason: "test-not-run",
+    detail: `"${test}" did not fail (result: ${observation.result}); the red step requires a failing test — abort`
+  };
+}
+function loadTddToggle(options) {
+  const load = loadStudioConfig(join6(options.opencodeDir, "unity-studio.json"));
+  return load.config.toggles.tdd === true;
+}
+function resolveTdd(options) {
+  const raw = (options.tdd ?? "").trim().toLowerCase();
+  if (raw === "")
+    return { enabled: loadTddToggle(options), error: null };
+  if (raw === "on")
+    return { enabled: true, error: null };
+  if (raw === "off")
+    return { enabled: false, error: null };
+  return { enabled: false, error: `invalid --tdd "${options.tdd}"; expected on|off` };
+}
+function runFailingTestFirst(options) {
+  const test = (options.test ?? "").trim() || null;
+  const expectedReason = (options.expectedReason ?? "").trim() || null;
+  const failureMessage = (options.failureMessage ?? "").trim() || null;
+  const resultsPath = (options.testResults ?? "").trim() || null;
+  const tdd = resolveTdd(options);
+  const refuse = (message) => {
+    const base = makeResult(options.ability, "refused", message, [message], "offline");
+    base.mode = VERIFY_MODES[options.ability];
+    base.delta = notComputedDelta("failing-test-first refused; no red-step verdict computed");
+    return {
+      ...base,
+      redStep: null,
+      test,
+      expectedReason,
+      observedResult: null,
+      observedMessage: null,
+      reason: null,
+      tddEnabled: tdd.enabled
+    };
+  };
+  if (tdd.error)
+    return refuse(tdd.error);
+  if (!tdd.enabled) {
+    return refuse("TDD is off (.opencode/unity-studio.json toggles.tdd=false); failing-test-first is TDD-gated. Enable the toggle to enforce the red step — TDD off still requires tests, just not first.");
+  }
+  if (!test)
+    return refuse("a --test <full name> is required");
+  if (!expectedReason)
+    return refuse("an --expected-reason <substring> is required");
+  let observation;
+  if (resultsPath) {
+    const xml = readText(resolve(options.projectRoot, resultsPath));
+    if (xml === null)
+      return refuse(`test results not found: ${resultsPath}`);
+    const testCase = findTestCase(parseTestCases(xml), test);
+    if (!testCase) {
+      const decision = decideRedStep({
+        test,
+        expectedReason,
+        observation: { result: null, message: null },
+        notFound: true,
+        source: resultsPath
+      });
+      return finalize(options, test, expectedReason, tdd.enabled, { result: null, message: null }, decision);
+    }
+    observation = { result: testCase.result, message: testCase.message ?? failureMessage };
+  } else if (failureMessage) {
+    observation = { result: null, message: failureMessage };
+  } else {
+    return refuse("an observed failure is required (--failure-message and/or --test-results)");
+  }
+  const decision = decideRedStep({ test, expectedReason, observation });
+  return finalize(options, test, expectedReason, tdd.enabled, observation, decision);
+}
+function finalize(options, test, expectedReason, tddEnabled, observation, decision) {
+  const status = decision.verdict === "OK" ? "passed" : decision.verdict === "UNKNOWN" ? "unknown" : "failed";
+  const summary = `STATUS: ${decision.verdict} — ${decision.detail}`;
+  const base = makeResult(options.ability, status, summary, status === "passed" ? [] : [decision.detail], "offline");
+  base.mode = VERIFY_MODES[options.ability];
+  base.delta = notComputedDelta("failing-test-first reads test results; no mutation delta computed");
+  return {
+    ...base,
+    redStep: decision.verdict,
+    test,
+    expectedReason,
+    observedResult: observation.result,
+    observedMessage: observation.message,
+    reason: decision.reason,
+    tddEnabled
+  };
+}
+
+// tools/unity/unity-verify/src/test-deduplication.ts
+import { readdirSync as readdirSync2, statSync as statSync3, writeFileSync as writeFileSync3 } from "node:fs";
+import { join as join7, resolve as resolve2 } from "node:path";
+
+// tools/shared/slug.ts
+var SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+function isValidSlug(value) {
+  return SLUG_PATTERN.test(value);
+}
+
+// tools/shared/text.ts
+function canonicalizeText(text) {
+  return text.replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+// tools/unity/unity-verify/src/test-deduplication.ts
+var TEST_DEDUP_DIR = "test-dedup";
+var TEST_DEDUP_SCHEMA_VERSION = 1;
+function literalPattern() {
+  return /"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|(?<![A-Za-z0-9_])\d+(?:\.\d+)?[fFmMdDlL]?(?![A-Za-z0-9_])|\btrue\b|\bfalse\b|\bnull\b/g;
+}
+function conditionTemplate(condition) {
+  return canonicalizeText(condition).replace(literalPattern(), "#");
+}
+function conditionLiterals(condition) {
+  return canonicalizeText(condition).match(literalPattern()) ?? [];
+}
+function substituteLiterals(text, params) {
+  let index = 0;
+  return text.replace(literalPattern(), (match) => index < params.length ? params[index++] : match);
+}
+var STOPWORDS = new Set([
+  "the",
+  "and",
+  "for",
+  "with",
+  "test",
+  "tests",
+  "var",
+  "new",
+  "assert",
+  "areequal",
+  "isequal",
+  "returns",
+  "return",
+  "should",
+  "when",
+  "given",
+  "then",
+  "that",
+  "this",
+  "result",
+  "value",
+  "expected",
+  "actual",
+  "true",
+  "false",
+  "null"
+]);
+function tokens(text) {
+  return text.replace(/([a-z0-9])([A-Z])/g, "$1 $2").split(/[^A-Za-z0-9]+/).map((token) => token.toLowerCase()).filter((token) => token.length > 0);
+}
+function significantTokens(condition, assertion) {
+  const out = new Set;
+  for (const token of [...tokens(condition), ...tokens(assertion)]) {
+    if (token.length >= 3 && !STOPWORDS.has(token))
+      out.add(token);
+  }
+  return out;
+}
+function nameScore(name, condition, assertion) {
+  const significant = significantTokens(condition, assertion);
+  return tokens(name).filter((token) => significant.has(token)).length;
+}
+function chooseKeeper(group) {
+  return [...group].sort((a, b) => {
+    const scoreA = nameScore(a.name, a.condition, a.assertion);
+    const scoreB = nameScore(b.name, b.condition, b.assertion);
+    if (scoreA !== scoreB)
+      return scoreB - scoreA;
+    if (a.name.length !== b.name.length)
+      return b.name.length - a.name.length;
+    return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
+  })[0];
+}
+function groupBy(items, key) {
+  const map = new Map;
+  for (const item of items) {
+    const groupKey = key(item);
+    const list = map.get(groupKey);
+    if (list)
+      list.push(item);
+    else
+      map.set(groupKey, [item]);
+  }
+  return map;
+}
+function renderParameterizedBody(keeper, group) {
+  const params = conditionLiterals(keeper.condition).map((_, index) => `p${index}`);
+  const lines = [];
+  for (const test of group)
+    lines.push(`[TestCase(${conditionLiterals(test.condition).join(", ")})]`);
+  lines.push(`public void ${keeper.name}(${params.map((name) => `object ${name}`).join(", ")})`);
+  lines.push("{");
+  lines.push(`    ${substituteLiterals(keeper.condition.trim(), params)}`);
+  lines.push(`    ${keeper.assertion.trim()}`);
+  lines.push("}");
+  return lines.join(`
+`);
+}
+function planDeduplication(tests) {
+  const removals = [];
+  const merges = [];
+  for (const assertionGroup of groupBy(tests, (test) => canonicalizeText(test.assertion)).values()) {
+    if (assertionGroup.length < 2)
+      continue;
+    for (const templateGroup of groupBy(assertionGroup, (test) => conditionTemplate(test.condition)).values()) {
+      const representatives = [];
+      for (const exactGroup of groupBy(templateGroup, (test) => canonicalizeText(test.condition)).values()) {
+        const keeper = chooseKeeper(exactGroup);
+        representatives.push(keeper);
+        for (const test of exactGroup) {
+          if (test === keeper)
+            continue;
+          removals.push({
+            name: test.name,
+            keptName: keeper.name,
+            file: test.file,
+            condition: test.condition,
+            assertion: test.assertion,
+            reason: "identical condition and identical assertion",
+            applied: false
+          });
+        }
+      }
+      if (representatives.length < 2)
+        continue;
+      if (conditionLiterals(representatives[0].condition).length === 0)
+        continue;
+      const template = conditionTemplate(representatives[0].condition);
+      if (/\b(if|switch)\b/.test(template))
+        continue;
+      const keeper = chooseKeeper(representatives);
+      merges.push({
+        keptName: keeper.name,
+        removedNames: representatives.filter((test) => test !== keeper).map((test) => test.name),
+        assertion: keeper.assertion,
+        cases: representatives.map((test) => ({ name: test.name, arguments: conditionLiterals(test.condition) })),
+        body: renderParameterizedBody(keeper, representatives),
+        reason: "same assertion; conditions differ only by literal arguments in the same equivalence partition"
+      });
+    }
+  }
+  return { removals, merges };
+}
+var ATTR_HEAD_SOURCE = "\\[(?:Test|UnityTest|TestCase|TestCaseSource)\\b[^\\]]*\\](?:\\s*\\[[^\\]]*\\])*\\s*" + "(?:(?:public|private|protected|internal|static|async|sealed|override|virtual)\\s+)*" + "(?:void|IEnumerator|Task<[^>]+>|Task)\\s+([A-Za-z_]\\w*)\\s*\\([^)]*\\)\\s*\\{";
+function skipString(text, index) {
+  const quote = text[index];
+  if (text[index - 1] === "@") {
+    for (let i = index + 1;i < text.length; i++) {
+      if (text[i] === '"') {
+        if (text[i + 1] === '"') {
+          i++;
+          continue;
+        }
+        return i;
+      }
+    }
+    return text.length;
+  }
+  for (let i = index + 1;i < text.length; i++) {
+    if (text[i] === "\\") {
+      i++;
+      continue;
+    }
+    if (text[i] === quote)
+      return i;
+  }
+  return text.length;
+}
+function matchBrace(text, openIndex) {
+  let depth = 0;
+  for (let i = openIndex;i < text.length; i++) {
+    const ch = text[i];
+    if (ch === '"' || ch === "'") {
+      i = skipString(text, i);
+      continue;
+    }
+    if (ch === "/" && text[i + 1] === "/") {
+      const newline = text.indexOf(`
+`, i);
+      i = newline === -1 ? text.length : newline;
+      continue;
+    }
+    if (ch === "/" && text[i + 1] === "*") {
+      const close = text.indexOf("*/", i + 2);
+      i = close === -1 ? text.length : close + 1;
+      continue;
+    }
+    if (ch === "{")
+      depth++;
+    else if (ch === "}") {
+      depth--;
+      if (depth === 0)
+        return i;
+    }
+  }
+  return text.length;
+}
+function splitBody(body) {
+  const conditionLines = [];
+  const assertionLines = [];
+  for (const raw of body.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (line === "")
+      continue;
+    if (/\bAssert\./.test(line))
+      assertionLines.push(line);
+    else
+      conditionLines.push(line);
+  }
+  return { condition: conditionLines.join(`
+`), assertion: assertionLines.join(`
+`) };
+}
+function lineStart(text, index) {
+  const newline = text.lastIndexOf(`
+`, index - 1);
+  return newline === -1 ? 0 : newline + 1;
+}
+function extractTestMethods(text) {
+  const out = [];
+  const head = new RegExp(ATTR_HEAD_SOURCE, "g");
+  let match;
+  while ((match = head.exec(text)) !== null) {
+    const open = head.lastIndex - 1;
+    const close = matchBrace(text, open);
+    const { condition, assertion } = splitBody(text.slice(open + 1, close));
+    out.push({ name: match[1], start: lineStart(text, match.index), end: close + 1, condition, assertion });
+    head.lastIndex = close + 1;
+  }
+  return out;
+}
+function walkCsFiles(dir, out = []) {
+  let entries;
+  try {
+    entries = readdirSync2(dir);
+  } catch {
+    return out;
+  }
+  for (const entry of entries) {
+    const full = join7(dir, entry);
+    let directory = false;
+    try {
+      directory = statSync3(full).isDirectory();
+    } catch {
+      continue;
+    }
+    if (directory)
+      walkCsFiles(full, out);
+    else if (entry.endsWith(".cs"))
+      out.push(full);
+  }
+  return out;
+}
+function scanCsTests(dir) {
+  const out = [];
+  for (const file of walkCsFiles(dir).sort()) {
+    const text = readText(file);
+    if (text === null)
+      continue;
+    for (const method of extractTestMethods(text)) {
+      out.push({ name: method.name, condition: method.condition, assertion: method.assertion, file: toPosix(file) });
+    }
+  }
+  return out;
+}
+var RISKY_STRING_TOKENS = ['$"', '$@"', '@$"', '"""'];
+function methodHasRiskyString(method) {
+  const body = `${method.condition}
+${method.assertion}`;
+  return RISKY_STRING_TOKENS.some((token) => body.includes(token));
+}
+function removeTestMethods(text, removals, file) {
+  const target = toPosix(file);
+  const names = new Set(removals.filter((removal) => removal.file !== null && toPosix(removal.file) === target).map((removal) => removal.name));
+  const methods = extractTestMethods(text).filter((method) => names.has(method.name));
+  const risky = methods.filter(methodHasRiskyString);
+  const safe = methods.filter((method) => !methodHasRiskyString(method));
+  const skipped = risky.map((method) => ({
+    name: method.name,
+    reason: "method body contains an interpolated/verbatim/raw string literal; not spliced (proposed only)"
+  }));
+  if (safe.length === 0)
+    return { text, removed: [], skipped };
+  let out = text;
+  const removed = [];
+  for (const method of [...safe].sort((a, b) => b.start - a.start)) {
+    let end = method.end;
+    while (end < out.length && (out[end] === "\r" || out[end] === `
+`))
+      end++;
+    out = out.slice(0, method.start) + out.slice(end);
+    removed.push(method.name);
+  }
+  const originalNames = new Set(extractTestMethods(text).map((method) => method.name));
+  const keeperNames = removals.filter((removal) => removal.file !== null && toPosix(removal.file) === target).map((removal) => removal.keptName).filter((name) => originalNames.has(name));
+  const afterNames = new Set(extractTestMethods(out).map((method) => method.name));
+  const removedGone = removed.every((name) => !afterNames.has(name));
+  const keepersIntact = keeperNames.every((name) => afterNames.has(name));
+  if (!removedGone || !keepersIntact) {
+    return {
+      text,
+      removed: [],
+      skipped: [
+        ...skipped,
+        ...removed.map((name) => ({
+          name,
+          reason: "post-splice integrity check failed (keeper missing or removed method still present); not applied"
+        }))
+      ]
+    };
+  }
+  return { text: out, removed, skipped };
+}
+function parseDescriptors(value) {
+  const raw = Array.isArray(value) ? value : asRecord(value)?.tests;
+  const list = Array.isArray(raw) ? raw : [];
+  const descriptors = [];
+  const errors = [];
+  for (const item of list) {
+    const record = asRecord(item);
+    const name = str(record, "name");
+    const condition = str(record, "condition");
+    const assertion = str(record, "assertion");
+    if (!record || !name || condition === null || assertion === null) {
+      errors.push(`ignored malformed test descriptor: ${JSON.stringify(item)}`);
+      continue;
+    }
+    descriptors.push({ name, condition, assertion, file: str(record, "file") });
+  }
+  return { descriptors, errors };
+}
+function dedupDir(options) {
+  return join7(options.opencodeDir, TEST_DEDUP_DIR);
+}
+function dedupArtifactPath(options, slug) {
+  return join7(dedupDir(options), `${slug}.json`);
+}
+function runTestDeduplication(options) {
+  const slug = (options.feature ?? "").trim();
+  const apply = options.apply === true;
+  const artifactPath = slug ? toPosix(dedupArtifactPath(options, slug)) : toPosix(dedupDir(options));
+  const refuse = (message) => {
+    const base = makeResult(options.ability, "refused", message, [message], "offline");
+    base.mode = VERIFY_MODES[options.ability];
+    base.delta = notComputedDelta("test-deduplication refused; no dedup plan computed");
+    return {
+      ...base,
+      action: apply ? "apply" : "propose",
+      feature: slug || null,
+      artifactPath,
+      written: false,
+      applied: false,
+      totalTests: 0,
+      removals: [],
+      merges: [],
+      removedFromFiles: []
+    };
+  };
+  if (!slug)
+    return refuse("a --feature <slug> is required");
+  if (!isValidSlug(slug))
+    return refuse(`invalid feature slug "${slug}"; use kebab-case (a-z, 0-9, -)`);
+  const testsDir = (options.testsDir ?? "").trim() || null;
+  const testsJson = (options.testsJson ?? "").trim() || null;
+  if (!testsDir && !testsJson)
+    return refuse("one of --tests <dir> or --tests-json <file> is required");
+  const descriptors = [];
+  const errors = [];
+  let source = { testsDir: null, testsJson: null };
+  if (testsJson) {
+    const jsonPath = resolve2(options.projectRoot, testsJson);
+    const json = readJson(jsonPath);
+    if (json === null)
+      return refuse(`test descriptor JSON not found: ${testsJson}`);
+    const parsed = parseDescriptors(json);
+    descriptors.push(...parsed.descriptors);
+    errors.push(...parsed.errors);
+    source = { ...source, testsJson: toPosix(jsonPath) };
+  }
+  if (testsDir) {
+    const dirPath = resolve2(options.projectRoot, testsDir);
+    if (!dirExists(dirPath))
+      return refuse(`tests directory not found: ${testsDir}`);
+    descriptors.push(...scanCsTests(dirPath));
+    source = { ...source, testsDir: toPosix(dirPath) };
+  }
+  const plan = planDeduplication(descriptors);
+  const clean = plan.removals.length === 0 && plan.merges.length === 0;
+  const removedFromFiles = [];
+  const appliedKeys = new Set;
+  const applyNotes = new Map;
+  if (apply && !clean && testsDir) {
+    for (const file of walkCsFiles(resolve2(options.projectRoot, testsDir))) {
+      const text = readText(file);
+      if (text === null)
+        continue;
+      const result = removeTestMethods(text, plan.removals, file);
+      for (const skip of result.skipped)
+        applyNotes.set(`${toPosix(file)}::${skip.name}`, skip.reason);
+      if (result.removed.length > 0) {
+        writeFileSync3(file, result.text);
+        removedFromFiles.push(toPosix(file));
+        for (const name of result.removed)
+          appliedKeys.add(`${toPosix(file)}::${name}`);
+      }
+    }
+  }
+  const removals = plan.removals.map((removal) => {
+    const key = removal.file !== null ? `${toPosix(removal.file)}::${removal.name}` : null;
+    const applied = key !== null && appliedKeys.has(key);
+    const applyNote = applied || key === null ? undefined : applyNotes.get(key);
+    return { ...removal, applied, ...applyNote ? { applyNote } : {} };
+  });
+  const appliedCount = removals.filter((removal) => removal.applied).length;
+  const proposedCount = removals.length - appliedCount;
+  const mergePart = `${plan.merges.length} parameterizable group(s) proposed for merge`;
+  const summary = clean ? "no duplicates found" : appliedCount > 0 ? `${appliedCount} duplicate(s) removed${proposedCount > 0 ? `, ${proposedCount} proposed (not applied)` : ""}, ${mergePart}` : `${removals.length} duplicate(s) proposed, ${mergePart}`;
+  const shouldWriteArtifact = apply || !clean;
+  if (shouldWriteArtifact) {
+    const artifact = {
+      schemaVersion: TEST_DEDUP_SCHEMA_VERSION,
+      generatedAt: nowIso(),
+      feature: slug,
+      applied: appliedCount > 0,
+      sources: source,
+      totalTests: descriptors.length,
+      removals,
+      merges: plan.merges,
+      summary
+    };
+    writeJson(dedupArtifactPath(options, slug), artifact);
+  }
+  const base = makeResult(options.ability, clean ? "passed" : "observed_locally", summary, errors, "offline", false, {
+    mutates: appliedCount > 0,
+    dryRunFirst: true,
+    writesState: true
+  });
+  base.mode = VERIFY_MODES[options.ability];
+  base.delta = notComputedDelta("test-deduplication reads test descriptors; no mutation delta computed");
+  return {
+    ...base,
+    action: apply ? "apply" : "propose",
+    feature: slug,
+    artifactPath,
+    written: shouldWriteArtifact,
+    applied: appliedCount > 0,
+    totalTests: descriptors.length,
+    removals,
+    merges: plan.merges,
+    removedFromFiles
+  };
+}
+
 // tools/unity/unity-verify/src/gates.ts
+var EXTERNAL_VERDICTS = ["confirmed", "uncertain"];
 var GATE_ORDER = [
   "compile",
   "editMode",
@@ -796,21 +1673,28 @@ function orderIndex(gate) {
   const index = GATE_ORDER.indexOf(gate);
   return index === -1 ? GATE_ORDER.length : index;
 }
+function effectiveGateStatus(entry) {
+  if (!entry.externalVerdict)
+    return entry.status;
+  const external = entry.externalVerdict === "uncertain" ? "warning" : "passed";
+  return severity(external) > severity(entry.status) ? external : entry.status;
+}
 function foldGates(entries, intensity = "full") {
   const applicable = gatesForIntensity(intensity);
   const considered = entries.filter((entry) => applicable.includes(entry.gate)).slice().sort((a, b) => orderIndex(a.gate) - orderIndex(b.gate));
   let strictest = null;
   for (const entry of considered) {
-    if (!strictest || severity(entry.status) > severity(strictest.status))
+    if (!strictest || severity(effectiveGateStatus(entry)) > severity(effectiveGateStatus(strictest))) {
       strictest = entry;
+    }
   }
   return {
-    status: strictest?.status ?? "not_run",
+    status: strictest ? effectiveGateStatus(strictest) : "not_run",
     strictest: strictest?.gate ?? null,
     intensity,
     entries: considered,
-    hardFailures: considered.filter((entry) => entry.status === "failed").length,
-    reviewRequired: considered.filter((entry) => entry.status === "warning").length
+    hardFailures: considered.filter((entry) => effectiveGateStatus(entry) === "failed").length,
+    reviewRequired: considered.filter((entry) => effectiveGateStatus(entry) === "warning").length
   };
 }
 function gateStatusFromResult(status) {
@@ -834,9 +1718,41 @@ function compileGate(compileState) {
     return { gate: "compile", status: "passed" };
   return { gate: "compile", status: "unknown" };
 }
+function visualTestName(test) {
+  return str(test, "fullname") ?? "(unknown visual test)";
+}
+function visualTestFailed(test) {
+  const status = (str(test, "status") ?? "").toLowerCase();
+  return status.includes("fail") || status.includes("error");
+}
+function visualTestHasScreenshot(test) {
+  const screenshots = stringArray(test, "screenshots");
+  const missing = stringArray(test, "missingScreenshots");
+  return screenshots.length > 0 && missing.length === 0;
+}
 function visualGate(testInventory) {
   const visual = asRecord(testInventory?.visualVerification);
-  if (!visual || bool(visual, "found") !== true)
+  if (!visual)
+    return { gate: "visual", status: "not_run" };
+  if (Array.isArray(visual.tests)) {
+    const tests = asArray(visual.tests).map(asRecord).filter((test) => test !== null);
+    if (tests.length === 0)
+      return { gate: "visual", status: "not_run" };
+    const failed = tests.filter(visualTestFailed);
+    if (failed.length > 0) {
+      return { gate: "visual", status: "failed", detail: `visual test failed: ${failed.map(visualTestName).join(", ")}` };
+    }
+    const missing = tests.filter((test) => !visualTestHasScreenshot(test));
+    if (missing.length > 0) {
+      return {
+        gate: "visual",
+        status: "failed",
+        detail: `missing screenshot: ${missing.map(visualTestName).join(", ")}`
+      };
+    }
+    return { gate: "visual", status: "passed" };
+  }
+  if (bool(visual, "found") !== true)
     return { gate: "visual", status: "not_run" };
   const results = asArray(visual.results).map(asRecord);
   const failed = results.some((result) => (str(result, "status") ?? "").toLowerCase().includes("fail"));
@@ -886,7 +1802,21 @@ function parseGateOverrides(json) {
         errors.push(`ignored --gates override "${gate}": unknown status "${status ?? "unknown"}"`);
         continue;
       }
-      out.push({ gate, status, detail: str(entry, "detail") ?? undefined });
+      const externalRaw = str(entry, "externalVerdict");
+      let externalVerdict;
+      if (externalRaw !== null) {
+        if (EXTERNAL_VERDICTS.includes(externalRaw)) {
+          externalVerdict = externalRaw;
+        } else {
+          errors.push(`ignored --gates override "${gate}": unknown externalVerdict "${externalRaw}"`);
+        }
+      }
+      out.push({
+        gate,
+        status,
+        ...externalVerdict ? { externalVerdict } : {},
+        detail: str(entry, "detail") ?? undefined
+      });
     }
     return { entries: out, errors };
   } catch {
@@ -896,12 +1826,21 @@ function parseGateOverrides(json) {
 
 // tools/unity/unity-verify/src/abilities.ts
 function readData(options, file) {
-  return readJson(join6(projectDataDir(options), file));
+  return readJson(join8(projectDataDir(options), file));
 }
 function compileAndVerifyProject(options) {
+  const changeScope = (options.changeScope ?? []).map((token) => token.trim()).filter((token) => token !== "");
+  if (options.phase === "validate" && changeScope.length === 0) {
+    const refusal = "validate requires a declared change scope (--change-scope, comma-separated files/symbols); refusing to report a verdict";
+    const base = makeResult(options.ability, "refused", refusal, [refusal], "offline");
+    base.mode = VERIFY_MODES[options.ability];
+    base.delta = notComputedDelta("change scope required; no delta computed");
+    return { ...base, phase: options.phase, checkpointPath: null };
+  }
   const snapshot = captureSnapshot(options);
   const base = makeResult(options.ability, "observed_locally", "Compile checkpoint captured from Library/ScriptAssemblies", [], "offline");
   base.mode = VERIFY_MODES[options.ability];
+  base.changeScope = changeScope.length > 0 ? changeScope : null;
   base.checkpoint = snapshot;
   if (options.phase === "checkpoint") {
     const path = writeCheckpoint(options, snapshot);
@@ -910,7 +1849,7 @@ function compileAndVerifyProject(options) {
     return { ...base, phase: options.phase, checkpointPath: path };
   }
   const before = readCheckpoint(options);
-  const delta = computeDelta(before, snapshot);
+  const delta = computeDelta(before, snapshot, { ok: true }, changeScope);
   base.delta = delta;
   if (snapshot.compile.status === "unavailable") {
     base.status = "unavailable";
@@ -937,7 +1876,7 @@ function runModeTests(options, mode) {
   }
   const testOptions = {
     projectRoot: options.projectRoot,
-    scratchDir: join6(options.opencodeDir, ".scratch", "unity"),
+    scratchDir: join8(options.opencodeDir, ".scratch", "unity"),
     cliCommand: options.cliCommand
   };
   const instance = findLiveInstance(options.projectRoot, options.cliCommand);
@@ -1003,6 +1942,10 @@ function runVerify(options) {
       return runModeTests(options, "playmode");
     case "gate-review":
       return gateReview(options);
+    case "failing-test-first":
+      return runFailingTestFirst(options);
+    case "test-deduplication":
+      return runTestDeduplication(options);
     default: {
       const exhaustive = options.ability;
       throw new Error(`unsupported Verify ability: ${String(exhaustive)}`);
@@ -1011,7 +1954,7 @@ function runVerify(options) {
 }
 
 // tools/unity/unity-verify/src/cli.ts
-import { join as join7, resolve } from "node:path";
+import { join as join9, resolve as resolve3 } from "node:path";
 
 // tools/shared/cli-args.ts
 function isFlag(token) {
@@ -1059,6 +2002,11 @@ function firstString(args, keys) {
   }
   return;
 }
+function parseCommaList(value) {
+  if (value === undefined)
+    return;
+  return value.split(",").map((token) => token.trim()).filter((token) => token !== "");
+}
 function resolveAbility(requested, abilities, fallback) {
   return abilities.includes(requested) ? requested : fallback;
 }
@@ -1069,12 +2017,13 @@ var INTENSITIES = ["full", "lean", "solo"];
 function resolveOptions(argv) {
   const { values: args, positional } = parseArgs(argv);
   rejectPositionals(positional);
-  const projectRoot = resolve(String(args["project-root"] || process.cwd()));
-  const opencodeDir = resolve(String(args["opencode-dir"] || join7(projectRoot, ".opencode")));
+  const projectRoot = resolve3(String(args["project-root"] || process.cwd()));
+  const opencodeDir = resolve3(String(args["opencode-dir"] || join9(projectRoot, ".opencode")));
   const requested = String(args.ability || "compile-and-verify-project");
   const ability = resolveAbility(requested, VERIFY_ABILITIES, "compile-and-verify-project");
   const phaseRaw = firstString(args, ["phase"]);
   const intensityRaw = firstString(args, ["review-intensity", "reviewIntensity"]);
+  const changeScope = parseCommaList(firstString(args, ["change-scope", "changeScope"]));
   return {
     projectRoot,
     opencodeDir,
@@ -1084,11 +2033,27 @@ function resolveOptions(argv) {
     phase: phaseRaw && PHASES.includes(phaseRaw) ? phaseRaw : "validate",
     cliCommand: firstString(args, ["unity-cli", "unityCli"]) ?? "unity",
     reviewIntensity: intensityRaw && INTENSITIES.includes(intensityRaw) ? intensityRaw : "full",
-    gatesJson: firstString(args, ["gates", "gates-json", "gatesJson"])
+    changeScope,
+    gatesJson: firstString(args, ["gates", "gates-json", "gatesJson"]),
+    test: firstString(args, ["test", "test-name", "testName"]),
+    expectedReason: firstString(args, ["expected-reason", "expectedReason"]),
+    failureMessage: firstString(args, ["failure-message", "failureMessage"]),
+    testResults: firstString(args, ["test-results", "testResults"]),
+    tdd: firstString(args, ["tdd"]),
+    feature: firstString(args, ["feature", "slug"]),
+    testsDir: firstString(args, ["tests", "tests-dir", "testsDir"]),
+    testsJson: firstString(args, ["tests-json", "testsJson"]),
+    apply: Boolean(args.apply)
   };
 }
 
 // tools/unity/unity-verify/src/index.ts
+function run2(options) {
+  const result = runVerify(options);
+  if (result.ability === "failing-test-first" && result.status === "failed")
+    process.exitCode = 1;
+  return result;
+}
 function render(result) {
   const lines = [`[${result.ability}] ${result.status} — ${result.summary}`];
   lines.push(`  route: ${result.route} · mode: ${result.mode}`);
@@ -1102,9 +2067,18 @@ function render(result) {
   }
   if ("gates" in result)
     lines.push(`  gates: ${result.gates.status} (${result.gates.strictest ?? "none"})`);
+  if ("redStep" in result && result.redStep)
+    lines.push(`  STATUS: ${result.redStep}`);
+  if ("removals" in result) {
+    lines.push(`  action: ${result.action} · tests: ${result.totalTests} · removals: ${result.removals.length} · merges: ${result.merges.length} · written: ${result.written}`);
+    for (const removal of result.removals)
+      lines.push(`  remove ${removal.name} (keep ${removal.keptName})`);
+    for (const merge of result.merges)
+      lines.push(`  merge ${merge.removedNames.join(", ")} into ${merge.keptName}`);
+  }
   for (const error of result.errors)
     lines.push(`  error: ${error}`);
   return lines.join(`
 `);
 }
-runCli({ abilities: VERIFY_ABILITIES, resolveOptions, run: runVerify, render });
+runCli({ abilities: VERIFY_ABILITIES, resolveOptions, run: run2, render });

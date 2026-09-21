@@ -1,5 +1,12 @@
 import { join, resolve } from 'node:path';
-import { firstString, parseArgs, parseOptionalPositiveInt, rejectPositionals, resolveAbility } from '../../../shared/cli-args';
+import {
+  firstString,
+  parseArgs,
+  parseCommaList,
+  parseOptionalPositiveInt,
+  rejectPositionals,
+  resolveAbility,
+} from '../../../shared/cli-args';
 import { COMPOSE_ABILITIES, type ComposeOptions } from './types';
 
 export function resolveOptions(argv: string[]): ComposeOptions {
@@ -12,6 +19,7 @@ export function resolveOptions(argv: string[]): ComposeOptions {
 
   const leaseRaw = args['lease-seconds'] ?? args.leaseSeconds;
   const waitRaw = args['wait-seconds'] ?? args.waitSeconds;
+  const planAbilities = parseCommaList(firstString(args, ['abilities', 'plan-abilities', 'planAbilities']));
 
   return {
     projectRoot,
@@ -31,5 +39,14 @@ export function resolveOptions(argv: string[]): ComposeOptions {
     schema: firstString(args, ['schema']),
     source: firstString(args, ['source']),
     cliCommand: firstString(args, ['unity-cli', 'unityCli']) ?? 'unity',
+    feature: firstString(args, ['feature', 'slug']),
+    context: firstString(args, ['context']),
+    design: firstString(args, ['design']),
+    testCases: firstString(args, ['test-cases', 'testCases']),
+    testingDecisions: firstString(args, ['testing-decisions', 'testingDecisions']),
+    testability: firstString(args, ['testability']),
+    tradeOffs: firstString(args, ['trade-offs', 'tradeOffs']),
+    planAbilities,
+    commandsDir: firstString(args, ['commands-dir', 'commandsDir']),
   };
 }

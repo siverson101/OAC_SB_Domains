@@ -1,8 +1,10 @@
-// Dispatcher for the four Verify abilities (Phase 2 Step 2.5, ADR-0015).
+// Dispatcher for the six Verify abilities (Phase 2 Step 2.5, Phase 5 Step 5.3, ADR-0015).
 //
-// None of these abilities mutate the project. They checkpoint, scan, run tests,
-// and fold gates; the delta is always reported with the honesty rules from
-// `delta.ts`.
+// None of these abilities mutate the project assets. They checkpoint, scan, run
+// tests, and fold gates; the delta is always reported with the honesty rules
+// from `delta.ts`. `test-deduplication` is the one exception to "read-only": it
+// is dry-run-first, and `--apply` removes true-duplicate test methods and records
+// a dedup artifact under `.opencode/test-dedup/`.
 import { join } from 'node:path';
 import { readJson } from '../../../shared/io';
 import { findExecutable } from '../../../shared/toolchain';
@@ -14,6 +16,8 @@ import {
   writeCheckpoint,
 } from './checkpoint';
 import { computeDelta, notComputedDelta } from './delta';
+import { runFailingTestFirst, type FailingTestFirstResult } from './failing-test-first';
+import { runTestDeduplication, type TestDeduplicationResult } from './test-deduplication';
 import {
   foldGates,
   gateEntriesFromState,
@@ -48,7 +52,12 @@ export interface GateReviewResult extends VerifyBase {
   gates: FoldedGates;
 }
 
-export type VerifyResult = CompileVerifyResult | TestRunVerifyResult | GateReviewResult;
+export type VerifyResult =
+  | CompileVerifyResult
+  | TestRunVerifyResult
+  | GateReviewResult
+  | FailingTestFirstResult
+  | TestDeduplicationResult;
 
 function readData(options: VerifyOptions, file: string): Json | null {
   return readJson<Json>(join(projectDataDir(options), file));
@@ -59,6 +68,16 @@ function readData(options: VerifyOptions, file: string): Json | null {
 // ---------------------------------------------------------------------------
 
 function compileAndVerifyProject(options: VerifyOptions): CompileVerifyResult {
+  const changeScope = (options.changeScope ?? []).map((token) => token.trim()).filter((token) => token !== '');
+
+  if (options.phase === 'validate' && changeScope.length === 0) {
+    const refusal = 'validate requires a declared change scope (--change-scope, comma-separated files/symbols); refusing to report a verdict';
+    const base = makeResult(options.ability, 'refused', refusal, [refusal], 'offline');
+    base.mode = VERIFY_MODES[options.ability];
+    base.delta = notComputedDelta('change scope required; no delta computed');
+    return { ...base, phase: options.phase, checkpointPath: null };
+  }
+
   const snapshot = captureSnapshot(options);
   const base = makeResult(
     options.ability,
@@ -68,6 +87,7 @@ function compileAndVerifyProject(options: VerifyOptions): CompileVerifyResult {
     'offline'
   );
   base.mode = VERIFY_MODES[options.ability];
+  base.changeScope = changeScope.length > 0 ? changeScope : null;
   base.checkpoint = snapshot;
 
   if (options.phase === 'checkpoint') {
@@ -78,7 +98,7 @@ function compileAndVerifyProject(options: VerifyOptions): CompileVerifyResult {
   }
 
   const before = readCheckpoint(options);
-  const delta = computeDelta(before, snapshot);
+  const delta = computeDelta(before, snapshot, { ok: true }, changeScope);
   base.delta = delta;
 
   if (snapshot.compile.status === 'unavailable') {
@@ -208,6 +228,10 @@ export function runVerify(options: VerifyOptions): VerifyResult {
       return runModeTests(options, 'playmode');
     case 'gate-review':
       return gateReview(options);
+    case 'failing-test-first':
+      return runFailingTestFirst(options);
+    case 'test-deduplication':
+      return runTestDeduplication(options);
     default: {
       const exhaustive: never = options.ability;
       throw new Error(`unsupported Verify ability: ${String(exhaustive)}`);

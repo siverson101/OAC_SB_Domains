@@ -1,5 +1,5 @@
 import { join, resolve } from 'node:path';
-import { firstString, parseArgs, rejectPositionals, resolveAbility } from '../../../shared/cli-args';
+import { firstString, parseArgs, parseCommaList, rejectPositionals, resolveAbility } from '../../../shared/cli-args';
 import {
   VERIFY_ABILITIES,
   type ReviewIntensity,
@@ -20,6 +20,7 @@ export function resolveOptions(argv: string[]): VerifyOptions {
 
   const phaseRaw = firstString(args, ['phase']);
   const intensityRaw = firstString(args, ['review-intensity', 'reviewIntensity']);
+  const changeScope = parseCommaList(firstString(args, ['change-scope', 'changeScope']));
 
   return {
     projectRoot,
@@ -33,6 +34,16 @@ export function resolveOptions(argv: string[]): VerifyOptions {
       intensityRaw && (INTENSITIES as string[]).includes(intensityRaw)
         ? (intensityRaw as ReviewIntensity)
         : 'full',
+    changeScope,
     gatesJson: firstString(args, ['gates', 'gates-json', 'gatesJson']),
+    test: firstString(args, ['test', 'test-name', 'testName']),
+    expectedReason: firstString(args, ['expected-reason', 'expectedReason']),
+    failureMessage: firstString(args, ['failure-message', 'failureMessage']),
+    testResults: firstString(args, ['test-results', 'testResults']),
+    tdd: firstString(args, ['tdd']),
+    feature: firstString(args, ['feature', 'slug']),
+    testsDir: firstString(args, ['tests', 'tests-dir', 'testsDir']),
+    testsJson: firstString(args, ['tests-json', 'testsJson']),
+    apply: Boolean(args.apply),
   };
 }

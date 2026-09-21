@@ -100,6 +100,7 @@
     "run-edit-mode-tests",
     "run-play-mode-tests",
     "gate-review",
+    "failing-test-first",
     "unity-change-loop",
     "runtime-debugging",
     "runtime-ui-validation",
@@ -108,7 +109,10 @@
     "coordination-board",
     "primitive-composition",
     "contract-aware-design",
-    "ci-status-baseline"
+    "ci-status-baseline",
+    "plan-feature",
+    "test-plan",
+    "test-deduplication"
   ],
     "skills": [],
     "tools": [

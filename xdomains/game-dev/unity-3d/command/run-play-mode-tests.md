@@ -5,13 +5,14 @@ family: verify
 mode: both
 description: Wrap the existing runGate/parseNUnit path for PlayMode tests; prefer a live Editor, fall back to a batch run, and fail soft when no Unity CLI is present.
 inputs: { projectRoot: "string", opencodeDir: "string", unityCli: "string" }
-outputs: { status: "string", testRun: "object", checkpoint: "object", delta: "object" }
+outputs: { status: "string", safetyGate: "object", changeScope: "string[]?", testRun: "object", testRunSource: "string?", checkpoint: "object", delta: "object" }
 sideEffects: []
 safetyGate: { mutates: false, requiresEditor: true, requiresApproval: false }
 uses: [gather-unity-context]
 provides: [run-play-mode-tests]
 requires: [unity-cli, test-inventory]
 usedBy: [gate-review]
+testPlan: ["Run the PlayMode gate with an Editor available and confirm the counts", "Confirm the ability fails soft with no Unity CLI"]
 versionCompatibility: { unity: ["6.0", "6.3", "6.5", "LTS+"] }
 ---
 

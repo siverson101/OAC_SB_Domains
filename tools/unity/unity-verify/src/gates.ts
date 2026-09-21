@@ -4,7 +4,7 @@
 // EditMode/PlayMode, scene/asset, build, performance, and visual verification.
 // The review-intensity knob (`full | lean | solo`) decides which gates apply;
 // the folded verdict is the strictest of the applicable gates.
-import { asArray, asRecord, bool, str, type Json } from './shared';
+import { asArray, asRecord, bool, str, stringArray, type Json } from './shared';
 import type { ReviewIntensity } from './types';
 
 export type GateName =
@@ -19,9 +19,17 @@ export type GateName =
 
 export type GateStatus = 'passed' | 'failed' | 'warning' | 'not_run' | 'unavailable' | 'unknown';
 
+// An external reviewer's verdict on a gate, independent of the on-disk status.
+// `uncertain` folds at least as strict as `warning`; `confirmed` contributes a
+// `passed` verdict and so cannot override a harder on-disk status. The union is
+// derived from the array so the two can never drift.
+export const EXTERNAL_VERDICTS = ['confirmed', 'uncertain'] as const;
+export type ExternalVerdict = (typeof EXTERNAL_VERDICTS)[number];
+
 export interface GateEntry {
   gate: GateName;
   status: GateStatus;
+  externalVerdict?: ExternalVerdict;
   detail?: string;
 }
 
@@ -73,6 +81,16 @@ function orderIndex(gate: GateName): number {
   return index === -1 ? GATE_ORDER.length : index;
 }
 
+// The external verdict is folded as an additional status contribution:
+// `uncertain` contributes `warning`, `confirmed` contributes `passed`, and the
+// stricter of the two wins. So `confirmed` can fill a `not_run` gate but never
+// overrides a `failed`/`warning`/`unknown` on-disk status.
+export function effectiveGateStatus(entry: GateEntry): GateStatus {
+  if (!entry.externalVerdict) return entry.status;
+  const external: GateStatus = entry.externalVerdict === 'uncertain' ? 'warning' : 'passed';
+  return severity(external) > severity(entry.status) ? external : entry.status;
+}
+
 export function foldGates(entries: GateEntry[], intensity: ReviewIntensity = 'full'): FoldedGates {
   const applicable = gatesForIntensity(intensity);
   const considered = entries
@@ -82,16 +100,18 @@ export function foldGates(entries: GateEntry[], intensity: ReviewIntensity = 'fu
 
   let strictest: GateEntry | null = null;
   for (const entry of considered) {
-    if (!strictest || severity(entry.status) > severity(strictest.status)) strictest = entry;
+    if (!strictest || severity(effectiveGateStatus(entry)) > severity(effectiveGateStatus(strictest))) {
+      strictest = entry;
+    }
   }
 
   return {
-    status: strictest?.status ?? 'not_run',
+    status: strictest ? effectiveGateStatus(strictest) : 'not_run',
     strictest: strictest?.gate ?? null,
     intensity,
     entries: considered,
-    hardFailures: considered.filter((entry) => entry.status === 'failed').length,
-    reviewRequired: considered.filter((entry) => entry.status === 'warning').length,
+    hardFailures: considered.filter((entry) => effectiveGateStatus(entry) === 'failed').length,
+    reviewRequired: considered.filter((entry) => effectiveGateStatus(entry) === 'warning').length,
   };
 }
 
@@ -111,9 +131,52 @@ function compileGate(compileState: Json | null): GateEntry {
   return { gate: 'compile', status: 'unknown' };
 }
 
+function visualTestName(test: Json): string {
+  return str(test, 'fullname') ?? '(unknown visual test)';
+}
+
+function visualTestFailed(test: Json): boolean {
+  const status = (str(test, 'status') ?? '').toLowerCase();
+  return status.includes('fail') || status.includes('error');
+}
+
+// A visual test passes only when it recorded at least one screenshot and none of
+// its recorded screenshots is missing: a partially missing set is a failure, not
+// a pass on the strength of the ones that exist.
+function visualTestHasScreenshot(test: Json): boolean {
+  const screenshots = stringArray(test, 'screenshots');
+  const missing = stringArray(test, 'missingScreenshots');
+  return screenshots.length > 0 && missing.length === 0;
+}
+
 function visualGate(testInventory: Json | null): GateEntry {
   const visual = asRecord(testInventory?.visualVerification);
-  if (!visual || bool(visual, 'found') !== true) return { gate: 'visual', status: 'not_run' };
+  if (!visual) return { gate: 'visual', status: 'not_run' };
+
+  // Inventory versions that report a `tests` array gate each visual test; an
+  // older inventory without one falls back to the aggregate result shape.
+  if (Array.isArray(visual.tests)) {
+    const tests = asArray(visual.tests)
+      .map(asRecord)
+      .filter((test): test is Json => test !== null);
+    if (tests.length === 0) return { gate: 'visual', status: 'not_run' };
+
+    const failed = tests.filter(visualTestFailed);
+    if (failed.length > 0) {
+      return { gate: 'visual', status: 'failed', detail: `visual test failed: ${failed.map(visualTestName).join(', ')}` };
+    }
+    const missing = tests.filter((test) => !visualTestHasScreenshot(test));
+    if (missing.length > 0) {
+      return {
+        gate: 'visual',
+        status: 'failed',
+        detail: `missing screenshot: ${missing.map(visualTestName).join(', ')}`,
+      };
+    }
+    return { gate: 'visual', status: 'passed' };
+  }
+
+  if (bool(visual, 'found') !== true) return { gate: 'visual', status: 'not_run' };
   const results = asArray(visual.results).map(asRecord);
   const failed = results.some((result) => (str(result, 'status') ?? '').toLowerCase().includes('fail'));
   return failed
@@ -181,7 +244,21 @@ export function parseGateOverrides(json: string | undefined): ParsedGateOverride
         errors.push(`ignored --gates override "${gate}": unknown status "${status ?? 'unknown'}"`);
         continue;
       }
-      out.push({ gate: gate as GateName, status: status as GateStatus, detail: str(entry, 'detail') ?? undefined });
+      const externalRaw = str(entry, 'externalVerdict');
+      let externalVerdict: ExternalVerdict | undefined;
+      if (externalRaw !== null) {
+        if ((EXTERNAL_VERDICTS as readonly string[]).includes(externalRaw)) {
+          externalVerdict = externalRaw as ExternalVerdict;
+        } else {
+          errors.push(`ignored --gates override "${gate}": unknown externalVerdict "${externalRaw}"`);
+        }
+      }
+      out.push({
+        gate: gate as GateName,
+        status: status as GateStatus,
+        ...(externalVerdict ? { externalVerdict } : {}),
+        detail: str(entry, 'detail') ?? undefined,
+      });
     }
     return { entries: out, errors };
   } catch {

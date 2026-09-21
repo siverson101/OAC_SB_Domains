@@ -4,13 +4,14 @@ summary: Fold the named verification gates (compile, EditMode/PlayMode, scene/as
 family: verify
 mode: offline
 description: Read gate-state.json, unity-verification-report.json, compile-state.json and test-inventory.json and fold the applicable named gates strictest-wins; no Editor required.
-inputs: { projectRoot: "string", opencodeDir: "string", reviewIntensity: "full|lean|solo", gates: "array" }
-outputs: { status: "string", gates: "object" }
+inputs: { projectRoot: "string", opencodeDir: "string", reviewIntensity: "full|lean|solo", gates: "array", externalVerdict: "confirmed|uncertain" }
+outputs: { status: "string", safetyGate: "object", changeScope: "string[]?", checkpoint: "object", delta: "object", gates: "object" }
 sideEffects: []
 safetyGate: { mutates: false, requiresEditor: false }
 uses: [compile-and-verify-project, run-edit-mode-tests, run-play-mode-tests]
 provides: [gate-review]
 requires: [gate-state, unity-verification-report]
+testPlan: ["Fold a passed and a failed gate and confirm strictest-wins", "Confirm an uncertain external verdict folds at least as strict as warning", "Confirm review intensity lean skips the performance gate"]
 versionCompatibility: { unity: ["6.0", "6.3", "6.5", "LTS+"] }
 ---
 
@@ -32,5 +33,8 @@ node .opencode/xdomains/scripts/unity/unity-verify.mjs \
   from on-disk state stay `not_run`.
 - `--gates '[{"gate":"build","status":"failed"}]'` overrides a gate (valid statuses: `passed`,
   `failed`, `warning`, `not_run`, `unavailable`, `unknown`).
+- A gate entry may carry an external verdict: `--gates '[{"gate":"scene","status":"not_run","externalVerdict":"confirmed"}]'`.
+  `uncertain` folds at least as strict as `warning`; `confirmed` contributes a `passed` verdict and so
+  cannot override a harder on-disk status. Strictest-wins is otherwise unchanged.
 - The folded `status` is the strictest applicable gate; `hardFailures` counts failed gates and
   `reviewRequired` counts warnings. Offline and fail-soft: missing artefacts yield `not_run`.

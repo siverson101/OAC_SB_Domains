@@ -5,6 +5,13 @@ import { basename as basename2, join as join9 } from "node:path";
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, sep } from "node:path";
+function fileExists(path) {
+  try {
+    return statSync(path).isFile();
+  } catch {
+    return false;
+  }
+}
 function dirExists(path) {
   try {
     return statSync(path).isDirectory();
@@ -542,6 +549,17 @@ import { readdirSync, statSync as statSync2 } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname as dirname3, isAbsolute, join as join7, relative } from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
+
+// tools/shared/xml.ts
+function decodeXmlEntities(value) {
+  const codePoint = (match, digits, radix) => {
+    const code = Number.parseInt(digits, radix);
+    return Number.isFinite(code) && code >= 0 && code <= 1114111 ? String.fromCodePoint(code) : match;
+  };
+  return value.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&#x([0-9a-fA-F]+);/g, (match, digits) => codePoint(match, digits, 16)).replace(/&#(\d+);/g, (match, digits) => codePoint(match, digits, 10)).replace(/&amp;/g, "&");
+}
+
+// tools/unity/gather-unity-context/src/offline.ts
 var OFFLINE_ROUTE = selectRoute({ live: null, cliAvailable: false }).route;
 function makeBase(status, errors = []) {
   return { schemaVersion: 1, generatedAt: nowIso(), status, route: OFFLINE_ROUTE, errors };
@@ -1038,13 +1056,171 @@ function produceAsmdefMap(input) {
     edges
   };
 }
-function collectScreenshotPaths(value, projectRoot) {
+var VISUAL_CATEGORY = "VisualVerification";
+function tokenizeXml(xml) {
+  const tokens = [];
+  let cursor = 0;
+  while (cursor < xml.length) {
+    const open = xml.indexOf("<", cursor);
+    if (open === -1)
+      break;
+    if (xml.startsWith("<!--", open)) {
+      const end = xml.indexOf("-->", open + 4);
+      cursor = end === -1 ? xml.length : end + 3;
+      continue;
+    }
+    if (xml.startsWith("<![CDATA[", open)) {
+      const end = xml.indexOf("]]>", open + 9);
+      cursor = end === -1 ? xml.length : end + 3;
+      continue;
+    }
+    if (xml.startsWith("<?", open) || xml.startsWith("<!", open)) {
+      const end = xml.indexOf(">", open + 2);
+      cursor = end === -1 ? xml.length : end + 1;
+      continue;
+    }
+    let scan = open + 1;
+    let quote = null;
+    while (scan < xml.length) {
+      const ch = xml[scan];
+      if (quote) {
+        if (ch === quote)
+          quote = null;
+      } else if (ch === '"' || ch === "'") {
+        quote = ch;
+      } else if (ch === ">") {
+        break;
+      }
+      scan++;
+    }
+    if (scan >= xml.length)
+      break;
+    const raw = xml.slice(open + 1, scan);
+    cursor = scan + 1;
+    const closing = raw.startsWith("/");
+    const body = closing ? raw.slice(1).trim() : raw.trim();
+    const selfClosing = !closing && body.endsWith("/");
+    const cleaned = selfClosing ? body.slice(0, -1).trim() : body;
+    const nameMatch = /^([A-Za-z_][\w:.-]*)/.exec(cleaned);
+    if (!nameMatch)
+      continue;
+    const attrs = {};
+    const attrRe = /([A-Za-z_][\w:.-]*)\s*=\s*("([^"]*)"|'([^']*)')/g;
+    const attrBody = cleaned.slice(nameMatch[1].length);
+    let match;
+    while (match = attrRe.exec(attrBody)) {
+      attrs[match[1]] = decodeXmlEntities(match[3] ?? match[4] ?? "");
+    }
+    tokens.push({ name: nameMatch[1], attrs, closing, selfClosing });
+  }
+  return tokens;
+}
+function categoriesOf(element) {
+  const fromAttribute = (element.attrs.categories ?? "").split(",").map((value) => value.trim()).filter((value) => value !== "");
+  return [...element.properties.Category ?? [], ...fromAttribute];
+}
+function isVisualElement(element) {
+  return categoriesOf(element).includes(VISUAL_CATEGORY);
+}
+function parseVisualTestsFromXml(xml) {
+  const out = [];
+  const stack = [];
+  let propertyBuffer = null;
+  const finalize = (element) => {
+    const ancestorCategories = stack.filter((ancestor) => ancestor.name === "test-suite").flatMap((ancestor) => categoriesOf(ancestor));
+    const isVisual = isVisualElement(element) || ancestorCategories.includes(VISUAL_CATEGORY);
+    if (!isVisual)
+      return;
+    const description = (element.properties.Description ?? [])[0] ?? null;
+    out.push({
+      fullname: element.attrs.fullname ?? element.attrs.name ?? "(unknown)",
+      status: element.attrs.result ?? null,
+      description,
+      screenshots: [...element.properties.Screenshot ?? []]
+    });
+  };
+  const close = () => {
+    const element = stack.pop();
+    if (!element)
+      return;
+    if (element.name === "properties") {
+      propertyBuffer = null;
+      const parent = stack[stack.length - 1];
+      if (parent) {
+        for (const [key, values] of Object.entries(element.properties)) {
+          parent.properties[key] = [...parent.properties[key] ?? [], ...values];
+        }
+      }
+      return;
+    }
+    if (element.name === "test-case")
+      finalize(element);
+  };
+  let tokens;
+  try {
+    tokens = tokenizeXml(xml);
+  } catch {
+    return out;
+  }
+  for (const token of tokens) {
+    if (token.closing) {
+      close();
+      continue;
+    }
+    const element = { name: token.name, attrs: token.attrs, properties: {} };
+    stack.push(element);
+    if (token.name === "properties") {
+      propertyBuffer = element.properties;
+    } else if (token.name === "property" && propertyBuffer) {
+      const name = token.attrs.name;
+      if (name)
+        propertyBuffer[name] = [...propertyBuffer[name] ?? [], token.attrs.value ?? ""];
+    }
+    if (token.selfClosing)
+      close();
+  }
+  return out;
+}
+function resolveScreenshot(value, baseDir, projectRoot) {
+  const trimmed = value.trim();
+  if (trimmed === "")
+    return "";
+  const absolute = isAbsolute(trimmed) ? trimmed : join7(baseDir, trimmed);
+  return toPosix(relative(projectRoot, absolute));
+}
+function makeVisualTest(test, source, projectRoot) {
+  const screenshots = unique(test.screenshots.filter((value) => value !== ""));
+  return {
+    ...test,
+    screenshots,
+    missingScreenshots: screenshots.filter((value) => !fileExists(join7(projectRoot, value))),
+    source
+  };
+}
+function visualTestsFromResult(result, file, projectRoot) {
+  const baseDir = dirname3(file);
+  const out = [];
+  result.cases.forEach((entry, index) => {
+    const record = entry && typeof entry === "object" && !Array.isArray(entry) ? entry : null;
+    if (!record)
+      return;
+    const text = (key) => typeof record[key] === "string" ? record[key] : null;
+    const screenshots = collectScreenshotValues(record).map((value) => resolveScreenshot(value, baseDir, projectRoot));
+    out.push(makeVisualTest({
+      fullname: text("fullname") ?? text("name") ?? text("test") ?? `visual-case-${index + 1}`,
+      status: text("status") ?? text("result") ?? result.status,
+      description: text("description"),
+      screenshots
+    }, "visual-verification-json", projectRoot));
+  });
+  return out;
+}
+function collectScreenshotValues(value) {
   const out = [];
   const visit = (node) => {
     if (typeof node === "string") {
-      if (/\.(png|jpe?g)$/i.test(node)) {
-        out.push(toPosix(isAbsolute(node) ? relative(projectRoot, node) : node));
-      }
+      if (/\.(png|jpe?g)$/i.test(node))
+        out.push(node);
       return;
     }
     if (Array.isArray(node)) {
@@ -1060,18 +1236,24 @@ function collectScreenshotPaths(value, projectRoot) {
   visit(value);
   return unique(out);
 }
+function collectScreenshotPaths(value, projectRoot) {
+  return collectScreenshotValues(value).map((node) => toPosix(isAbsolute(node) ? relative(projectRoot, node) : node));
+}
 function parseVisualVerification(file, projectRoot) {
   const data = readJson(file);
   if (!data || typeof data !== "object")
     return null;
   const cases = Array.isArray(data.cases) ? data.cases : Array.isArray(data.results) ? data.results : [];
-  return {
+  const result = {
     path: toPosix(relative(projectRoot, file)),
     status: typeof data.status === "string" ? data.status : null,
     summary: data.summary ?? null,
     cases,
-    screenshots: collectScreenshotPaths(data, projectRoot)
+    screenshots: collectScreenshotPaths(data, projectRoot),
+    tests: []
   };
+  result.tests = visualTestsFromResult(result, file, projectRoot);
+  return result;
 }
 function produceTestInventory(input) {
   const errors = [];
@@ -1093,17 +1275,25 @@ function produceTestInventory(input) {
     }
   }
   const results = [];
-  for (const file of resultFiles) {
-    const info = statInfo(file);
-    const counts = parseNUnit(readText(file) ?? "");
+  const xmlVisualTests = [];
+  const orderedResultFiles = [...resultFiles].map((file) => ({ file, info: statInfo(file) })).sort((a, b) => (b.info?.mtimeUtc ?? "").localeCompare(a.info?.mtimeUtc ?? ""));
+  for (const { file, info } of orderedResultFiles) {
+    const text = readText(file) ?? "";
+    const counts = parseNUnit(text);
     results.push({
       path: toPosix(relative(input.projectRoot, file)),
       mtimeUtc: info?.mtimeUtc ?? null,
       counts,
       result: counts.result
     });
+    for (const test of parseVisualTestsFromXml(text)) {
+      const resolved = {
+        ...test,
+        screenshots: test.screenshots.map((value) => resolveScreenshot(value, input.projectRoot, input.projectRoot))
+      };
+      xmlVisualTests.push(makeVisualTest(resolved, "test-results", input.projectRoot));
+    }
   }
-  results.sort((a, b) => (b.mtimeUtc ?? "").localeCompare(a.mtimeUtc ?? ""));
   const visualResults = [];
   for (const file of visualFiles) {
     const parsed = parseVisualVerification(file, input.projectRoot);
@@ -1111,6 +1301,24 @@ function produceTestInventory(input) {
       visualResults.push(parsed);
   }
   visualResults.sort((a, b) => a.path.localeCompare(b.path));
+  const mergedVisualTests = new Map;
+  for (const test of xmlVisualTests) {
+    if (!mergedVisualTests.has(test.fullname))
+      mergedVisualTests.set(test.fullname, test);
+  }
+  for (const result of visualResults) {
+    for (const test of result.tests) {
+      const existing = mergedVisualTests.get(test.fullname);
+      if (!existing) {
+        mergedVisualTests.set(test.fullname, test);
+        continue;
+      }
+      const screenshots = unique([...existing.screenshots, ...test.screenshots]);
+      existing.screenshots = screenshots;
+      existing.missingScreenshots = screenshots.filter((value) => !fileExists(join7(input.projectRoot, value)));
+    }
+  }
+  const visualTests = [...mergedVisualTests.values()];
   const status = testAssemblies.length > 0 || results.length > 0 ? "observed_locally" : "unavailable";
   return {
     ...makeBase(status, errors),
@@ -1119,10 +1327,11 @@ function produceTestInventory(input) {
     results,
     latestResult: results[0] ?? null,
     visualVerification: {
-      found: visualFiles.size > 0,
+      found: visualFiles.size > 0 || visualTests.length > 0,
       files: [...visualFiles].map((file) => toPosix(relative(input.projectRoot, file))),
       results: visualResults,
-      screenshots: [...screenshots].map((file) => toPosix(relative(input.projectRoot, file)))
+      screenshots: [...screenshots].map((file) => toPosix(relative(input.projectRoot, file))),
+      tests: visualTests
     }
   };
 }

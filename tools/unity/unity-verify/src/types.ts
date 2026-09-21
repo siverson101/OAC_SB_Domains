@@ -15,6 +15,8 @@ const VERIFY_ABILITY_NAMES = [
   'run-edit-mode-tests',
   'run-play-mode-tests',
   'gate-review',
+  'failing-test-first',
+  'test-deduplication',
 ] as const;
 
 export type VerifyAbility = (typeof VERIFY_ABILITY_NAMES)[number];
@@ -30,6 +32,8 @@ export const VERIFY_MODES: Record<VerifyAbility, VerifyMode> = {
   'run-edit-mode-tests': 'both',
   'run-play-mode-tests': 'both',
   'gate-review': 'offline',
+  'failing-test-first': 'both',
+  'test-deduplication': 'offline',
 };
 
 export type VerifyStatus =
@@ -39,6 +43,7 @@ export type VerifyStatus =
   | 'passed'
   | 'failed'
   | 'warning'
+  | 'refused'
   | 'unavailable'
   | 'unknown'
   | 'not_run';
@@ -48,8 +53,10 @@ export type VerifyPhase = 'checkpoint' | 'validate';
 export type ReviewIntensity = 'full' | 'lean' | 'solo';
 
 export interface VerifySafetyGate {
-  mutates: false;
+  mutates: boolean;
   requiresEditor: boolean;
+  dryRunFirst?: boolean;
+  writesState?: boolean;
 }
 
 export interface VerifyBase {
@@ -63,6 +70,18 @@ export interface VerifyBase {
   summary: string;
   errors: string[];
   safetyGate: VerifySafetyGate;
+  // The declared change scope (comma-separated files/symbols) for a mutation
+  // validation, or `null` when none was declared. `compile-and-verify-project
+  // --phase validate` refuses without one; the declared scope bounds the
+  // reported delta (see `VerifyDelta`).
+  //
+  // Scope tokens are SUBSTRING HINTS, not exact file matches: a token matches
+  // when it appears anywhere in an issue's id or message (case-insensitive). So
+  // `Player` is broader than the user may expect — it also matches
+  // `PlayerController`, `PlayerSpawner`, and unrelated message text. This
+  // over-counts rather than under-counts (the conservative direction for a
+  // bounded delta), and an unmatched scope is reported via `scopeUnmatched`.
+  changeScope: string[] | null;
   checkpoint: VerifySnapshot | null;
   delta: VerifyDelta;
 }
@@ -76,7 +95,19 @@ export interface VerifyOptions {
   phase: VerifyPhase;
   cliCommand: string;
   reviewIntensity: ReviewIntensity;
+  // Substring hints, not exact file matches (see `VerifyBase.changeScope`): a
+  // token `Player` also matches `PlayerController` and message text.
+  changeScope?: string[];
   gatesJson?: string;
+  test?: string;
+  expectedReason?: string;
+  failureMessage?: string;
+  testResults?: string;
+  tdd?: string;
+  feature?: string;
+  testsDir?: string;
+  testsJson?: string;
+  apply?: boolean;
 }
 
 export type IssueKind = 'compile' | 'editMode' | 'playMode';
@@ -109,12 +140,21 @@ export interface VerifySnapshot {
   gateResult: string | null;
 }
 
+// The bounded delta. When a change scope is declared, only issues that match a
+// scope token count as new/resolved: an out-of-scope issue never appears in
+// `newIssues`/`resolvedIssues`, so a mutation cannot claim a verdict for
+// changes outside the declared scope. `computed: false` with `null` issue
+// arrays still means "not computed", never "clean".
 export interface VerifyDelta {
   computed: boolean;
   newIssues: VerifyIssue[] | null;
   resolvedIssues: VerifyIssue[] | null;
   validateScanFailed: boolean;
   compilePending: boolean;
+  // True when a change scope was declared but matched no issue at all, so the
+  // scope (a substring match over id/message) may be under-reporting the delta.
+  // Reported so a zero-match scope is never silent.
+  scopeUnmatched: boolean;
   reasons: string[];
 }
 

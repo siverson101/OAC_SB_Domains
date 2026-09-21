@@ -94,14 +94,18 @@ var COMPOSE_ABILITY_NAMES = [
   "coordination-board",
   "primitive-composition",
   "contract-aware-design",
-  "ci-status-baseline"
+  "ci-status-baseline",
+  "plan-feature",
+  "test-plan"
 ];
 var COMPOSE_ABILITIES = [...COMPOSE_ABILITY_NAMES];
 var COMPOSE_MODES = {
   "coordination-board": "offline",
   "primitive-composition": "offline",
   "contract-aware-design": "offline",
-  "ci-status-baseline": "both"
+  "ci-status-baseline": "both",
+  "plan-feature": "offline",
+  "test-plan": "offline"
 };
 // tools/shared/json-helpers.ts
 function asRecord(value) {
@@ -434,6 +438,16 @@ function parseFrontmatter(content) {
     i = block.nextIndex;
   }
   return fm;
+}
+function frontmatterString(fm, key) {
+  const value = fm[key];
+  return typeof value === "string" ? value : undefined;
+}
+function frontmatterStringArray(fm, key) {
+  const value = fm[key];
+  if (!Array.isArray(value))
+    return;
+  return value.filter((item) => typeof item === "string");
 }
 
 // tools/shared/registry/src/contract.ts
@@ -860,9 +874,417 @@ function toResult(mutation, extraErrors, options) {
   return result;
 }
 
+// tools/unity/unity-compose/src/plan-feature.ts
+import { mkdirSync as mkdirSync3, rmSync, writeFileSync as writeFileSync3 } from "node:fs";
+import { join as join4 } from "node:path";
+
+// tools/shared/slug.ts
+var SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+function isValidSlug(value) {
+  return SLUG_PATTERN.test(value);
+}
+
+// tools/unity/studio-config/src/types.ts
+var STUDIO_MODES = ["lean", "full"];
+var REVIEW_INTENSITIES = ["full", "lean", "solo"];
+var MODEL_TIERS = ["router", "lead", "specialist"];
+var STUDIO_CONFIG_SCHEMA_VERSION = 1;
+var DEFAULT_STUDIO_CONFIG = {
+  schemaVersion: STUDIO_CONFIG_SCHEMA_VERSION,
+  studioMode: "lean",
+  reviewIntensity: "full",
+  toggles: { tdd: false, ftf: false },
+  patterns: [],
+  packages: [],
+  modelTiers: {}
+};
+
+// tools/unity/studio-config/src/config.ts
+var KNOWN_KEYS = new Set([
+  "$schema",
+  "schemaVersion",
+  "studioMode",
+  "reviewIntensity",
+  "toggles",
+  "patterns",
+  "packages",
+  "modelTiers"
+]);
+var KNOWN_TOGGLE_KEYS = new Set(["tdd", "ftf"]);
+function defaultStudioConfig() {
+  return {
+    ...DEFAULT_STUDIO_CONFIG,
+    toggles: { ...DEFAULT_STUDIO_CONFIG.toggles },
+    patterns: [],
+    packages: [],
+    modelTiers: { ...DEFAULT_STUDIO_CONFIG.modelTiers }
+  };
+}
+function parseStringArray(value, field, problems) {
+  if (value === undefined)
+    return [];
+  if (!Array.isArray(value)) {
+    problems.push({ field, message: "expected an array of strings" });
+    return [];
+  }
+  const out = [];
+  for (const item of value) {
+    if (typeof item === "string" && item.trim() !== "") {
+      const id = item.trim();
+      if (!out.includes(id))
+        out.push(id);
+    } else {
+      problems.push({ field, message: `ignored non-string entry ${JSON.stringify(item)}` });
+    }
+  }
+  return out;
+}
+function parseMode(value, problems) {
+  if (value === undefined)
+    return DEFAULT_STUDIO_CONFIG.studioMode;
+  if (typeof value === "string" && STUDIO_MODES.includes(value)) {
+    return value;
+  }
+  problems.push({ field: "studioMode", message: `expected one of ${STUDIO_MODES.join("|")}, got ${JSON.stringify(value)}` });
+  return DEFAULT_STUDIO_CONFIG.studioMode;
+}
+function parseIntensity(value, problems) {
+  if (value === undefined)
+    return DEFAULT_STUDIO_CONFIG.reviewIntensity;
+  if (typeof value === "string" && REVIEW_INTENSITIES.includes(value)) {
+    return value;
+  }
+  problems.push({
+    field: "reviewIntensity",
+    message: `expected one of ${REVIEW_INTENSITIES.join("|")}, got ${JSON.stringify(value)}`
+  });
+  return DEFAULT_STUDIO_CONFIG.reviewIntensity;
+}
+function parseToggles(value, problems) {
+  const toggles = { ...DEFAULT_STUDIO_CONFIG.toggles };
+  if (value === undefined)
+    return toggles;
+  const record = asRecord(value);
+  if (!record) {
+    problems.push({ field: "toggles", message: "expected an object with boolean tdd/ftf flags" });
+    return toggles;
+  }
+  for (const key of Object.keys(record)) {
+    if (!KNOWN_TOGGLE_KEYS.has(key))
+      problems.push({ field: `toggles.${key}`, message: "unknown toggle" });
+  }
+  for (const key of KNOWN_TOGGLE_KEYS) {
+    const flag = record[key];
+    if (flag === undefined)
+      continue;
+    if (typeof flag === "boolean")
+      toggles[key] = flag;
+    else
+      problems.push({ field: `toggles.${key}`, message: `expected a boolean, got ${JSON.stringify(flag)}` });
+  }
+  return toggles;
+}
+function parseModelTiers(value, problems) {
+  const tiers = {};
+  if (value === undefined)
+    return tiers;
+  const record = asRecord(value);
+  if (!record) {
+    problems.push({
+      field: "modelTiers",
+      message: `expected an object mapping ${MODEL_TIERS.join("|")} to a model id`
+    });
+    return tiers;
+  }
+  for (const key of Object.keys(record)) {
+    if (!MODEL_TIERS.includes(key)) {
+      problems.push({ field: `modelTiers.${key}`, message: `unknown tier; expected one of ${MODEL_TIERS.join("|")}` });
+      continue;
+    }
+    const model = record[key];
+    if (typeof model !== "string" || model.trim() === "") {
+      problems.push({
+        field: `modelTiers.${key}`,
+        message: `expected a non-empty model id string, got ${JSON.stringify(model)}`
+      });
+      continue;
+    }
+    tiers[key] = model.trim();
+  }
+  return tiers;
+}
+function parseStudioConfig(value) {
+  const problems = [];
+  const record = asRecord(value);
+  if (!record) {
+    problems.push({ field: "$", message: "config must be a JSON object" });
+    return { config: defaultStudioConfig(), problems };
+  }
+  for (const key of Object.keys(record)) {
+    if (!KNOWN_KEYS.has(key))
+      problems.push({ field: key, message: "unknown property" });
+  }
+  let schemaVersion = DEFAULT_STUDIO_CONFIG.schemaVersion;
+  if (record.schemaVersion !== undefined) {
+    if (typeof record.schemaVersion !== "number" || !Number.isFinite(record.schemaVersion)) {
+      problems.push({ field: "schemaVersion", message: `expected a number, got ${JSON.stringify(record.schemaVersion)}` });
+    } else if (record.schemaVersion !== STUDIO_CONFIG_SCHEMA_VERSION) {
+      problems.push({
+        field: "schemaVersion",
+        message: `unsupported schema version ${JSON.stringify(record.schemaVersion)}, expected ${STUDIO_CONFIG_SCHEMA_VERSION}`
+      });
+    } else {
+      schemaVersion = record.schemaVersion;
+    }
+  }
+  const config = {
+    schemaVersion,
+    studioMode: parseMode(record.studioMode, problems),
+    reviewIntensity: parseIntensity(record.reviewIntensity, problems),
+    toggles: parseToggles(record.toggles, problems),
+    patterns: parseStringArray(record.patterns, "patterns", problems),
+    packages: parseStringArray(record.packages, "packages", problems),
+    modelTiers: parseModelTiers(record.modelTiers, problems)
+  };
+  return { config, problems };
+}
+function loadStudioConfig(path) {
+  const text = readText(path);
+  if (text === null)
+    return { present: false, path, config: defaultStudioConfig(), problems: [] };
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch (error) {
+    return {
+      present: true,
+      path,
+      config: defaultStudioConfig(),
+      problems: [{ field: "$", message: `invalid JSON: ${error instanceof Error ? error.message : String(error)}` }]
+    };
+  }
+  const { config, problems } = parseStudioConfig(parsed);
+  return { present: true, path, config, problems };
+}
+
+// tools/unity/unity-compose/src/plan-feature.ts
+var PLAN_DIR = "plans";
+var LOOPBACK_SUFFIX = ".loopback.json";
+var PLAN_SCHEMA_VERSION = 1;
+var PLAN_SECTIONS = [
+  "Context",
+  "Implementation Design",
+  "Test Cases",
+  "Testing Decisions",
+  "Testability Assessment",
+  "Known Trade-offs",
+  "Development Workflow"
+];
+var NOT_PROVIDED = "_Not provided._";
+var NONE_RECORDED = "- None recorded.";
+var DEVELOPMENT_WORKFLOW = [
+  "Follow the `tdd` loop rules:",
+  "",
+  "1. **Red before green.** Write the failing test first, then only enough code to pass it.",
+  "2. **One vertical slice at a time.** One seam, one test, one minimal implementation per cycle.",
+  "3. **Tests at pre-agreed public seams only.** Confirm the seams before writing any test.",
+  "4. **Refactoring belongs to review**, not the red → green loop.",
+  "",
+  "Reject these test anti-patterns:",
+  "",
+  "- **Implementation-coupled** — mocks internal collaborators, tests private methods, or observes through a side channel.",
+  "- **Tautological** — the assertion recomputes the expected value the way the code does; expected values must come from an independent source of truth.",
+  "- **Horizontally sliced** — all tests written before any implementation; work in vertical tracer-bullet slices instead."
+].join(`
+`);
+function plansDir(options) {
+  return join4(options.opencodeDir, PLAN_DIR);
+}
+function planPath(options, slug) {
+  return join4(plansDir(options), `${slug}.md`);
+}
+function loopbackPath(options, slug) {
+  return join4(plansDir(options), `${slug}${LOOPBACK_SUFFIX}`);
+}
+function normalizeVerdict(value) {
+  const text = (value ?? "").trim().toUpperCase();
+  return text === "PASS" || text === "WARN" || text === "FAIL" ? text : null;
+}
+function renderPlanArtifact(artifact) {
+  return [
+    `# Plan: ${artifact.feature}`,
+    `## Context
+
+${artifact.context}`,
+    `## Implementation Design
+
+${artifact.implementationDesign}`,
+    `## Test Cases
+
+${artifact.testCases}`,
+    `## Testing Decisions
+
+${artifact.testingDecisions}`,
+    `## Testability Assessment
+
+TESTABILITY: ${artifact.testability}`,
+    `## Known Trade-offs
+
+${artifact.tradeOffs}`,
+    `## Development Workflow
+
+${artifact.developmentWorkflow}`
+  ].join(`
+
+`) + `
+`;
+}
+function validatePlanArtifact(markdown) {
+  const errors = [];
+  let cursor = -1;
+  for (const section of PLAN_SECTIONS) {
+    const index = markdown.indexOf(`## ${section}`);
+    if (index === -1) {
+      errors.push(`missing section: ${section}`);
+      continue;
+    }
+    if (index < cursor)
+      errors.push(`section out of order: ${section}`);
+    cursor = index;
+  }
+  return { ok: errors.length === 0, errors };
+}
+function tradeOffsBody(options, verdict) {
+  const base = (options.tradeOffs ?? "").trim();
+  if (verdict !== "WARN")
+    return base || NONE_RECORDED;
+  const warning = "- Testability WARN: the test-designer reported testability issues; resolve them before implementation.";
+  return base ? `${base}
+${warning}` : warning;
+}
+function readLoopbackAttempts(options, slug) {
+  const state = readJson(loopbackPath(options, slug));
+  if (num(state, "schemaVersion") !== PLAN_SCHEMA_VERSION)
+    return 0;
+  return num(state, "attempts") ?? 0;
+}
+function writeLoopback(options, slug, attempts) {
+  const state = {
+    schemaVersion: PLAN_SCHEMA_VERSION,
+    feature: slug,
+    attempts,
+    updatedAt: nowIso()
+  };
+  writeJson(loopbackPath(options, slug), state);
+}
+function clearLoopback(options, slug) {
+  try {
+    rmSync(loopbackPath(options, slug), { force: true });
+  } catch {}
+}
+function refuse(slug, target, testability, message) {
+  const base = makeResult("plan-feature", "refused", message, [message], { writesState: true });
+  return {
+    ...base,
+    action: "refuse",
+    feature: slug,
+    planPath: target,
+    testability,
+    attempt: 0,
+    written: false,
+    instruction: null
+  };
+}
+function runPlanFeature(options) {
+  const slug = (options.feature ?? "").trim();
+  const target = slug ? toPosix(planPath(options, slug)) : toPosix(plansDir(options));
+  if (!slug)
+    return refuse(null, target, null, "a --feature <slug> is required");
+  if (!isValidSlug(slug)) {
+    return refuse(slug, target, null, `invalid feature slug "${slug}"; use kebab-case (a-z, 0-9, -)`);
+  }
+  const load = loadStudioConfig(join4(options.opencodeDir, "unity-studio.json"));
+  if (!load.config.toggles.tdd) {
+    return refuse(slug, target, null, "TDD is off (.opencode/unity-studio.json toggles.tdd=false); plan-feature is TDD-gated. Enable the toggle to plan test-first — TDD off still requires tests, just not first.");
+  }
+  const verdict = normalizeVerdict(options.testability);
+  if (!verdict) {
+    return refuse(slug, target, null, "a --testability verdict is required (PASS|WARN|FAIL)");
+  }
+  const testCases = options.testCases ?? "";
+  if (testCases.trim() === "") {
+    return refuse(slug, target, verdict, "Test Cases are required (--test-cases); the artifact carries them verbatim from test-designer");
+  }
+  if (verdict === "FAIL") {
+    const attempts = readLoopbackAttempts(options, slug);
+    if (attempts < 1) {
+      writeLoopback(options, slug, 1);
+      const base = makeResult("plan-feature", "loopback", `Testability FAIL for "${slug}"; one retry remains`, [], {
+        writesState: true
+      });
+      return {
+        ...base,
+        action: "loopback",
+        feature: slug,
+        planPath: target,
+        testability: verdict,
+        attempt: 1,
+        written: false,
+        instruction: "Revise the Implementation Design to address the testability issues, then re-run plan-feature. This is the one permitted retry."
+      };
+    }
+    clearLoopback(options, slug);
+    const base = makeResult("plan-feature", "aborted", `Testability FAIL persists for "${slug}" after one retry; aborting`, [], {
+      writesState: true
+    });
+    return {
+      ...base,
+      action: "abort",
+      feature: slug,
+      planPath: target,
+      testability: verdict,
+      attempt: attempts + 1,
+      written: false,
+      instruction: "Abort: the revised design still fails testability. Escalate to the user with the testability issues."
+    };
+  }
+  clearLoopback(options, slug);
+  const artifact = {
+    feature: slug,
+    context: (options.context ?? "").trim() || NOT_PROVIDED,
+    implementationDesign: (options.design ?? "").trim() || NOT_PROVIDED,
+    testCases,
+    testingDecisions: (options.testingDecisions ?? "").trim() || NOT_PROVIDED,
+    testability: verdict,
+    tradeOffs: tradeOffsBody(options, verdict),
+    developmentWorkflow: DEVELOPMENT_WORKFLOW
+  };
+  const markdown = renderPlanArtifact(artifact);
+  const validation = validatePlanArtifact(markdown);
+  if (!validation.ok) {
+    return refuse(slug, target, verdict, `assembled plan failed validation: ${validation.errors.join("; ")}`);
+  }
+  const path = planPath(options, slug);
+  mkdirSync3(plansDir(options), { recursive: true });
+  writeFileSync3(path, markdown);
+  const base = makeResult("plan-feature", "ok", `wrote plan artifact for "${slug}" (TESTABILITY: ${verdict})`, [], {
+    writesState: true
+  });
+  return {
+    ...base,
+    action: "write",
+    feature: slug,
+    planPath: toPosix(path),
+    testability: verdict,
+    attempt: 0,
+    written: true,
+    instruction: null
+  };
+}
+
 // tools/unity/unity-compose/src/primitive-composition.ts
 import { readdirSync as readdirSync2, statSync as statSync3 } from "node:fs";
-import { basename as basename2, join as join4 } from "node:path";
+import { basename as basename2, join as join5 } from "node:path";
 
 // tools/shared/yaml.ts
 function stripComment(raw) {
@@ -1151,7 +1573,7 @@ function discoverPrimitives(dir) {
       return;
     }
     for (const entry of entries) {
-      const full = join4(current, entry);
+      const full = join5(current, entry);
       let directory = false;
       try {
         directory = statSync3(full).isDirectory();
@@ -1235,7 +1657,7 @@ function analyzeComposition(records) {
   return { primitives: records, edges, conflicts, unresolved, cycles: findCycles(records) };
 }
 function defaultPrimitivesDir(options) {
-  return join4(options.projectRoot, "xdomains", "game-dev", "unity-3d", "primitives");
+  return join5(options.projectRoot, "xdomains", "game-dev", "unity-3d", "primitives");
 }
 function runPrimitiveComposition(options) {
   const dir = options.primitivesDir ?? defaultPrimitivesDir(options);
@@ -1252,6 +1674,173 @@ function runPrimitiveComposition(options) {
   return { ...base, primitivesDir: toPosix(dir), report };
 }
 
+// tools/unity/unity-compose/src/test-plan.ts
+import { mkdirSync as mkdirSync4, writeFileSync as writeFileSync4 } from "node:fs";
+import { join as join6 } from "node:path";
+
+// tools/shared/text.ts
+function canonicalizeText(text) {
+  return text.replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+// tools/unity/unity-compose/src/test-plan.ts
+var TEST_PLAN_DIR = "test-plans";
+var TEST_PLAN_SCHEMA_VERSION = 1;
+function testPlansDir(options) {
+  return join6(options.opencodeDir, TEST_PLAN_DIR);
+}
+function testPlanPath(options, slug) {
+  return join6(testPlansDir(options), `${slug}.md`);
+}
+function commandsDir(options) {
+  return options.commandsDir ?? options.capabilitiesDir ?? defaultCapabilitiesDir(options);
+}
+function primitivesDir(options) {
+  return options.primitivesDir ?? defaultPrimitivesDir(options);
+}
+function resolveFeatureAbilities(options) {
+  if (options.planAbilities && options.planAbilities.length > 0) {
+    return { abilities: options.planAbilities, error: null };
+  }
+  return { abilities: [], error: "no --abilities supplied (comma-separated capability or primitive ids)" };
+}
+function yamlStringArray(value) {
+  return Array.isArray(value) ? value.filter((item) => typeof item === "string") : [];
+}
+function readCapabilitySection(options, ability) {
+  const commandPath = join6(commandsDir(options), `${ability}.md`);
+  const commandText = readText(commandPath);
+  if (commandText !== null) {
+    const frontmatter = parseFrontmatter(commandText);
+    const steps = frontmatterStringArray(frontmatter, "testPlan") ?? [];
+    return {
+      ability,
+      id: frontmatterString(frontmatter, "id") ?? ability,
+      summary: frontmatterString(frontmatter, "summary") ?? null,
+      steps: [...steps],
+      problems: steps.length === 0 ? ["no testPlan declared in the capability contract"] : []
+    };
+  }
+  const primitivePath = join6(primitivesDir(options), ability, "primitive.yaml");
+  const primitiveText = readText(primitivePath);
+  if (primitiveText !== null) {
+    const data = asRecord(parseYaml(primitiveText));
+    const steps = yamlStringArray(data?.testPlan ?? data?.test_plan);
+    return {
+      ability,
+      id: typeof data?.id === "string" ? data.id : ability,
+      summary: typeof data?.summary === "string" ? data.summary : null,
+      steps,
+      problems: steps.length === 0 ? ["no testPlan declared in the primitive contract"] : []
+    };
+  }
+  return {
+    ability,
+    id: null,
+    summary: null,
+    steps: [],
+    problems: [`capability not found at ${toPosix(commandPath)} or ${toPosix(primitivePath)}`]
+  };
+}
+function renderTestPlan(artifact) {
+  const lines = [
+    `# Test Plan: ${artifact.feature}`,
+    "",
+    "Generated from the capability contract `testPlan` fields — the contract is the single source of truth."
+  ];
+  for (const section of artifact.sections) {
+    lines.push("", `## ${section.ability}`, "");
+    lines.push(section.summary ?? "_No summary declared._");
+    if (section.steps.length > 0) {
+      lines.push("");
+      for (const step of section.steps)
+        lines.push(`- [ ] ${step}`);
+    }
+    for (const problem of section.problems)
+      lines.push("", `> Problem: ${problem}`);
+  }
+  if (artifact.duplicateSteps.length > 0) {
+    lines.push("", "## Duplicate Steps Dropped", "");
+    lines.push("Declared by more than one capability; shown once in the checklist above:");
+    for (const step of artifact.duplicateSteps)
+      lines.push(`- ${step}`);
+  }
+  lines.push("");
+  return lines.join(`
+`);
+}
+function runTestPlan(options) {
+  const slug = (options.feature ?? "").trim();
+  const target = slug ? toPosix(testPlanPath(options, slug)) : toPosix(testPlansDir(options));
+  const refuse = (message) => {
+    const base = makeResult("test-plan", "refused", message, [message], { writesState: true });
+    return {
+      ...base,
+      action: "refuse",
+      feature: slug || null,
+      planPath: target,
+      written: false,
+      sections: 0,
+      checklist: 0,
+      problems: [message]
+    };
+  };
+  if (!slug)
+    return refuse("a --feature <slug> is required");
+  if (!isValidSlug(slug))
+    return refuse(`invalid feature slug "${slug}"; use kebab-case (a-z, 0-9, -)`);
+  const resolved = resolveFeatureAbilities(options);
+  if (resolved.error)
+    return refuse(resolved.error);
+  if (resolved.abilities.length === 0)
+    return refuse(`no abilities resolved for feature "${slug}"`);
+  const sections = resolved.abilities.map((ability) => readCapabilitySection(options, ability));
+  const seen = new Set;
+  const checklist = [];
+  const duplicateSteps = [];
+  for (const section of sections) {
+    const kept = [];
+    for (const step of section.steps) {
+      const key = canonicalizeText(step);
+      if (seen.has(key)) {
+        duplicateSteps.push(step);
+        continue;
+      }
+      seen.add(key);
+      kept.push(step);
+      checklist.push(step);
+    }
+    section.steps = kept;
+  }
+  const problems = sections.flatMap((section) => section.problems.map((problem) => `${section.ability}: ${problem}`));
+  const artifact = {
+    schemaVersion: TEST_PLAN_SCHEMA_VERSION,
+    generatedAt: nowIso(),
+    feature: slug,
+    abilities: resolved.abilities,
+    sections,
+    checklist,
+    duplicateSteps,
+    problems
+  };
+  const path = testPlanPath(options, slug);
+  mkdirSync4(testPlansDir(options), { recursive: true });
+  writeFileSync4(path, renderTestPlan(artifact));
+  const status = problems.length > 0 ? "observed_locally" : "ok";
+  const summary = `wrote test plan for "${slug}" (${sections.length} capability section(s), ${checklist.length} checklist step(s))`;
+  const base = makeResult("test-plan", status, summary, problems, { writesState: true });
+  return {
+    ...base,
+    action: "write",
+    feature: slug,
+    planPath: toPosix(path),
+    written: true,
+    sections: sections.length,
+    checklist: checklist.length,
+    problems
+  };
+}
+
 // tools/unity/unity-compose/src/abilities.ts
 async function runCompose(options) {
   switch (options.ability) {
@@ -1263,6 +1852,10 @@ async function runCompose(options) {
       return runContractAwareDesign(options);
     case "ci-status-baseline":
       return runCiStatusBaseline(options);
+    case "plan-feature":
+      return runPlanFeature(options);
+    case "test-plan":
+      return runTestPlan(options);
     default: {
       const exhaustive = options.ability;
       throw new Error(`unsupported Compose ability: ${String(exhaustive)}`);
@@ -1271,7 +1864,7 @@ async function runCompose(options) {
 }
 
 // tools/unity/unity-compose/src/cli.ts
-import { join as join5, resolve } from "node:path";
+import { join as join7, resolve } from "node:path";
 
 // tools/shared/cli-args.ts
 function isFlag(token) {
@@ -1319,6 +1912,11 @@ function firstString(args, keys) {
   }
   return;
 }
+function parseCommaList(value) {
+  if (value === undefined)
+    return;
+  return value.split(",").map((token) => token.trim()).filter((token) => token !== "");
+}
 function resolveAbility(requested, abilities, fallback) {
   return abilities.includes(requested) ? requested : fallback;
 }
@@ -1336,11 +1934,12 @@ function resolveOptions(argv) {
   const { values: args, positional } = parseArgs(argv);
   rejectPositionals(positional);
   const projectRoot = resolve(String(args["project-root"] || process.cwd()));
-  const opencodeDir = resolve(String(args["opencode-dir"] || join5(projectRoot, ".opencode")));
+  const opencodeDir = resolve(String(args["opencode-dir"] || join7(projectRoot, ".opencode")));
   const requested = String(args.ability || "coordination-board");
   const ability = resolveAbility(requested, COMPOSE_ABILITIES, "coordination-board");
   const leaseRaw = args["lease-seconds"] ?? args.leaseSeconds;
   const waitRaw = args["wait-seconds"] ?? args.waitSeconds;
+  const planAbilities = parseCommaList(firstString(args, ["abilities", "plan-abilities", "planAbilities"]));
   return {
     projectRoot,
     opencodeDir,
@@ -1358,7 +1957,16 @@ function resolveOptions(argv) {
     capabilitiesDir: firstString(args, ["capabilities-dir", "capabilitiesDir"]),
     schema: firstString(args, ["schema"]),
     source: firstString(args, ["source"]),
-    cliCommand: firstString(args, ["unity-cli", "unityCli"]) ?? "unity"
+    cliCommand: firstString(args, ["unity-cli", "unityCli"]) ?? "unity",
+    feature: firstString(args, ["feature", "slug"]),
+    context: firstString(args, ["context"]),
+    design: firstString(args, ["design"]),
+    testCases: firstString(args, ["test-cases", "testCases"]),
+    testingDecisions: firstString(args, ["testing-decisions", "testingDecisions"]),
+    testability: firstString(args, ["testability"]),
+    tradeOffs: firstString(args, ["trade-offs", "tradeOffs"]),
+    planAbilities,
+    commandsDir: firstString(args, ["commands-dir", "commandsDir"])
   };
 }
 
@@ -1391,6 +1999,16 @@ function render(result) {
   }
   if ("baselinePath" in result) {
     lines.push(`  action: ${result.action} · baseline: ${result.baseline?.status ?? "none"}`);
+  }
+  if ("checklist" in result && "planPath" in result) {
+    lines.push(`  action: ${result.action} · feature: ${result.feature ?? "n/a"} · sections: ${result.sections} · checklist: ${result.checklist} · written: ${result.written}`);
+    for (const problem of result.problems)
+      lines.push(`  problem: ${problem}`);
+  }
+  if ("planPath" in result && "testability" in result) {
+    lines.push(`  action: ${result.action} · feature: ${result.feature ?? "n/a"} · testability: ${result.testability ?? "n/a"} · written: ${result.written}`);
+    if (result.instruction)
+      lines.push(`  instruction: ${result.instruction}`);
   }
   for (const error of result.errors)
     lines.push(`  error: ${error}`);

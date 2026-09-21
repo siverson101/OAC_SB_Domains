@@ -5,12 +5,13 @@ family: compose
 mode: offline
 description: Discover every primitive.yaml under a primitives directory, build the composition graph, and report depends-on edges, wire-through events, compatibility/conflict pairs, dependency cycles and references to unknown primitives. Offline and fail-soft.
 inputs: { projectRoot: "string", primitivesDir: "string?" }
-outputs: { status: "string", primitivesDir: "string", report: "object" }
+outputs: { status: "string", safetyGate: "object", primitivesDir: "string", report: "object" }
 sideEffects: []
 safetyGate: { mutates: false, requiresEditor: false }
 uses: []
 provides: [primitive-composition, composition-graph]
 requires: [primitives-dir]
+testPlan: ["Build the graph and confirm depends-on and event edges", "Confirm a conflictsWith pair is reported", "Confirm a dependency cycle is detected"]
 versionCompatibility: { unity: ["6.0", "6.3", "6.5", "LTS+"] }
 ---
 

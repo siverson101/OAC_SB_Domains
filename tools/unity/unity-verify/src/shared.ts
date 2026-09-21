@@ -21,6 +21,7 @@ import type {
   VerifyCompile,
   VerifyIssue,
   VerifyOptions,
+  VerifySafetyGate,
   VerifySnapshot,
   VerifyStatus,
 } from './types';
@@ -43,11 +44,13 @@ export function makeResult(
   summary: string,
   errors: string[],
   route: Route,
-  requiresEditor = false
+  requiresEditor = false,
+  gate: Partial<VerifySafetyGate> = {}
 ): VerifyBase {
   return {
     ...makeEnvelope({ ability, family: 'verify', mode: 'offline', status, summary, errors, route }),
-    safetyGate: { mutates: false, requiresEditor },
+    safetyGate: { mutates: false, requiresEditor, ...gate },
+    changeScope: null,
     checkpoint: null,
     delta: {
       computed: false,
@@ -55,6 +58,7 @@ export function makeResult(
       resolvedIssues: null,
       validateScanFailed: false,
       compilePending: false,
+      scopeUnmatched: false,
       reasons: ['no delta computed'],
     },
   };

@@ -24,7 +24,8 @@ reused, the copyright holder, the license, and which parts of the domain rely on
 | [UnityCLI.AgenticExtensions](https://github.com/TomMoore515/UnityCLI.AgenticExtensions) | Thomas Moore | MIT | Design reference for the coordination board, profiling, and UI Toolkit interaction abilities (Phases 2/4). No source copied. |
 | [Unity-Open-MCP](https://github.com/AlexeyPerov/Unity-Open-MCP) | Alexey Perov | MIT | Design reference for the Verify family and offline reads. Deliberately unimplemented tools are recorded in `xdomains/game-dev/unity-3d/unity-open-mcp-missing-tools.md`. No source copied. |
 | [AIBridge](https://github.com/liyingsong99/AIBridge) | liyingsong | MIT | Design reference for prefab/scene automation, the change loop, and runtime debugging/UI-validation abilities. No source copied. |
-| [unity-coding-skills](https://github.com/nowsprinting/unity-coding-skills) | Koji Hasegawa | Unlicense | Design reference for the test-first (TDD) workflow and test subagents. No source copied. |
+| [unity-coding-skills](https://github.com/nowsprinting/unity-coding-skills) | Koji Hasegawa | Unlicense | Design reference for the test-first (TDD) workflow and test subagents, and for the Phase 5 `failing-test-first`, `test-deduplication`, and test-designer designs. No source copied. |
+| [MattSkills](https://github.com/mattpocock/skills) | Matt Pocock | MIT | Design reference for the Phase 5 plan-artifact and TDD-loop workflow (`to-spec`, `tdd`, `to-tickets`, `wayfinder`). No source copied. |
 | [Unity-Developer-Tools](https://github.com/TMHSDigital/Unity-Developer-Tools) | TM Hospitality Strategies | CC-BY-NC-ND-4.0 | **Design reference only — no verbatim copy.** Script-scaffolding emits fresh OAC templates; no rule, snippet, or template text is reused. |
 
 ## Imported primitives (12)
@@ -88,7 +89,7 @@ repository and carries no third-party notice.
 ### MIT License
 
 Applies to `unity-skills`, `claude-unity-game-studio`, `UnityCLI.AgenticExtensions`, `Unity-Open-MCP`,
-`AIBridge`, and the MIT-licensed primitives. Copyright lines per upstream repository:
+`AIBridge`, `MattSkills`, and the MIT-licensed primitives. Copyright lines per upstream repository:
 
 ```
 Copyright (c) 2026 Pravesh Koirala (unity-skills)
@@ -96,6 +97,7 @@ Copyright (c) 2026 Ido Cohen (claude-unity-game-studio)
 Copyright (c) 2026 Thomas Moore (UnityCLI.AgenticExtensions)
 Copyright (c) 2024-2026 Alexey Perov (Unity-Open-MCP)
 Copyright (c) 2026 liyingsong (AIBridge)
+Copyright (c) 2026 Matt Pocock (MattSkills)
 ```
 
 ```
@@ -166,6 +168,11 @@ no text, code, rule, snippet, or template was copied, so the material is not red
 
 ## Update log
 
+- **2026-09-21 — Phase 5 Steps 5.1–5.5:** recorded two design references used for the testing abilities —
+  `MattSkills/skills/engineering` (MIT, Matt Pocock: `to-spec`, `tdd`, `to-tickets`, `wayfinder`) for the
+  plan-artifact and TDD-loop workflow, and `unity-coding-skills` (Unlicense, Koji Hasegawa) for the
+  `failing-test-first`, `test-deduplication`, and test-designer designs. Both are design references; no
+  source code was copied.
 - **2026-09-20 — Phase 4 Step 4.2 (ticket 02):** reauthored the Full Studio agent hierarchy
   (`xdomains/game-dev/unity-3d/agent/full-studio/`, 18 agents) from `claude-unity-game-studio` (MIT).
   No source text was copied; only the director→lead→specialist structure, role missions, and

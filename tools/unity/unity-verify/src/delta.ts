@@ -36,6 +36,20 @@ function normalizeMessage(text: string): string {
   return text.replace(/\s+/g, ' ').trim();
 }
 
+// A declared change scope is a set of file/symbol tokens. An issue is in scope
+// when any token appears in its id or message (case-insensitive); an empty
+// scope means "no scope declared" and filters nothing. These are substring
+// hints, not exact file matches: `Player` also matches `PlayerController`,
+// `PlayerSpawner`, and unrelated message text. The over-count is the
+// conservative direction for a bounded delta (it never hides an in-scope
+// issue); `scopeUnmatched` reports a scope that matched nothing at all.
+export function issueInScope(issue: VerifyIssue, scope: string[]): boolean {
+  const tokens = scope.map((token) => token.trim().toLowerCase()).filter((token) => token !== '');
+  if (tokens.length === 0) return true;
+  const haystack = `${issue.id} ${issue.message}`.toLowerCase();
+  return tokens.some((token) => haystack.includes(token));
+}
+
 function pushIssue(issues: VerifyIssue[], seen: Set<string>, issue: VerifyIssue): void {
   if (issues.length >= MAX_ISSUES) return;
   const key = issueKey(issue);
@@ -94,7 +108,8 @@ export function compilePending(compile: Partial<VerifyCompile> | null | undefine
 export function computeDelta(
   before: VerifySnapshot | null,
   after: VerifySnapshot | null,
-  scan: DeltaScan = { ok: true }
+  scan: DeltaScan = { ok: true },
+  changeScope: string[] = []
 ): VerifyDelta {
   const reasons: string[] = [];
   const validateScanFailed = !scan.ok || after === null || isCompileUnavailable(after?.compile);
@@ -118,19 +133,34 @@ export function computeDelta(
       resolvedIssues: null,
       validateScanFailed,
       compilePending: pending,
+      scopeUnmatched: false,
       reasons,
     };
   }
 
   const beforeKeys = new Set(before.issues.map(issueKey));
   const afterKeys = new Set(after.issues.map(issueKey));
+  const rawNew = after.issues.filter((issue) => !beforeKeys.has(issueKey(issue)));
+  const rawResolved = before.issues.filter((issue) => !afterKeys.has(issueKey(issue)));
+  const scoped = changeScope.some((token) => token.trim() !== '');
+  const newIssues = scoped ? rawNew.filter((issue) => issueInScope(issue, changeScope)) : rawNew;
+  const resolvedIssues = scoped ? rawResolved.filter((issue) => issueInScope(issue, changeScope)) : rawResolved;
+  const excluded = rawNew.length - newIssues.length + (rawResolved.length - resolvedIssues.length);
+  // A declared scope that matches no issue at all is a warning: the substring
+  // match may simply have missed every real token, and the delta would then be
+  // silently empty. Report it alongside (not instead of) the excluded count.
+  const scopeUnmatched =
+    scoped && ![...before.issues, ...after.issues].some((issue) => issueInScope(issue, changeScope));
+  const deltaReasons = excluded > 0 ? [`${excluded} out-of-scope issue(s) excluded from the delta`] : [];
+  if (scopeUnmatched) deltaReasons.push('declared change scope matched no issues; the delta may under-report');
   return {
     computed: true,
-    newIssues: after.issues.filter((issue) => !beforeKeys.has(issueKey(issue))),
-    resolvedIssues: before.issues.filter((issue) => !afterKeys.has(issueKey(issue))),
+    newIssues,
+    resolvedIssues,
     validateScanFailed: false,
     compilePending: false,
-    reasons: [],
+    scopeUnmatched,
+    reasons: deltaReasons,
   };
 }
 
@@ -142,6 +172,7 @@ export function notComputedDelta(reason: string): VerifyDelta {
     resolvedIssues: null,
     validateScanFailed: false,
     compilePending: false,
+    scopeUnmatched: false,
     reasons: [reason],
   };
 }

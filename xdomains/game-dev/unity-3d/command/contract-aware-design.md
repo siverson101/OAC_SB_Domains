@@ -5,12 +5,13 @@ family: compose
 mode: offline
 description: Parse the contract frontmatter of every capability markdown file and validate it against the unified capability contract schema (ADR-0012), reporting per-capability errors so a design can be checked without reading every file.
 inputs: { projectRoot: "string", capabilitiesDir: "string?", schema: "string?" }
-outputs: { status: "string", schemaPath: "string", capabilitiesDir: "string", checked: "number", valid: "number", invalid: "number", results: "array" }
+outputs: { status: "string", safetyGate: "object", schemaPath: "string", capabilitiesDir: "string", checked: "number", valid: "number", invalid: "number", results: "array" }
 sideEffects: []
 safetyGate: { mutates: false, requiresEditor: false }
 uses: []
 provides: [contract-aware-design, contract-validation]
 requires: [capability-contract-schema]
+testPlan: ["Validate a good contract with no errors", "Confirm a missing id and an invalid family are reported", "Confirm a missing schema is unavailable not thrown"]
 versionCompatibility: { unity: ["6.0", "6.3", "6.5", "LTS+"] }
 ---
 

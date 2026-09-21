@@ -26,6 +26,11 @@ import {
 } from '../tools/unity/unity-compose/src/primitive-composition';
 import { runContractAwareDesign } from '../tools/unity/unity-compose/src/contract-aware-design';
 import { runCiStatusBaseline } from '../tools/unity/unity-compose/src/ci-status-baseline';
+import {
+  PLAN_SECTIONS,
+  runPlanFeature,
+} from '../tools/unity/unity-compose/src/plan-feature';
+import { runTestPlan } from '../tools/unity/unity-compose/src/test-plan';
 import { runCompose } from '../tools/unity/unity-compose/src/abilities';
 import { parseYaml } from '../tools/shared/yaml';
 import { COMPOSE_ABILITIES, COMPOSE_MODES, type ComposeOptions } from '../tools/unity/unity-compose/src/types';
@@ -388,6 +393,276 @@ describe('ci-status-baseline', () => {
   });
 });
 
+describe('plan-feature', () => {
+  function planOptions(oc: string, extra: Partial<ComposeOptions> = {}): ComposeOptions {
+    return { ...base, ability: 'plan-feature' as const, opencodeDir: oc, ...extra };
+  }
+
+  function enableTdd(oc: string): void {
+    mkdirSync(oc, { recursive: true });
+    writeFileSync(
+      join(oc, 'unity-studio.json'),
+      JSON.stringify({ schemaVersion: 1, toggles: { tdd: true, ftf: false } })
+    );
+  }
+
+  const TEST_CASES = [
+    '| Layer | Test |',
+    '| --- | --- |',
+    '| Unit | jump raises the player by the configured height |',
+  ].join('\n');
+
+  test('writes the plan artifact with every section present and ordered', () => {
+    const oc = join(fixture, 'plan-write', '.opencode');
+    enableTdd(oc);
+    const result = runPlanFeature(
+      planOptions(oc, {
+        feature: 'player-jump',
+        context: 'Add a jump ability.',
+        design: 'PlayerJump.Jump(height: float) in Assets/Scripts/PlayerJump.cs',
+        testCases: TEST_CASES,
+        testingDecisions: 'Test at the PlayerJump public seam; prior art: PlayerMoveTests.',
+        testability: 'PASS',
+        tradeOffs: 'Jump height is a magic number.',
+      })
+    );
+
+    expect(result.status).toBe('ok');
+    expect(result.action).toBe('write');
+    expect(result.written).toBe(true);
+    expect(result.testability).toBe('PASS');
+    expect(result.planPath.endsWith('/plans/player-jump.md')).toBe(true);
+
+    const path = join(oc, 'plans', 'player-jump.md');
+    expect(existsSync(path)).toBe(true);
+    const markdown = readFileSync(path, 'utf8');
+
+    let cursor = -1;
+    for (const section of PLAN_SECTIONS) {
+      const index = markdown.indexOf(`## ${section}`);
+      expect(index, `${section} present`).toBeGreaterThan(-1);
+      expect(index, `${section} ordered`).toBeGreaterThan(cursor);
+      cursor = index;
+    }
+
+    expect(markdown).toContain(TEST_CASES);
+
+    // The Development Workflow prose is expected to evolve, so assert its
+    // structure (four tdd rules + three rejected anti-patterns) rather than
+    // pinning exact phrases.
+    const workflow = markdown.slice(markdown.indexOf('## Development Workflow'));
+    expect(workflow).toContain('Reject these test anti-patterns');
+    expect(workflow.match(/^\d+\. \*\*/gm)?.length).toBe(4);
+    expect(workflow.match(/^- \*\*/gm)?.length).toBe(3);
+  });
+
+  test('refuses when TDD is off and writes nothing', () => {
+    const oc = join(fixture, 'plan-tdd-off', '.opencode');
+    const result = runPlanFeature(planOptions(oc, { feature: 'player-jump', testCases: TEST_CASES, testability: 'PASS' }));
+
+    expect(result.status).toBe('refused');
+    expect(result.written).toBe(false);
+    expect(result.summary.toLowerCase()).toContain('tdd');
+    expect(existsSync(join(oc, 'plans', 'player-jump.md'))).toBe(false);
+  });
+
+  test('a Testability FAIL loops back once, then aborts, writing no plan', () => {
+    const oc = join(fixture, 'plan-fail', '.opencode');
+    enableTdd(oc);
+    const options = planOptions(oc, { feature: 'player-jump', testCases: TEST_CASES, testability: 'FAIL' });
+
+    const first = runPlanFeature(options);
+    expect(first.status).toBe('loopback');
+    expect(first.action).toBe('loopback');
+    expect(first.attempt).toBe(1);
+    expect(first.written).toBe(false);
+    expect(first.instruction?.toLowerCase()).toContain('retry');
+    expect(existsSync(join(oc, 'plans', 'player-jump.md'))).toBe(false);
+
+    const second = runPlanFeature(options);
+    expect(second.status).toBe('aborted');
+    expect(second.action).toBe('abort');
+    expect(second.written).toBe(false);
+    expect(existsSync(join(oc, 'plans', 'player-jump.md'))).toBe(false);
+    // The abort clears the marker so the next invocation starts a fresh cycle.
+    expect(existsSync(join(oc, 'plans', 'player-jump.loopback.json'))).toBe(false);
+  });
+
+  test('an abort clears the marker so a revised design gets one retry in a fresh cycle', () => {
+    const oc = join(fixture, 'plan-abort-reset', '.opencode');
+    enableTdd(oc);
+    const options = planOptions(oc, { feature: 'player-jump', testCases: TEST_CASES, testability: 'FAIL' });
+
+    expect(runPlanFeature(options).status).toBe('loopback');
+    expect(runPlanFeature(options).status).toBe('aborted');
+
+    // A fresh cycle after the abort gets its one retry again, not an immediate abort.
+    const fresh = runPlanFeature(options);
+    expect(fresh.status).toBe('loopback');
+    expect(fresh.action).toBe('loopback');
+    expect(fresh.attempt).toBe(1);
+  });
+
+  test('an unknown loopback schemaVersion is ignored (fail-soft)', () => {
+    const oc = join(fixture, 'plan-bad-schema', '.opencode');
+    enableTdd(oc);
+    mkdirSync(join(oc, 'plans'), { recursive: true });
+    writeFileSync(
+      join(oc, 'plans', 'player-jump.loopback.json'),
+      JSON.stringify({ schemaVersion: 99, feature: 'player-jump', attempts: 5, updatedAt: '2026-01-01T00:00:00.000Z' })
+    );
+
+    const result = runPlanFeature(planOptions(oc, { feature: 'player-jump', testCases: TEST_CASES, testability: 'FAIL' }));
+    expect(result.status).toBe('loopback');
+    expect(result.attempt).toBe(1);
+  });
+
+  test('a Testability WARN writes the plan and records the warning under Known Trade-offs', () => {
+    const oc = join(fixture, 'plan-warn', '.opencode');
+    enableTdd(oc);
+    const result = runPlanFeature(
+      planOptions(oc, {
+        feature: 'player-jump',
+        testCases: TEST_CASES,
+        testability: 'WARN',
+        tradeOffs: '- Seam X is private.',
+      })
+    );
+
+    expect(result.status).toBe('ok');
+    const markdown = readFileSync(join(oc, 'plans', 'player-jump.md'), 'utf8');
+    expect(markdown).toContain('- Seam X is private.');
+    expect(markdown).toContain('Testability WARN');
+  });
+
+  test('a PASS after a FAIL clears the loopback marker so a new cycle can retry', () => {
+    const oc = join(fixture, 'plan-recover', '.opencode');
+    enableTdd(oc);
+    runPlanFeature(planOptions(oc, { feature: 'player-jump', testCases: TEST_CASES, testability: 'FAIL' }));
+    const passed = runPlanFeature(planOptions(oc, { feature: 'player-jump', testCases: TEST_CASES, testability: 'PASS' }));
+    expect(passed.status).toBe('ok');
+    expect(existsSync(join(oc, 'plans', 'player-jump.loopback.json'))).toBe(false);
+
+    const failedAgain = runPlanFeature(planOptions(oc, { feature: 'player-jump', testCases: TEST_CASES, testability: 'FAIL' }));
+    expect(failedAgain.status).toBe('loopback');
+  });
+
+  test('refuses a non-kebab slug so the artifact can only land under .opencode/plans/', () => {
+    const oc = join(fixture, 'plan-slug', '.opencode');
+    enableTdd(oc);
+    const result = runPlanFeature(planOptions(oc, { feature: '../escape', testCases: TEST_CASES, testability: 'PASS' }));
+    expect(result.status).toBe('refused');
+    expect(result.written).toBe(false);
+    expect(existsSync(join(oc, 'escape.md'))).toBe(false);
+  });
+
+  test('refuses a missing verdict or missing test cases', () => {
+    const oc = join(fixture, 'plan-missing', '.opencode');
+    enableTdd(oc);
+    expect(runPlanFeature(planOptions(oc, { feature: 'player-jump', testCases: TEST_CASES })).status).toBe('refused');
+    expect(runPlanFeature(planOptions(oc, { feature: 'player-jump', testability: 'PASS' })).status).toBe('refused');
+  });
+});
+
+describe('test-plan', () => {
+  function writeCapability(dir: string, id: string, testPlan: string[] | null, summary = `${id} capability`): void {
+    mkdirSync(dir, { recursive: true });
+    const lines = ['---', `id: ${id}`, `summary: ${summary}`, 'family: compose', 'mode: offline'];
+    if (testPlan) lines.push(`testPlan: [${testPlan.map((step) => `"${step}"`).join(', ')}]`);
+    lines.push('---', '', `# ${id}`);
+    writeFileSync(join(dir, `${id}.md`), lines.join('\n'));
+  }
+
+  function planOptions(oc: string, extra: Partial<ComposeOptions> = {}): ComposeOptions {
+    return { ...base, ability: 'test-plan' as const, opencodeDir: oc, ...extra };
+  }
+
+  test('renders a section per capability and a deduplicated checklist', () => {
+    const oc = join(fixture, 'test-plan-write', '.opencode');
+    const commands = join(fixture, 'test-plan-write', 'command');
+    writeCapability(commands, 'alpha', ['shared step', 'alpha only']);
+    writeCapability(commands, 'beta', ['shared step', 'beta only']);
+
+    const result = runTestPlan(planOptions(oc, { feature: 'player-jump', planAbilities: ['alpha', 'beta'], commandsDir: commands }));
+
+    expect(result.status).toBe('ok');
+    expect(result.written).toBe(true);
+    expect(result.sections).toBe(2);
+    expect(result.checklist).toBe(3);
+    expect(result.planPath).toContain('/test-plans/player-jump.md');
+
+    const markdown = readFileSync(join(oc, 'test-plans', 'player-jump.md'), 'utf8');
+    expect(markdown).toContain('## alpha');
+    expect(markdown).toContain('## beta');
+    expect(markdown).toContain('- [ ] alpha only');
+    expect(markdown).toContain('- [ ] beta only');
+    expect(markdown.match(/- \[ \] shared step/g)?.length).toBe(1);
+    // The dropped duplicate is surfaced so a reader can tell a step was removed.
+    expect(markdown).toContain('## Duplicate Steps Dropped');
+    expect(markdown).toContain('shared step');
+  });
+
+  test('a missing capability and a missing testPlan are problems, not crashes', () => {
+    const oc = join(fixture, 'test-plan-missing', '.opencode');
+    const commands = join(fixture, 'test-plan-missing', 'command');
+    writeCapability(commands, 'alpha', ['alpha step']);
+    writeCapability(commands, 'empty', null);
+
+    const result = runTestPlan(planOptions(oc, { feature: 'player-jump', planAbilities: ['alpha', 'empty', 'ghost'], commandsDir: commands }));
+
+    expect(result.status).toBe('observed_locally');
+    expect(result.written).toBe(true);
+    expect(result.problems.join(' ')).toContain('ghost');
+    expect(result.problems.join(' ')).toContain('empty');
+    expect(result.problems.join(' ')).toContain('testPlan');
+
+    const markdown = readFileSync(join(oc, 'test-plans', 'player-jump.md'), 'utf8');
+    expect(markdown).toContain('> Problem:');
+  });
+
+  test('refuses without --abilities (no hand-maintained feature mapping)', () => {
+    const oc = join(fixture, 'test-plan-map', '.opencode');
+    const commands = join(fixture, 'test-plan-map', 'command');
+    writeCapability(commands, 'alpha', ['alpha step']);
+
+    const result = runTestPlan(planOptions(oc, { feature: 'player-jump', commandsDir: commands }));
+    expect(result.status).toBe('refused');
+    expect(result.errors.join(' ')).toContain('--abilities');
+  });
+
+  test("reads a primitive's test_plan when the id is not a command", () => {
+    const oc = join(fixture, 'test-plan-primitive', '.opencode');
+    const commands = join(fixture, 'test-plan-primitive', 'command');
+    const primitives = join(fixture, 'test-plan-primitive', 'primitives');
+    mkdirSync(join(primitives, 'arch.movement.2d'), { recursive: true });
+    writeFileSync(
+      join(primitives, 'arch.movement.2d', 'primitive.yaml'),
+      ['id: arch.movement.2d', 'summary: A movement system', 'test_plan:', '- Spawn an entity', '- Observe movement', ''].join('\n')
+    );
+
+    const result = runTestPlan(
+      planOptions(oc, { feature: 'player-jump', planAbilities: ['arch.movement.2d'], commandsDir: commands, primitivesDir: primitives })
+    );
+    expect(result.status).toBe('ok');
+    expect(result.sections).toBe(1);
+    expect(result.checklist).toBe(2);
+
+    const markdown = readFileSync(join(oc, 'test-plans', 'player-jump.md'), 'utf8');
+    expect(markdown).toContain('- [ ] Spawn an entity');
+  });
+
+  test('refuses a non-kebab slug and writes nothing outside .opencode/test-plans/', () => {
+    const oc = join(fixture, 'test-plan-slug', '.opencode');
+    const commands = join(fixture, 'test-plan-slug', 'command');
+    writeCapability(commands, 'alpha', ['alpha step']);
+
+    const result = runTestPlan(planOptions(oc, { feature: '../escape', planAbilities: ['alpha'], commandsDir: commands }));
+    expect(result.status).toBe('refused');
+    expect(result.written).toBe(false);
+    expect(existsSync(join(oc, 'test-plans'))).toBe(false);
+  });
+});
+
 describe('compose dispatcher', () => {
   test('routes each ability to its handler', async () => {
     const board = await runCompose({ ...base, ability: 'coordination-board', verb: 'status' });
@@ -401,18 +676,26 @@ describe('compose dispatcher', () => {
 
     const ci = await runCompose({ ...base, ability: 'ci-status-baseline' });
     expect(ci.ability).toBe('ci-status-baseline');
+
+    const plan = await runCompose({ ...base, ability: 'plan-feature', feature: 'x', testCases: 'test', testability: 'PASS' });
+    expect(plan.ability).toBe('plan-feature');
+
+    const testPlan = await runCompose({ ...base, ability: 'test-plan', feature: 'x', planAbilities: ['a'] });
+    expect(testPlan.ability).toBe('test-plan');
   });
 });
 
 describe('Compose command contracts', () => {
   const schema = JSON.parse(readFileSync(schemaPath, 'utf8'));
 
-  test('declares exactly the four abilities', () => {
+  test('declares exactly the six abilities', () => {
     expect(COMPOSE_ABILITIES).toEqual([
       'coordination-board',
       'primitive-composition',
       'contract-aware-design',
       'ci-status-baseline',
+      'plan-feature',
+      'test-plan',
     ]);
   });
 
@@ -442,7 +725,7 @@ describe('Compose command contracts', () => {
 });
 
 describe('unity-compose bundle', () => {
-  test('lists the four abilities', () => {
+  test('lists the six abilities', () => {
     const res = spawnSync(process.execPath, [bundle, '--list'], { encoding: 'utf8' });
     expect(res.status).toBe(0);
     expect(res.stdout.trim().split(/\r?\n/)).toEqual(COMPOSE_ABILITIES);
