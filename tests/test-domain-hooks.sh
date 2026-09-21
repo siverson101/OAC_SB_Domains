@@ -45,6 +45,12 @@ for sd in unity-2d unity-3d; do
 done
 pass "all expected hooks present"
 
+# --- the stage-3 hook records the version baseline -------------------------
+grep -q "scripts/unity/version-drift.mjs" \
+    "$XD/game-dev/unity-3d/hooks/instead/stage-3-identify-use-cases.md" \
+    || fail "stage-3 hook does not run version-drift.mjs"
+pass "stage-3 hook runs the version-drift baseline check"
+
 # --- every hook begins with YAML frontmatter --------------------------------
 for f in "$XD"/game-dev/*/hooks/*/*.md; do
     [ -f "$f" ] || continue

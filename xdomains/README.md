@@ -106,6 +106,11 @@ node .opencode/xdomains/scripts/unity/scan-project.mjs --project-root . --openco
 `unity/gather-unity-context.mjs` gathers the full Unity context (project structure, toolchain,
 commands, pipeline, Unity CLI MCP, gate/verification) into `.opencode/project-data/` for projection.
 
+`unity/version-drift.mjs` runs the Session-Start Version Check: it compares the Editor version,
+packages and Unity CLI against baselines under `.opencode/project-data/version-baselines/`, writes
+only those baseline files, and surfaces breaking-change/changelog reviews as ACTION REQUIRED. Use
+`--if-due --max-age-hours 24` for the once-a-day cadence.
+
 Add `--non-interactive` (or `--answers <file>`) for CI. Scripts are fail-soft and never fail a build.
 Raw inputs go to `.opencode/project-data/`; intermediates go to
 `.opencode/xdomains/context/project/`.

@@ -31,6 +31,18 @@ node .opencode/xdomains/scripts/unity/gather-unity-context.mjs \
   --opencode-dir .opencode
 ```
 
+Then record the version baseline (offline, fail-soft). This is the Session-Start Version Check: it
+compares the Editor version, packages and Unity CLI against the stored baselines and writes only the
+baseline files under `.opencode/project-data/version-baselines/`. It never fails a build; if the
+script or a Unity project is absent, warn and continue.
+
+```bash
+node .opencode/xdomains/scripts/unity/version-drift.mjs \
+  --project-root . \
+  --opencode-dir .opencode \
+  --if-due --max-age-hours 24
+```
+
 Ask the user to describe the Unity work this system should support:
 
 1. The top 3-5 tasks (for example: "implement a player controller", "assemble a scene and
