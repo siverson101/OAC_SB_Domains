@@ -6,7 +6,8 @@
 // One canonical swap: back up the installed agent set, install the requested
 // hierarchy through the Phase 4 apply engine (`merge-domains.js`), and refresh
 // the registry. Only the agent set changes; project-data, context, commands,
-// abilities, recipes and config are preserved.
+// abilities, recipes and config are preserved. Agent metadata is reconciled to
+// the active hierarchy (the engine prunes the other hierarchy's entries).
 //
 // Usage:
 //   node unity-studio-mode.js --opencode-dir .opencode --mode <lean|full> [--json]
@@ -21,6 +22,7 @@ const ENGINE = path.resolve(__dirname, '../../../merge-domains.js');
 const DOMAIN_DIR = path.resolve(__dirname, '..');
 const REGISTRY_BUNDLE = path.resolve(__dirname, '../../../scripts/shared/build-registry.mjs');
 const BACKUP_ROOT = path.join('backups', 'unity-studio-mode');
+const METADATA_REL = path.join('config', 'agent-metadata.json');
 
 let engine;
 try {
@@ -35,36 +37,8 @@ const {
   readExistingStudioMode,
   resolveGating,
   selectHierarchy,
+  parseArgs,
 } = engine;
-
-function parseArgs(argv) {
-  const out = { _: [] };
-  let i = 0;
-  while (i < argv.length) {
-    const arg = argv[i];
-    if (arg.startsWith('--') && arg.includes('=')) {
-      const eq = arg.indexOf('=');
-      out[arg.slice(2, eq)] = arg.slice(eq + 1);
-      i++;
-      continue;
-    }
-    if (arg.startsWith('--')) {
-      const key = arg.slice(2);
-      const next = argv[i + 1];
-      if (next && !next.startsWith('--')) {
-        out[key] = next;
-        i += 2;
-      } else {
-        out[key] = true;
-        i++;
-      }
-      continue;
-    }
-    out._.push(arg);
-    i++;
-  }
-  return out;
-}
 
 function timestamp() {
   return new Date().toISOString().replace(/[:.]/g, '-');
@@ -91,7 +65,7 @@ function main() {
   };
 
   const flag = argv.mode !== undefined ? argv.mode : argv['studio-mode'];
-  const raw = flag !== undefined ? flag : argv._[0];
+  const raw = flag !== undefined ? flag : (argv._ || [])[0];
   if (raw === undefined) return refuse('no studio mode given; expected lean or full');
   if (raw === true) return refuse('--mode requires a value: lean or full');
   const requested = normalizeStudioMode(String(raw));
@@ -99,7 +73,12 @@ function main() {
 
   const manifestPath = path.join(DOMAIN_DIR, 'sb-domain.json');
   if (!fs.existsSync(manifestPath)) return refuse(`no sb-domain.json found in ${DOMAIN_DIR}`);
-  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  let manifest;
+  try {
+    manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  } catch (error) {
+    return refuse(`cannot read sb-domain.json in ${DOMAIN_DIR}: ${error.message}`);
+  }
 
   const configPath = path.join(opencodeDir, 'unity-studio.json');
   const previousMode = readExistingStudioMode(opencodeDir) || 'lean';
@@ -111,6 +90,7 @@ function main() {
 
   const backupEntries = rosterFor(previousMode).filter((rel) => fs.existsSync(path.join(opencodeDir, rel)));
   if (fs.existsSync(configPath)) backupEntries.push('unity-studio.json');
+  if (fs.existsSync(path.join(opencodeDir, METADATA_REL))) backupEntries.push(METADATA_REL);
 
   let backupDir = null;
   if (backupEntries.length > 0) {
@@ -134,7 +114,14 @@ function main() {
 
   const apply = spawnSync(
     process.execPath,
-    [ENGINE, '--domain-dir', DOMAIN_DIR, '--opencode-dir', opencodeDir, '--mode', 'replace', '--studio-mode', requested],
+    [
+      ENGINE,
+      '--domain-dir', DOMAIN_DIR,
+      '--opencode-dir', opencodeDir,
+      '--mode', 'replace',
+      '--studio-mode', requested,
+      '--prune-metadata',
+    ],
     { encoding: 'utf8' }
   );
 
@@ -188,4 +175,9 @@ function main() {
   process.stdout.write(`  registry: ${registry}\n`);
 }
 
-main();
+try {
+  main();
+} catch (error) {
+  process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+  process.exitCode = 1;
+}

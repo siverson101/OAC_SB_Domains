@@ -32,8 +32,8 @@ Machine-readable per-version feature matrix for the Unity 6.x line. Single sourc
 | ui-toolkit-default-runtime-ui | 6.3 | — | — | no | yes | yes | yes |
 | find-object-of-type-obsolete | 6.0 | 6.0 | — | yes | yes | yes | yes |
 | lighting-auto-generate | — | — | 6.0 | no | no | no | no |
-| rigidbody-set-density | 6.0 | 6.1 | — | yes | yes | yes | yes |
-| cluster-light-loop-keyword | 6.0 | 6.1 | — | yes | yes | yes | yes |
+| rigidbody-set-density | 6.0 | 6.3 | — | yes | yes | yes | yes |
+| cluster-light-loop-keyword | 6.0 | 6.3 | — | yes | yes | yes | yes |
 | dx12-default-graphics-api | 6.3 | — | — | no | yes | yes | yes |
 
 ## Overlays

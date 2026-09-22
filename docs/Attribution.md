@@ -36,20 +36,20 @@ Every primitive below was copied verbatim from the `unity-skills` registry into
 records them in `unity-skills/PROVENANCE.md`. Holders marked *(repo owner)* have no in-file copyright
 line, so the upstream repository owner is recorded as the holder.
 
-| Primitive id | Source repo | SPDX | Holder |
-|---|---|---|---|
-| `arch.movement.2d` | https://github.com/genaray/Arch | Apache-2.0 | Genaray *(repo owner)* |
-| `csharp.collections.multidictionary` | https://github.com/Alex-Rachel/TEngine | MIT | Alex-Rachel *(repo owner)* |
-| `csharp.gameplay.match3` | https://github.com/LibraStack/Match3-SDK | MIT | LibraStack *(repo owner)* |
-| `csharp.io.aseprite_parser` | https://github.com/WeAthFoLD/MetaSprite | MIT | WeAthFoLD *(repo owner)* |
-| `csharp.math.dywa_pitch_tracker` | https://github.com/UltraStar-Deluxe/Play | MIT | Antoine Schmitt (dywapitchtrack); UltraStar-Deluxe/Play |
-| `csharp.threading.disruptor` | https://github.com/dave-hillier/disruptor-unity3d | Apache-2.0 | Dave Hillier; modifications by SoftwareGuy (Coburn) |
-| `csharp.utils.crc32` | https://github.com/YarnSpinnerTool/YarnSpinner | MIT | Yarn Spinner *(repo owner)* |
-| `unity.data.csv_parser` | https://github.com/CragonGame/CasinosClient | MIT | Cragon |
-| `unity.data.fastlz` | https://github.com/ikpil/DotFastLZ | MIT | Ariya Hidayat; Choi Ikpil |
-| `unity.entitas.coreloop` | https://github.com/sschmid/Entitas | MIT | sschmid *(repo owner)* |
-| `unity.system.main_thread_dispatcher` | https://github.com/PimDeWitte/UnityMainThreadDispatcher | Apache-2.0 | Pim de Witte |
-| `unity.system.object_pool` | https://github.com/yimengfan/BDFramework.Core | Apache-2.0 | yimengfan *(repo owner)* |
+| Primitive id | Source repo | SPDX | Holder | Use in this domain |
+|---|---|---|---|---|
+| `arch.movement.2d` | https://github.com/genaray/Arch | Apache-2.0 | Genaray *(repo owner)* | Redistributed verbatim under `primitives/arch.movement.2d/`; ECS 2D movement/bounce building block for `primitive-composition`. |
+| `csharp.collections.multidictionary` | https://github.com/Alex-Rachel/TEngine | MIT | Alex-Rachel *(repo owner)* | Redistributed verbatim; zero-allocation multi-value collection used in gameplay code. |
+| `csharp.gameplay.match3` | https://github.com/LibraStack/Match3-SDK | MIT | LibraStack *(repo owner)* | Redistributed verbatim; decoupled Match-3 engine core referenced by gameplay scaffolding. |
+| `csharp.io.aseprite_parser` | https://github.com/WeAthFoLD/MetaSprite | MIT | WeAthFoLD *(repo owner)* | Redistributed verbatim; standalone Aseprite parser for asset-intelligence workflows. |
+| `csharp.math.dywa_pitch_tracker` | https://github.com/UltraStar-Deluxe/Play | MIT | Antoine Schmitt (dywapitchtrack); UltraStar-Deluxe/Play | Redistributed verbatim; zero-allocation pitch tracking for audio tooling. |
+| `csharp.threading.disruptor` | https://github.com/dave-hillier/disruptor-unity3d | Apache-2.0 | Dave Hillier; modifications by SoftwareGuy (Coburn) | Redistributed verbatim; lock-free ring buffer for thread-safe data transfer. |
+| `csharp.utils.crc32` | https://github.com/YarnSpinnerTool/YarnSpinner | MIT | Yarn Spinner *(repo owner)* | Redistributed verbatim; zero-allocation CRC32 checksums for asset IDs and paths. |
+| `unity.data.csv_parser` | https://github.com/CragonGame/CasinosClient | MIT | Cragon | Redistributed verbatim; standalone CSV read/write for data tooling. |
+| `unity.data.fastlz` | https://github.com/ikpil/DotFastLZ | MIT | Ariya Hidayat; Choi Ikpil | Redistributed verbatim; FastLZ compression for runtime data. |
+| `unity.entitas.coreloop` | https://github.com/sschmid/Entitas | MIT | sschmid *(repo owner)* | Redistributed verbatim; deterministic Entitas ECS core loop. |
+| `unity.system.main_thread_dispatcher` | https://github.com/PimDeWitte/UnityMainThreadDispatcher | Apache-2.0 | Pim de Witte | Redistributed verbatim; marshals background work onto Unity's main thread. |
+| `unity.system.object_pool` | https://github.com/yimengfan/BDFramework.Core | Apache-2.0 | yimengfan *(repo owner)* | Redistributed verbatim; generic object pooling for gameplay code. |
 
 The set above is exactly the directories present on disk. `tests/attribution.test.ts` enforces
 parity between this table and `xdomains/game-dev/unity-3d/primitives/`.
@@ -127,7 +127,21 @@ SOFTWARE.
 Applies to the `Apache-2.0` primitives listed above. The full license text ships with each upstream
 repository and is available at <https://www.apache.org/licenses/LICENSE-2.0>. Files that carried an
 Apache header upstream retain it; per-primitive `license: Apache-2.0` is recorded in each
-`primitive.yaml`.
+`primitive.yaml`. The required notice:
+
+```
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+```
 
 ### Unlicense
 

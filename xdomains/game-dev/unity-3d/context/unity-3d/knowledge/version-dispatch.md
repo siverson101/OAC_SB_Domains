@@ -3,13 +3,17 @@
 # Knowledge Version Dispatch
 
 Selects which knowledge files apply to the detected Unity editor version. This is the entry point
-for the version-gated knowledge layer; the machine-readable form is `manifest.json` in this folder.
+for the version-gated knowledge layer; the machine-readable form is
+`xdomains/context/unity/version-matrix.json` (the `dispatch` map), which is the single source of the
+editor-line -> dispatch-key mapping. This page is a rendering of that table.
 
 ## Detected Version
 1. Read the editor version from `unity-project.json` (`unityVersion`, for example `6000.5.7f1`) or
    `ProjectSettings/ProjectVersion.txt`.
-2. Map the major version to a dispatch key: `6000.0` -> `6.0`, `6000.3` -> `6.3`, `6000.5` -> `6.5`.
-   Any newer major uses the `LTS+` overlay.
+2. Map the editor line to a dispatch key using `dispatch` in `version-matrix.json`: `6000.0` -> `6.0`,
+   `6000.3` -> `6.3`, `6000.5` -> `6.5`. An editor line the map does not list resolves to the nearest
+   known key at or below it (`6000.1`/`6000.2` -> `6.0`); a line above every known key uses the
+   `newerDispatchKey` (`LTS+`) overlay.
 3. Load the engine and middleware base files, then the single matching overlay from `versions/`.
 
 ## Dispatch Table

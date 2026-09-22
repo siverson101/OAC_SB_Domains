@@ -4,7 +4,7 @@
 // renderers produce (drift), so `bun run build` cannot silently stale them.
 import { describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import type { VersionMatrix } from '../tools/shared/unity-version';
@@ -56,6 +56,37 @@ describe('agent-system blueprint', () => {
     const qa = lean?.subagents.find((agent) => agent.id === 'qa');
     expect(qa?.delegation.reportsTo).toContain('Unity3DOrchestrator');
     expect(qa?.delegation.siblings).toContain('UnityImplementer');
+  });
+
+  test('populates an abstract tier for every agent in both hierarchies', () => {
+    for (const hierarchy of registry.agentSystem.hierarchies) {
+      for (const agent of [...hierarchy.agents, ...hierarchy.subagents]) {
+        expect(agent.tier, `${hierarchy.mode}/${agent.id} tier`).toBeDefined();
+        expect(['router', 'lead', 'specialist'], `${hierarchy.mode}/${agent.id}`).toContain(agent.tier as string);
+      }
+    }
+    for (const tier of ['router', 'lead', 'specialist']) expect(blueprint).toContain(`| ${tier} |`);
+  });
+
+  test('resolves model ids when a modelTiers map is configured', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'oac-blueprint-tiers-'));
+    try {
+      writeFileSync(
+        join(dir, 'unity-studio.json'),
+        JSON.stringify({
+          schemaVersion: 1,
+          studioMode: 'lean',
+          modelTiers: { router: 'model-router', lead: 'model-lead', specialist: 'model-specialist' },
+        })
+      );
+      const withModels = buildRegistry(unity3dDir, '2026-09-22T00:00:00.000Z', dir);
+      const rendered = renderAgentSystemBlueprint(withModels);
+      expect(rendered).toContain('model-router');
+      expect(rendered).toContain('model-specialist');
+      expect(rendered).not.toContain('(unset)');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   test('renders hierarchies, allowlists, delegation maps and tiers', () => {
@@ -113,6 +144,36 @@ describe('registry bundle emits the docs', () => {
       expect(existsSync(join(out, 'registry.json'))).toBe(false);
       expect(readFileSync(blueprintOut, 'utf8')).toBe(blueprint);
       expect(readFileSync(matrixOut, 'utf8')).toBe(versionMatrixDoc);
+    } finally {
+      rmSync(out, { recursive: true, force: true });
+    }
+  });
+
+  test('--studio-config pins the domain config so a decoy install cannot change the docs', () => {
+    const out = mkdtempSync(join(tmpdir(), 'oac-registry-decoy-'));
+    try {
+      writeFileSync(
+        join(out, 'unity-studio.json'),
+        JSON.stringify({
+          schemaVersion: 1,
+          studioMode: 'full',
+          modelTiers: { router: 'decoy-router', lead: 'decoy-lead', specialist: 'decoy-specialist' },
+        })
+      );
+      const res = spawnSync(
+        process.execPath,
+        [
+          bundle,
+          '--domain-dir', unity3dDir,
+          '--opencode-dir', out,
+          '--studio-config', join(unity3dDir, 'unity-studio.json'),
+          '--docs-only',
+        ],
+        { encoding: 'utf8' }
+      );
+      expect(res.status).toBe(0);
+      const blueprintOut = join(out, 'context', 'unity-3d', 'agent-system-blueprint.md');
+      expect(readFileSync(blueprintOut, 'utf8')).toBe(blueprint);
     } finally {
       rmSync(out, { recursive: true, force: true });
     }

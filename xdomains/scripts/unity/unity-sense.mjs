@@ -380,24 +380,49 @@ function parseFrontmatter(content) {
 
 // tools/shared/unity-version.ts
 var UNITY_DISPATCH_KEYS = ["6.0", "6.3", "6.5", "LTS+"];
-var KNOWN_DISPATCH = {
-  "6000.0": "6.0",
-  "6000.3": "6.3",
-  "6000.5": "6.5"
-};
-var NEWER_DISPATCH_KEY = "LTS+";
+var FALLBACK_NEWER_DISPATCH_KEY = "LTS+";
 var VERSION_PATTERN = /^(\d+)\.(\d+)\.(\d+)([A-Za-z]\d*)?$/;
-function dispatchKeyFor(major, minor) {
+function knownKeys(matrix) {
+  return matrix?.versions ?? UNITY_DISPATCH_KEYS;
+}
+function isKnownKey(key, matrix) {
+  return knownKeys(matrix).includes(key);
+}
+function dispatchLines(matrix) {
+  const lines = [];
+  for (const [editorLine, key] of Object.entries(matrix?.dispatch ?? {})) {
+    const [majorRaw, minorRaw] = editorLine.split(".");
+    const major = Number(majorRaw);
+    const minor = Number(minorRaw);
+    if (!Number.isInteger(major) || !Number.isInteger(minor) || !key)
+      continue;
+    lines.push({ major, minor, key });
+  }
+  lines.sort((a, b) => a.major - b.major || a.minor - b.minor);
+  return lines;
+}
+function dispatchKeyFor(major, minor, matrix) {
   if (major === null || minor === null)
     return null;
-  const known = KNOWN_DISPATCH[`${major}.${minor}`];
-  if (known)
-    return known;
-  if (major > 6000 || major === 6000 && minor > 5)
-    return NEWER_DISPATCH_KEY;
-  return null;
+  const lines = dispatchLines(matrix);
+  if (lines.length === 0)
+    return null;
+  const exact = lines.find((line) => line.major === major && line.minor === minor);
+  if (exact)
+    return isKnownKey(exact.key, matrix) ? exact.key : null;
+  const highest = lines[lines.length - 1];
+  if (major > highest.major || major === highest.major && minor > highest.minor) {
+    const newer = matrix?.newerDispatchKey ?? FALLBACK_NEWER_DISPATCH_KEY;
+    return isKnownKey(newer, matrix) ? newer : null;
+  }
+  let floor = null;
+  for (const line of lines) {
+    if (line.major < major || line.major === major && line.minor < minor)
+      floor = line;
+  }
+  return floor && isKnownKey(floor.key, matrix) ? floor.key : null;
 }
-function parseUnityVersion(raw) {
+function parseUnityVersion(raw, matrix) {
   const trimmed = typeof raw === "string" ? raw.trim() : "";
   if (trimmed === "") {
     return {
@@ -428,7 +453,7 @@ function parseUnityVersion(raw) {
   const minor = Number(match[2]);
   const patch = Number(match[3]);
   const stream = match[4] ?? null;
-  const dispatchKey = dispatchKeyFor(major, minor);
+  const dispatchKey = dispatchKeyFor(major, minor, matrix);
   return {
     raw: trimmed,
     valid: true,
@@ -461,19 +486,19 @@ function declaredVersions(declared) {
     return [];
   return list.filter((value) => typeof value === "string");
 }
-function resolveDetectedKey(detected) {
+function resolveDetectedKey(detected, matrix) {
   if (!detected)
     return { key: null, reason: "no detected Unity editor version" };
-  if (UNITY_DISPATCH_KEYS.includes(detected))
+  if (knownKeys(matrix).includes(detected))
     return { key: detected, reason: null };
-  const parsed = parseUnityVersion(detected);
+  const parsed = parseUnityVersion(detected, matrix);
   if (!parsed.valid)
     return { key: null, reason: parsed.reason };
   return { key: parsed.dispatchKey, reason: parsed.dispatchKey ? null : parsed.reason };
 }
-function checkVersionCompatibility(declared, detected) {
+function checkVersionCompatibility(declared, detected, matrix) {
   const versions = declaredVersions(declared);
-  const { key, reason } = resolveDetectedKey(detected);
+  const { key, reason } = resolveDetectedKey(detected, matrix);
   if (versions.length === 0) {
     return {
       status: "unknown",
@@ -498,7 +523,7 @@ function checkVersionCompatibility(declared, detected) {
       detectedKey: key
     };
   }
-  if (key === NEWER_DISPATCH_KEY) {
+  if (key === (matrix?.newerDispatchKey ?? FALLBACK_NEWER_DISPATCH_KEY)) {
     return {
       status: "unknown",
       reason: `detected ${key} is newer than the declared range (${versions.join(", ")}); forward-compatibility unverified`,
@@ -1154,7 +1179,7 @@ function defaultCommandDir(options) {
   ];
   return candidates.find((candidate) => dirExists(candidate)) ?? null;
 }
-function declaredCapabilities(commandDir, detectedKey) {
+function declaredCapabilities(commandDir, detectedKey, matrix) {
   if (!commandDir)
     return [];
   let entries;
@@ -1174,19 +1199,19 @@ function declaredCapabilities(commandDir, detectedKey) {
     if (fm.versionCompatibility === undefined || fm.versionCompatibility === null)
       continue;
     const id = typeof fm.id === "string" ? fm.id : entry.replace(/\.md$/, "");
-    const check = checkVersionCompatibility(fm.versionCompatibility, detectedKey);
+    const check = checkVersionCompatibility(fm.versionCompatibility, detectedKey, matrix);
     out.push({ id, status: check.status, declaredVersions: check.declaredVersions, reason: check.reason });
   }
   return out;
 }
 function versionMatrix(options) {
-  const detectedRaw = detectedEditorVersion(options);
-  const parsed = parseUnityVersion(detectedRaw);
   const load = loadVersionMatrix(options.tableDir);
   const matrix = load.data;
+  const detectedRaw = detectedEditorVersion(options);
+  const parsed = parseUnityVersion(detectedRaw, matrix);
   const features = featureFlagsFor(matrix, parsed.dispatchKey);
   const commandDir = defaultCommandDir(options);
-  const capabilities = declaredCapabilities(commandDir, parsed.dispatchKey);
+  const capabilities = declaredCapabilities(commandDir, parsed.dispatchKey, matrix);
   const compatible = capabilities.filter((capability) => capability.status === "compatible").map((capability) => capability.id);
   const incompatible = capabilities.filter((capability) => capability.status === "incompatible").map((capability) => capability.id);
   const unknown = capabilities.filter((capability) => capability.status === "unknown").map((capability) => capability.id);
