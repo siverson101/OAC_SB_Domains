@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      # Regenerates bundles + .opencode/context docs and diffs them: fails on a
+      # stale generated artifact (the same guard `bun run build:check` runs locally).
+      - name: Generated-artifact drift
+        run: bun run build:check
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Tests
+        run: bun test tests
+
+      - name: Shell suites
+        run: |
+          bash tests/test-domain-hooks.sh
+          bash tests/test-discover-xdomains.sh
+          bash tests/test-merge-domains.sh
