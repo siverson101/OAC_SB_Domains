@@ -2,3 +2,5 @@
 # The bundles are committed with LF; normalise on checkout so a Windows working
 # tree does not show spurious diffs in `bun run build:check`.
 xdomains/scripts/** linguist-generated=true -diff text eol=lf
+# Generated context docs — rendered by `bun run build:docs` and drift-checked by `bun run build:check`.
+.opencode/context/** linguist-generated=true -diff text eol=lf

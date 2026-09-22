@@ -168,6 +168,12 @@ no text, code, rule, snippet, or template was copied, so the material is not red
 
 ## Update log
 
+- **2026-09-22 — Phase 7 Steps 7.1–7.3:** no new external code was imported or adapted. The version
+  model (`tools/shared/unity-version.ts`), the generated agent-system blueprint, and the generated
+  version-matrix doc are authored for this repository; the `Unity-Open-MCP` entry already covers the
+  `InstanceId.cs` reference pattern cited for the version-gated seams (FR5). `tests/attribution.test.ts`
+  now asserts that every analysed repository and every imported primitive records a holder, license,
+  and use.
 - **2026-09-21 — Phase 5 Steps 5.1–5.5:** recorded two design references used for the testing abilities —
   `MattSkills/skills/engineering` (MIT, Matt Pocock: `to-spec`, `tdd`, `to-tickets`, `wayfinder`) for the
   plan-artifact and TDD-loop workflow, and `unity-coding-skills` (Unlicense, Koji Hasegawa) for the

@@ -43,6 +43,24 @@ function markdownSection(markdown: string, heading: string): string {
   return next === -1 ? rest : rest.slice(0, next);
 }
 
+// Markdown table rows as trimmed cells, dropping the separator row.
+function tableRows(section: string): string[][] {
+  return section
+    .split(/\r?\n/)
+    .filter((line) => line.trim().startsWith('|'))
+    .map((line) =>
+      line
+        .trim()
+        .replace(/^\|/, '')
+        .replace(/\|$/, '')
+        .split('|')
+        .map((cell) => cell.trim())
+    )
+    .filter((cells) => !cells.every((cell) => /^-+$/.test(cell) || cell === ''));
+}
+
+const LICENSES = ['MIT', 'Apache-2.0', 'BSD-3-Clause', 'Unlicense', 'CC-BY-NC-ND-4.0'];
+
 const importedSection = markdownSection(attribution, '## Imported primitives');
 const declaredCount = Number(/\((\d+)\)/.exec(importedSection)?.[1] ?? -1);
 const declaredIds = [...importedSection.matchAll(/^\|\s*`([^`]+)`\s*\|/gm)].map((match) => match[1]).sort();
@@ -93,10 +111,37 @@ describe('attribution file', () => {
       'Unity-Open-MCP',
       'AIBridge',
       'unity-coding-skills',
+      'MattSkills',
       'Unity-Developer-Tools',
     ]) {
       expect(attribution).toContain(repo);
     }
     expect(attribution).toContain('CC-BY-NC-ND');
+  });
+
+  test('every analysed repository lists a holder, license and use (LR1/LR3)', () => {
+    const section = markdownSection(attribution, '## External repositories analysed');
+    const rows = tableRows(section).filter((cells) => cells[0] !== 'Repository');
+    expect(rows.length).toBeGreaterThanOrEqual(8);
+    for (const cells of rows) {
+      const [repository, holder, license, use] = cells;
+      expect(repository.startsWith('['), `${repository} must link to the upstream repo`).toBe(true);
+      expect(holder.length, `${repository} is missing a copyright holder`).toBeGreaterThan(0);
+      expect(license.length, `${repository} is missing a license`).toBeGreaterThan(0);
+      expect(use.length, `${repository} is missing a use note`).toBeGreaterThan(0);
+      expect(LICENSES, `${repository} has an unrecognised license "${license}"`).toContain(license);
+    }
+  });
+
+  test('every imported primitive lists a holder and license', () => {
+    const section = markdownSection(attribution, '## Imported primitives');
+    const rows = tableRows(section).filter((cells) => cells[0] !== 'Primitive id');
+    expect(rows.length).toBe(primitiveIds.length);
+    for (const cells of rows) {
+      const [id, sourceRepo, license, holder] = cells;
+      expect(sourceRepo.startsWith('https://github.com/'), `${id} is missing a source repo`).toBe(true);
+      expect(LICENSES).toContain(license);
+      expect(holder.length, `${id} is missing a holder`).toBeGreaterThan(0);
+    }
   });
 });
