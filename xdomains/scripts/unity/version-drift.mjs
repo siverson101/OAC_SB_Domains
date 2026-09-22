@@ -533,6 +533,9 @@ function captureCommands(options, probe, section, errors, cliVersion, failureMes
   const commands = probe.commands(options.cliCommand);
   if (!commands) {
     errors.push(failureMessage);
+    if (!section.action) {
+      section.action = "Start the Unity Editor (with the Pipeline package) so `unity command --format json` can enumerate the CLI command catalog; it is missing from version-baselines/.";
+    }
     return false;
   }
   const path = join4(baselineDir(options), CLI_COMMANDS_BASELINE);
