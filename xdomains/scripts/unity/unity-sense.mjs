@@ -1215,7 +1215,7 @@ function versionMatrix(options) {
   const compatible = capabilities.filter((capability) => capability.status === "compatible").map((capability) => capability.id);
   const incompatible = capabilities.filter((capability) => capability.status === "incompatible").map((capability) => capability.id);
   const unknown = capabilities.filter((capability) => capability.status === "unknown").map((capability) => capability.id);
-  const notCheckedReason = checked ? null : "no command directory found; capability compatibility not checked";
+  const notCheckedReason = checked ? null : commandDir ? `command directory could not be read: ${commandDir}; capability compatibility not checked` : "no command directory found; capability compatibility not checked";
   const status = !matrix ? "unavailable" : !parsed.dispatchKey ? "unknown" : incompatible.length > 0 ? "warning" : notCheckedReason ? "available_but_unverified" : "observed_locally";
   const result = {
     ...makeResult("version-matrix", status, "Detected editor version, dispatch key, feature flags and capability compatibility", []),

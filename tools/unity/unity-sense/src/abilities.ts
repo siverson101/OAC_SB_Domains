@@ -495,7 +495,11 @@ export function versionMatrix(options: SenseOptions): VersionMatrixResult {
 
   // No readable command dir means compatibility was never checked: a
   // `checked: 0` must not read as "checked everything, all clear".
-  const notCheckedReason = checked ? null : 'no command directory found; capability compatibility not checked';
+  const notCheckedReason = checked
+    ? null
+    : commandDir
+      ? `command directory could not be read: ${commandDir}; capability compatibility not checked`
+      : 'no command directory found; capability compatibility not checked';
 
   // An incompatible capability must surface in the top-level status, not just in
   // the compatibility block, so a consumer reading only `status` is not misled.

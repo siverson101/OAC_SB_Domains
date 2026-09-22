@@ -4,7 +4,7 @@
 // renderers produce (drift), so `bun run build` cannot silently stale them.
 import { describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import type { VersionMatrix } from '../tools/shared/unity-version';
@@ -198,6 +198,28 @@ describe('registry bundle emits the docs', () => {
       expect(readFileSync(matrixOut, 'utf8')).toBe(versionMatrixDoc);
     } finally {
       rmSync(out, { recursive: true, force: true });
+    }
+  });
+
+  test('a missing version-matrix warns and skips the doc instead of failing', () => {
+    const parent = mkdtempSync(join(tmpdir(), 'oac-registry-nomatrix-'));
+    const out = join(parent, 'out');
+    try {
+      // A domain copy whose `../../context/unity/version-matrix.json` is absent, so
+      // no candidate resolves. The blueprint still renders; the matrix doc is skipped.
+      const domainCopy = join(parent, 'game-dev', 'unity-3d');
+      cpSync(unity3dDir, domainCopy, { recursive: true });
+      const res = spawnSync(
+        process.execPath,
+        [bundle, '--domain-dir', domainCopy, '--opencode-dir', out, '--docs-only'],
+        { encoding: 'utf8' }
+      );
+      expect(res.status).toBe(0);
+      expect(existsSync(join(out, 'context', 'unity-3d', 'agent-system-blueprint.md'))).toBe(true);
+      expect(existsSync(join(out, 'context', 'unity-3d', 'version-matrix.md'))).toBe(false);
+      expect(`${res.stdout}${res.stderr}`).toContain('version-matrix');
+    } finally {
+      rmSync(parent, { recursive: true, force: true });
     }
   });
 

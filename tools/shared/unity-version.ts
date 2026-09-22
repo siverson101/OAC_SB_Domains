@@ -21,6 +21,9 @@ const VERSION_PATTERN = /^(\d+)\.(\d+)\.(\d+)([A-Za-z]\d*)?$/;
 
 export interface ParsedUnityVersion {
   raw: string | null;
+  // `valid` means "parsed as a Unity version", NOT "dispatchable": an older line
+  // such as `2022.3.10f1` is valid but has `dispatchKey: null`. Gate on
+  // `dispatchKey` (as `checkVersionCompatibility` does), not on `valid` alone.
   valid: boolean;
   major: number | null;
   minor: number | null;
