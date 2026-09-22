@@ -386,6 +386,12 @@ function captureCommands(
   const commands = probe.commands(options.cliCommand);
   if (!commands) {
     errors.push(failureMessage);
+    // The failure is recorded honestly, but a user reading the report also needs
+    // to know why the catalog is missing and what to do about it.
+    if (!section.action) {
+      section.action =
+        'Start the Unity Editor (with the Pipeline package) so `unity command --format json` can enumerate the CLI command catalog; it is missing from version-baselines/.';
+    }
     return false;
   }
   const path = join(baselineDir(options), CLI_COMMANDS_BASELINE);

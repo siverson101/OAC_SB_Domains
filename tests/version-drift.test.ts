@@ -392,6 +392,22 @@ describe('version-drift: CLI drift', () => {
     expect(commandsCalled).toBe(false);
   });
 
+  test('a fresh CLI baseline whose catalog probe fails surfaces an ACTION REQUIRED', () => {
+    const fixture = makeFixture();
+    unchangedBaselines(fixture); // Editor + packages match; no CLI baseline yet.
+
+    const probe: CliProbe = {
+      version: () => ({ available: true, version: '0.1.0-beta.4' }),
+      commands: () => null,
+    };
+    const result = runVersionDrift(options(fixture, { cliCommand: 'unity', cliProbe: probe }));
+
+    expect(result.cli.status).toBe('baseline_created');
+    expect(result.errors.some((error) => error.includes('command catalog'))).toBe(true);
+    expect(result.cli.action).toContain('Start the Unity Editor');
+    expect(result.report).toContain('ACTION REQUIRED');
+  });
+
   test('malformed CLI catalog output fails soft', () => {
     const fixture = makeFixture();
     unchangedBaselines(fixture);
