@@ -285,6 +285,19 @@ describe('code-navigation', () => {
     expect(testType?.assembly).toBe('Game.Tests');
   });
 
+  test('is the code index: returns a declaration with file:line, Editor closed', () => {
+    const doc = readFileSync(join(commandDir, 'code-navigation.md'), 'utf8');
+    expect(doc).toContain('is** the code index');
+    expect(doc).toContain('Step 6.6');
+    expect(parseFrontmatter(doc).mode).toBe('offline');
+
+    const result = codeNavigation({ ...options, ability: 'code-navigation', query: 'PlayerController' });
+    expect(result.status).toBe('observed_locally');
+    const type = result.matches.find((match) => match.kind === 'type' && match.symbol === 'PlayerController');
+    expect(type).toBeDefined();
+    expect(`${type?.file}:${type?.line}`).toBe('Assets/_Project/Scripts/PlayerController.cs:3');
+  });
+
   test('reports unknown when the Assets folder is missing', () => {
     const result = codeNavigation({ ...options, ability: 'code-navigation', assetFolder: join(fixture, 'nope', 'Assets') });
     expect(result.status).toBe('unknown');

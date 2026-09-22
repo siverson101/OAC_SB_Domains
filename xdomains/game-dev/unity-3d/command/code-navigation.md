@@ -17,7 +17,12 @@ versionCompatibility: { unity: ["6.0", "6.3", "6.5", "LTS+"] }
 
 Walks `.cs` files under the project's Assets folder, extracts namespace/type/method/member
 declarations and reports each as `file:line`. Files are attributed to their owning assembly using
-the Phase 2a asmdef reader. This is the offline substitute for a live code index — no Editor.
+the Phase 2a asmdef reader.
+
+This **is** the code index for Phase 6, Step 6.6: one canonical Sense capability for offline
+symbol/declaration lookup over project source and asmdefs. It runs with the Editor closed — no
+Editor, no CLI, no live code index. There is no separate `code-index` ability or alias; call
+`code-navigation`.
 
 ## Runs offline
 
