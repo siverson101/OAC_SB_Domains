@@ -13,6 +13,7 @@
 //   unity-compose ... --ability plan-feature --feature <slug> \
 //     --test-cases "<verbatim>" --testability PASS --json
 //   unity-compose ... --ability test-plan --feature <slug> --abilities a,b,c --json
+//   unity-compose ... --ability workflow-catalog --json
 //   unity-compose --list
 //
 // Every ability is offline and fail-soft: it reads/writes plain files under
@@ -56,6 +57,18 @@ function render(result: ComposeResult): string {
       `  action: ${result.action} · feature: ${result.feature ?? 'n/a'} · testability: ${result.testability ?? 'n/a'} · written: ${result.written}`
     );
     if (result.instruction) lines.push(`  instruction: ${result.instruction}`);
+  }
+  if ('phases' in result && 'catalogValid' in result) {
+    const valid = result.recipes.filter((recipe) => recipe.valid).length;
+    lines.push(`  catalog: ${result.catalogPath} · valid: ${result.catalogValid} · recipes: ${valid}/${result.recipes.length}`);
+    for (const phase of result.phases) {
+      const met = phase.steps.filter((step) => step.outcome === 'met').length;
+      lines.push(`  phase ${phase.id}: ${met}/${phase.steps.length} met${phase.complete ? ' · complete' : ''}`);
+      for (const step of phase.steps) {
+        if (step.outcome === 'unmet') lines.push(`    unmet ${step.id} -> ${step.command}`);
+      }
+    }
+    if (result.nextCommand) lines.push(`  next: ${result.nextCommand} (${result.currentPhase ?? 'n/a'})`);
   }
   for (const error of result.errors) lines.push(`  error: ${error}`);
   return lines.join('\n');

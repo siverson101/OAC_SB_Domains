@@ -363,7 +363,7 @@ function collectAssets(domainDir, manifest, warnings, options) {
   for (const rel of hierarchy.subagents) addFile(rel);
 
   // Explicit file lists.
-  for (const key of ['commands', 'skills', 'sharedContext', 'scripts', 'config']) {
+  for (const key of ['commands', 'skills', 'sharedContext', 'scripts', 'config', 'recipes']) {
     for (const rel of manifest[key] || []) addFile(rel);
   }
 

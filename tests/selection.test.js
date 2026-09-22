@@ -53,7 +53,7 @@ describe('studio-mode selection', () => {
             expect(exists(dir, 'agent/subagents/unity/tdd-specialist.md')).toBe(false);
             expect(exists(dir, 'agent/subagents/unity/native-plugin.md')).toBe(false);
 
-            expect(exists(dir, 'command/unity-feature.md')).toBe(true);
+            expect(exists(dir, 'command/unity-implement.md')).toBe(true);
             expect(exists(dir, 'context/unity-3d/navigation.md')).toBe(true);
         } finally {
             fs.rmSync(dir, { recursive: true, force: true });
@@ -70,7 +70,7 @@ describe('studio-mode selection', () => {
             expect(exists(dir, 'agent/full-studio/creative-director.md')).toBe(true);
             expect(exists(dir, 'agent/subagents')).toBe(false);
 
-            expect(exists(dir, 'command/unity-feature.md')).toBe(true);
+            expect(exists(dir, 'command/unity-implement.md')).toBe(true);
             expect(exists(dir, 'context/unity-3d/navigation.md')).toBe(true);
         } finally {
             fs.rmSync(dir, { recursive: true, force: true });

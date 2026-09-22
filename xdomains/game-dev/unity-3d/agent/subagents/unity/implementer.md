@@ -45,7 +45,7 @@ permission:
 ## Delegation Map
 
 - **Reports to**: `Unity3DOrchestrator`
-- **Implements from**: `/unity-feature` specs and orchestrator task briefs
+- **Implements from**: `/unity-implement` specs and orchestrator task briefs
 - **Escalation targets**: `Unity3DOrchestrator` for scope changes, blocked work, or approval
 - **Siblings**: `UnityScene`, `UnityUITK`, `UnityAnimator`, `UnityShaderVFX`, `UnityArtAsset`, `UnityQA`, `UnityTddSpecialist`, `UnityNativePlugin`
 

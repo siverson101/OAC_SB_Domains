@@ -8,8 +8,13 @@
 //   - the runtime abilities (debugging, UI validation, profiling, UI Toolkit)
 //     speak to the live Editor through the Unity CLI channel and fail soft to
 //     `unavailable` when no channel/Editor is present.
+import type { CommandResult } from '../../../shared/toolchain';
 import type { LiveEditorChannel, LiveTransport, Route } from '../../../shared/tool-routing';
 
+// `unity-change-loop` is deliberately the same string in three namespaces: this
+// Run ability, the recipe `xdomains/game-dev/unity-3d/recipes/unity-change-loop.json`,
+// and the lifecycle-catalog `change-loop` step command. Registry `workflow-*`
+// edges name the *recipe* id as `from`.
 const RUN_ABILITY_NAMES = [
   'unity-change-loop',
   'runtime-debugging',
@@ -49,6 +54,7 @@ export type RunStatus =
   | 'in_progress'
   | 'refused'
   | 'unavailable'
+  | 'failed'
   | 'observed_locally'
   | 'unknown'
   | 'not_run';
@@ -58,6 +64,28 @@ export interface RunSafetyGate {
   requiresApproval: boolean;
   approved: boolean;
 }
+
+// The declared gate per ability, mirroring each `command/<ability>.md`
+// frontmatter. `requiresApproval` is the ability's worst case: `runtime-debugging`
+// can execute arbitrary Player code (the only approval-gated operation), so it
+// declares `true`; the other runtime abilities never require approval. The
+// runtime envelope reports the gate of the *invoked* operation, which is
+// therefore always within (a subset of) this declaration — pinned by
+// tests/unity-run.test.ts. `unity-change-loop` is a Run ability too; a command
+// that composes it (e.g. `unity-implement`) may declare a *stricter* gate, but
+// never a weaker one — also pinned by tests/unity-run.test.ts.
+export interface DeclaredRunSafetyGate {
+  requiresEditor: boolean;
+  requiresApproval: boolean;
+}
+
+export const RUN_SAFETY_GATES: Record<RunAbility, DeclaredRunSafetyGate> = {
+  'unity-change-loop': { requiresEditor: false, requiresApproval: false },
+  'runtime-debugging': { requiresEditor: true, requiresApproval: true },
+  'runtime-ui-validation': { requiresEditor: true, requiresApproval: false },
+  'performance-diagnostics': { requiresEditor: true, requiresApproval: false },
+  'uitk-interaction': { requiresEditor: true, requiresApproval: false },
+};
 
 export interface RunBase {
   schemaVersion: number;
@@ -72,8 +100,8 @@ export interface RunBase {
   safetyGate: RunSafetyGate;
 }
 
-// A single live invocation against the running Editor/Player. The concrete
-// `cli`/`mcp` transports land later; this is the seam they implement.
+// A single live invocation against the running Editor/Player. The `cli`
+// transport implements this seam; the stdio-MCP transport may land later.
 export interface RuntimeRequest {
   operation: string;
   args: string[];
@@ -92,6 +120,14 @@ export interface RuntimeChannel extends LiveEditorChannel {
   invoke?: (request: RuntimeRequest) => RuntimeResponse | Promise<RuntimeResponse>;
 }
 
+// The CLI transport shells out to the Unity CLI; the runner is injected so the
+// transport is unit-testable without a live Editor or Player.
+export type CliRunner = (
+  command: string,
+  args: string[],
+  options?: { cwd?: string; timeout?: number }
+) => CommandResult;
+
 export interface RunOptions {
   projectRoot: string;
   opencodeDir: string;
@@ -105,6 +141,7 @@ export interface RunOptions {
   approveCodeExecution: boolean;
   live?: RuntimeChannel | null;
   cliCommand: string;
+  cliRunner?: CliRunner;
 }
 
 export interface ApprovalDecision {

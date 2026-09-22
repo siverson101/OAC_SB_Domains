@@ -2,8 +2,8 @@
 
 ## Overview
 Unity 3D sub-domain of the `game-dev` domain. Ships an orchestrator, 7 specialist subagents,
-9 commands, and a function-based context library. Installed under
-`.opencode/xdomains/game-dev/unity-3d/`; applied into `.opencode/` by `/build-context-system`.
+19 commands (lifecycle, domain, runtime loops and the workflow catalog), and a function-based context library. Installed
+under `.opencode/xdomains/game-dev/unity-3d/`; applied into `.opencode/` by `/build-context-system`.
 
 ## Contents
 - Manifest: `sb-domain.json`
@@ -11,7 +11,7 @@ Unity 3D sub-domain of the `game-dev` domain. Ships an orchestrator, 7 specialis
 - Starter context: `context/domain/unity-3d.md`
 - Agent: `agent/unity-3d-orchestrator.md`
 - Subagents: `agent/subagents/unity/{implementer,scene,uitk,animator,shadervfx,artasset,qa}.md`
-- Commands: `command/{unity-feature,unity-scene,unity-test,unity-build,unity-architecture,unity-animator,unity-vfx,unity-ase,uitk}.md`
+- Commands: `command/{unity-setup,unity-brainstorm,unity-plan,unity-implement,unity-debug,unity-polish,unity-review,unity-scene,unity-test,unity-build,unity-architecture,unity-animator,unity-vfx,unity-ase,uitk,unity-runtime-target,unity-prefab-sweep,unity-performance,workflow-catalog}.md`
 - Context library: `context/unity-3d/{navigation.md,concepts,guides,lookup,examples,errors,workflows}`
 - Hooks: `hooks/instead/stage-{3,4,5,7}-*.md`
 - Projection: `context-projections.json` + `scripts/build-project-context.js`

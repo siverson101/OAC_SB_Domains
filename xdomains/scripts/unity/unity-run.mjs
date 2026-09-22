@@ -92,6 +92,13 @@ var RUN_MODES = {
   "performance-diagnostics": "live",
   "uitk-interaction": "live"
 };
+var RUN_SAFETY_GATES = {
+  "unity-change-loop": { requiresEditor: false, requiresApproval: false },
+  "runtime-debugging": { requiresEditor: true, requiresApproval: true },
+  "runtime-ui-validation": { requiresEditor: true, requiresApproval: false },
+  "performance-diagnostics": { requiresEditor: true, requiresApproval: false },
+  "uitk-interaction": { requiresEditor: true, requiresApproval: false }
+};
 // tools/shared/json-helpers.ts
 function asRecord(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? value : null;
@@ -364,6 +371,9 @@ function findExecutable(name) {
     return null;
   return res.stdout.split(/\r?\n/)[0]?.trim() || null;
 }
+function stripAnsi(text) {
+  return text.replace(/\u001b\[[0-9;]*m/g, "");
+}
 
 // tools/shared/tool-routing.ts
 function liveAvailable(channel) {
@@ -452,16 +462,16 @@ function checkCodeExecutionApproval(options) {
 
 // tools/unity/unity-run/src/runtime.ts
 var OPERATION_SPECS = {
-  get_logs: { operation: "get_logs", command: "get_logs", args: ["--logType", "Error"], codeExecution: false },
-  "execute-code": { operation: "execute-code", command: "eval", args: [], codeExecution: true },
-  ui_snapshot: { operation: "ui_snapshot", command: "ui_snapshot", args: [], codeExecution: false },
-  ui_find: { operation: "ui_find", command: "ui_find", args: [], codeExecution: false },
-  ui_click: { operation: "ui_click", command: "ui_click", args: [], codeExecution: false },
-  ui_key: { operation: "ui_key", command: "ui_key", args: [], codeExecution: false },
-  profiler_counters: { operation: "profiler_counters", command: "profiler_counters", args: [], codeExecution: false },
-  profiler_snapshot: { operation: "profiler_snapshot", command: "profiler_snapshot", args: [], codeExecution: false },
-  uitk_tree: { operation: "uitk_tree", command: "uitk_tree", args: [], codeExecution: false },
-  uitk_click: { operation: "uitk_click", command: "uitk_click", args: [], codeExecution: false }
+  get_logs: { operation: "get_logs", args: ["--logType", "Error"], codeExecution: false },
+  "execute-code": { operation: "execute-code", args: [], codeExecution: true },
+  ui_snapshot: { operation: "ui_snapshot", args: [], codeExecution: false },
+  ui_find: { operation: "ui_find", args: [], codeExecution: false },
+  ui_click: { operation: "ui_click", args: [], codeExecution: false },
+  ui_key: { operation: "ui_key", args: [], codeExecution: false },
+  profiler_counters: { operation: "profiler_counters", args: [], codeExecution: false },
+  profiler_snapshot: { operation: "profiler_snapshot", args: [], codeExecution: false },
+  uitk_tree: { operation: "uitk_tree", args: [], codeExecution: false },
+  uitk_click: { operation: "uitk_click", args: [], codeExecution: false }
 };
 var ABILITY_OPERATIONS = {
   "runtime-debugging": ["get_logs", "execute-code"],
@@ -492,10 +502,10 @@ function resolveOperation(ability, requested) {
   return { spec: OPERATION_SPECS[operation], errors };
 }
 function buildCommand(options, spec) {
-  const args = spec.codeExecution ? [options.code ?? ""] : [...spec.args];
+  const head = spec.codeExecution ? ["eval", options.code ?? ""] : ["command", spec.operation];
   return [
-    spec.command,
-    ...args,
+    ...head,
+    ...spec.args,
     "--json",
     "--no-banner",
     "--quiet",
@@ -513,6 +523,48 @@ function channelAvailable(channel) {
     return false;
   }
 }
+var CLI_TIMEOUT_MS = 30000;
+function parseEnvelope(stdout) {
+  try {
+    const parsed = JSON.parse(stdout);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+function envelopeErrors(envelope) {
+  const errors = Array.isArray(envelope.errors) ? envelope.errors : [];
+  return errors.map((entry) => entry && typeof entry.message === "string" ? entry.message : "unity CLI error");
+}
+function createCliChannel(cliCommand, runner = run, options = {}) {
+  return {
+    transport: "cli",
+    available: options.available ?? (() => findExecutable(cliCommand) !== null),
+    invoke: async (request) => {
+      let result;
+      try {
+        result = runner(cliCommand, request.args, { timeout: CLI_TIMEOUT_MS });
+      } catch (err) {
+        return { ok: false, data: null, errors: [`unity CLI invocation threw: ${errorMessage(err)}`] };
+      }
+      const raw = stripAnsi(result.stdout || result.stderr);
+      const envelope = parseEnvelope(result.stdout);
+      if (!envelope) {
+        return { ok: false, data: null, errors: [`malformed unity CLI output: ${raw || `exit ${result.status}`}`], raw };
+      }
+      const errors = envelopeErrors(envelope);
+      const ok = envelope.success === true && result.ok;
+      if (!ok && errors.length === 0)
+        errors.push(raw || `unity CLI exited ${result.status}`);
+      return {
+        ok,
+        data: envelope.data ?? null,
+        errors: ok ? [] : errors,
+        raw
+      };
+    }
+  };
+}
 function resolveRuntimeChannel(options) {
   if (options.live !== undefined)
     return options.live;
@@ -521,7 +573,7 @@ function resolveRuntimeChannel(options) {
   const instance = findLiveInstance(options.projectRoot, options.cliCommand);
   if (!instance)
     return null;
-  return { transport: "cli", available: () => true };
+  return createCliChannel(options.cliCommand, options.cliRunner ?? run, { available: () => instance !== null });
 }
 function errorMessage(err) {
   return err instanceof Error ? err.message : String(err);
@@ -531,7 +583,7 @@ async function runRuntimeAbility(options) {
   const { spec, errors } = resolveOperation(ability, options.operation);
   const base = makeResult(ability, "unavailable", `${spec.operation} unavailable`, [], {
     route: "offline",
-    requiresEditor: true,
+    requiresEditor: RUN_SAFETY_GATES[ability].requiresEditor,
     requiresApproval: spec.codeExecution,
     approved: spec.codeExecution && options.approveCodeExecution
   });
@@ -599,15 +651,16 @@ async function runRuntimeAbility(options) {
     const command = buildCommand(options, spec);
     const response = await channel.invoke({ operation: spec.operation, args: command });
     if (!response.ok) {
+      const reason = `${spec.operation} failed on the live ${transport ?? "runtime"} channel`;
       return {
         ...base,
-        status: "unknown",
-        summary: `${spec.operation} failed on the live channel`,
+        status: "failed",
+        summary: reason,
         errors: [...errors, ...response.errors],
         route: "live",
         operation: spec.operation,
         transport,
-        data: response.data,
+        data: response.data ?? null,
         approval
       };
     }
@@ -627,7 +680,7 @@ async function runRuntimeAbility(options) {
     const reason = `live channel threw for ${spec.operation}: ${errorMessage(err)}`;
     return {
       ...base,
-      status: "unavailable",
+      status: "failed",
       summary: reason,
       errors: [...errors, reason],
       route: "live",

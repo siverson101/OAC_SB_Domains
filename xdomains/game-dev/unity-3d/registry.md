@@ -67,7 +67,13 @@ Commands
 --------
 | Item | Path | Source | Uses | Used by |
 |------|------|--------|------|---------|
-| `/unity-feature` | `command/unity-feature.md` | oac-build | navigation, feature-delivery, UnityImplementer, UnityQA, UnityScene | User |
+| `/unity-setup` | `command/unity-setup.md` | oac-build | navigation, project-layout, validation-rules, gather-unity-context | User |
+| `/unity-brainstorm` | `command/unity-brainstorm.md` | oac-build | navigation, unity-3d-core, plan-feature | User |
+| `/unity-plan` | `command/unity-plan.md` | oac-build | navigation, feature-delivery, csharp-conventions, validation-rules, plan-feature, test-plan | User |
+| `/unity-implement` | `command/unity-implement.md` | oac-build | navigation, feature-delivery, feature-pipeline, csharp-conventions, validation-rules, unity-change-loop, UnityImplementer, UnityQA, UnityScene | User |
+| `/unity-debug` | `command/unity-debug.md` | oac-build | navigation, common-unity-issues, validation-rules, runtime-debugging, unity-change-loop | User |
+| `/unity-polish` | `command/unity-polish.md` | oac-build | navigation, quality-gate, performance-budgets, validation-rules, test-deduplication, gate-review | User |
+| `/unity-review` | `command/unity-review.md` | oac-build | navigation, validation-rules, gate-review | User |
 | `/unity-scene` | `command/unity-scene.md` | oac-build | scene-prefab-safety, project-layout, UnityScene | User |
 | `/unity-test` | `command/unity-test.md` | oac-build | validation-rules, build-cli, UnityQA | User |
 | `/unity-build` | `command/unity-build.md` | oac-build | build-cli, validation-rules, UnityQA | User |
@@ -76,6 +82,10 @@ Commands
 | `/unity-vfx` | `command/unity-vfx.md` | oac-build | performance-budgets, UnityShaderVFX | User |
 | `/unity-ase` | `command/unity-ase.md` | oac-build | performance-budgets, UnityShaderVFX | User |
 | `/uitk` | `command/uitk.md` | oac-build | navigation, UnityUITK | User |
+| `/unity-runtime-target` | `command/unity-runtime-target.md` | oac-build | navigation, common-unity-issues, runtime-debugging, runtime-ui-validation | User |
+| `/unity-prefab-sweep` | `command/unity-prefab-sweep.md` | oac-build | navigation, scene-assembly, scene-prefab-safety, prefab-automation, scene-editing, UnityScene | User |
+| `/unity-performance` | `command/unity-performance.md` | oac-build | navigation, performance-budgets, quality-gate, performance-diagnostics | User |
+| `/workflow-catalog` | `command/workflow-catalog.md` | oac-build (Phase 6) | workflow-catalog ability, recipe-contract, capability-contract | User; `/unity-setup` |
 
 Context (knowledge)
 -------------------
@@ -100,9 +110,21 @@ Workflows
 ---------
 | Item | Path | Source | Uses | Trigger |
 |------|------|--------|------|---------|
-| Feature delivery | `context/unity-3d/workflows/feature-delivery.md` | oac-build | Implementer, QA, Scene | `/unity-feature` |
+| Feature delivery | `context/unity-3d/workflows/feature-delivery.md` | oac-build | Implementer, QA, Scene | `/unity-implement` |
 | Quality gate | `context/unity-3d/workflows/quality-gate.md` | oac-build | QA, build-cli, validation-rules | `/unity-test`, `/unity-build`, final gate |
 | Scene assembly | `context/unity-3d/workflows/scene-assembly.md` | oac-build | Scene, ArtAsset, ShaderVFX | `/unity-scene` |
+
+Recipes
+-------
+The recipes are the canonical data layer for workflow↔ability and workflow↔agent
+edges (ADR-0016); the prose workflows above are knowledge, not edge sources, so
+the registry derives `workflow-ability`/`workflow-agent` edges from the recipes
+only. Each recipe validates against `xdomains/context/recipe.schema.json`.
+
+| Recipe | Path | Source | Abilities | Agents | Gates |
+|--------|------|--------|-----------|--------|-------|
+| Unity Change Loop | `recipes/unity-change-loop.json` | oac-build (Phase 6) | code-navigation, offline-project-inspection, compile-and-verify-project, unity-run-tests, runtime-ui-validation | implementer | compile, logs, tests, observe |
+| Unity Prefab / Scene Escalation | `recipes/unity-prefab-scene.json` | oac-build (Phase 6) | scene-editing, prefab-automation | scene | prefab-dry-run, yaml-escalation |
 
 Gates
 -----
@@ -134,6 +156,7 @@ matching command is reported as a warning, never silently invented.
 | `test-plan` | command `test-plan` (shipped, Phase 5) | Capability/primitive `testPlan` data |
 | `test-deduplication` | command `test-deduplication` (shipped, Phase 5) | Test descriptors / `*.cs` test scan; `unity-coding-skills` design reference |
 | `version-drift` | command `version-drift` (shipped) | `ProjectSettings/ProjectVersion.txt`, `Packages/manifest.json`, Unity CLI (`unity --version`, `unity command --format json`); baselines under `project-data/version-baselines/` |
+| `workflow-catalog` | command `workflow-catalog` (shipped, Phase 6) | `xdomains/context/workflow-catalog.json` + `recipes/*.json`; lifecycle progression via `evaluateArtifactCheck` |
 
 Phase 5 also modified two existing abilities without changing their source: `gate-review` gained an
 `externalVerdict` (`confirmed`/`uncertain`) fold, and `compile-and-verify-project` now requires a

@@ -119,6 +119,10 @@ const SUCCESS_COMPOSE: Record<ComposeAbility, Partial<ComposeOptions>> = {
   'ci-status-baseline': { source: 'output-contract-test' },
   'plan-feature': { feature: 'demo', testCases: 'a case', testability: 'PASS' },
   'test-plan': { feature: 'demo', planAbilities: ['compile-and-verify-project'], commandsDir: commandDir },
+  'workflow-catalog': {
+    catalog: join(repoRoot, 'xdomains', 'context', 'workflow-catalog.json'),
+    recipesDir: join(repoRoot, 'xdomains', 'game-dev', 'unity-3d', 'recipes'),
+  },
 };
 
 describe('Verify runtime output contract', () => {

@@ -9,17 +9,23 @@ import {
   evaluateChangeLoop,
   type ChangeLoopEvidence,
 } from '../tools/unity/unity-run/src/change-loop';
-import { runRuntimeAbility } from '../tools/unity/unity-run/src/runtime';
+import {
+  ABILITY_OPERATIONS,
+  createCliChannel,
+  resolveRuntimeChannel,
+  runRuntimeAbility,
+} from '../tools/unity/unity-run/src/runtime';
 import { runRun } from '../tools/unity/unity-run/src/abilities';
 import {
   RUN_ABILITIES,
   RUN_MODES,
+  RUN_SAFETY_GATES,
   RUNTIME_ABILITIES,
   type RunOptions,
   type RuntimeChannel,
 } from '../tools/unity/unity-run/src/types';
 import type { TestCounts } from '../tools/unity/gather-unity-context/src/gate';
-import { parseFrontmatter } from '../tools/shared/registry/src/frontmatter';
+import { frontmatterStringArray, parseFrontmatter } from '../tools/shared/registry/src/frontmatter';
 import { validateContract } from '../tools/shared/registry/src/contract';
 import { SAFETY_GATE_KEYS } from '../tools/shared/safety-gate';
 
@@ -226,6 +232,156 @@ describe('runtime abilities fail soft without a live channel', () => {
     const result = await runRuntimeAbility({ ...base, operation: 'frobnicate' });
     expect(result.operation).toBe('get_logs');
     expect(result.errors.join(' ')).toContain('unknown --operation');
+  });
+});
+
+describe('runtime CLI transport', () => {
+  test('resolves no channel when the CLI is missing (fail-soft)', () => {
+    expect(resolveRuntimeChannel(base)).toBeNull();
+  });
+
+  test('an injected channel wins over probing', () => {
+    const live = createCliChannel('unity');
+    expect(resolveRuntimeChannel({ ...base, live })).toBe(live);
+    expect(resolveRuntimeChannel({ ...base, live: null })).toBeNull();
+  });
+
+  test('available reflects CLI presence by default, not a hard-coded true', () => {
+    expect(createCliChannel('definitely-not-a-real-cli-xyz').available()).toBe(false);
+    expect(createCliChannel('definitely-not-a-real-cli-xyz', undefined, { available: () => true }).available()).toBe(true);
+  });
+
+  test('selects the cli transport and parses a unity command round-trip', async () => {
+    const calls: string[][] = [];
+    const live = createCliChannel('unity', (command, args) => {
+      calls.push([command, ...args]);
+      return { ok: true, stdout: JSON.stringify({ success: true, data: { logs: [{ message: 'boom' }] } }), stderr: '', status: 0 };
+    }, { available: () => true });
+    const result = await runRuntimeAbility({ ...base, live, ability: 'runtime-debugging', operation: 'get_logs' });
+    expect(result.status).toBe('observed_locally');
+    expect(result.transport).toBe('cli');
+    expect(result.data).toEqual({ logs: [{ message: 'boom' }] });
+    expect(calls[0][0]).toBe('unity');
+    expect(calls[0]).toContain('command');
+    expect(calls[0]).toContain('get_logs');
+    expect(calls[0]).toContain('--json');
+  });
+
+  test('routes execute-code through unity eval, not unity command', async () => {
+    const calls: string[][] = [];
+    const live = createCliChannel('unity', (_command, args) => {
+      calls.push(args);
+      return { ok: true, stdout: JSON.stringify({ success: true, data: { result: 2 } }), stderr: '', status: 0 };
+    }, { available: () => true });
+    const result = await runRuntimeAbility({
+      ...base,
+      live,
+      operation: 'execute-code',
+      code: 'return 1 + 1;',
+      approveCodeExecution: true,
+    });
+    expect(result.status).toBe('observed_locally');
+    expect(calls[0]).toContain('eval');
+    expect(calls[0]).not.toContain('command');
+  });
+
+  test('malformed CLI output fails soft to failed (not unavailable)', async () => {
+    const live = createCliChannel('unity', () => ({ ok: true, stdout: 'not json at all', stderr: '', status: 0 }), {
+      available: () => true,
+    });
+    const result = await runRuntimeAbility({ ...base, live, operation: 'get_logs' });
+    expect(result.status).toBe('failed');
+    expect(result.route).toBe('live');
+    expect(result.errors.join(' ')).toContain('malformed');
+  });
+
+  test('a non-zero CLI exit fails soft to failed and preserves the partial payload', async () => {
+    const live = createCliChannel(
+      'unity',
+      () => ({
+        ok: false,
+        stdout: JSON.stringify({ success: false, data: { logs: [{ message: 'partial' }] }, errors: [{ message: 'no live player' }] }),
+        stderr: '',
+        status: 1,
+      }),
+      { available: () => true }
+    );
+    const result = await runRuntimeAbility({ ...base, live, operation: 'get_logs' });
+    expect(result.status).toBe('failed');
+    expect(result.errors.join(' ')).toContain('no live player');
+    expect(result.data).toEqual({ logs: [{ message: 'partial' }] });
+  });
+
+  test('a throwing CLI runner fails soft to failed (not unavailable)', async () => {
+    const live = createCliChannel(
+      'unity',
+      () => {
+        throw new Error('spawn failed');
+      },
+      { available: () => true }
+    );
+    const result = await runRuntimeAbility({ ...base, live, operation: 'get_logs' });
+    expect(result.status).toBe('failed');
+    expect(result.errors.join(' ')).toContain('spawn failed');
+  });
+});
+
+describe('runtime safetyGate matches the declared contract', () => {
+  const live: RuntimeChannel = {
+    transport: 'cli',
+    available: () => true,
+    invoke: () => ({ ok: true, data: { logs: [] }, errors: [] }),
+  };
+
+  test('RUN_SAFETY_GATES mirrors the declared frontmatter for each Run ability', () => {
+    for (const ability of RUN_ABILITIES) {
+      const fm = parseFrontmatter(readFileSync(join(commandDir, `${ability}.md`), 'utf8'));
+      const declared = fm.safetyGate as Record<string, unknown>;
+      const runtime = RUN_SAFETY_GATES[ability];
+      for (const key of ['requiresEditor', 'requiresApproval'] as const) {
+        if (typeof declared[key] === 'boolean') expect(runtime[key], `${ability}.${key}`).toBe(declared[key]);
+      }
+    }
+  });
+
+  test('every emitted runtime gate is within the declared ability gate', async () => {
+    for (const ability of RUNTIME_ABILITIES) {
+      const declared = RUN_SAFETY_GATES[ability];
+      for (const operation of ABILITY_OPERATIONS[ability]) {
+        const result = await runRuntimeAbility({ ...base, ability, operation, live });
+        for (const key of Object.keys(result.safetyGate)) {
+          expect(SAFETY_GATE_KEYS as readonly string[]).toContain(key);
+        }
+        if (result.safetyGate.requiresEditor) expect(declared.requiresEditor, `${ability}/${operation} requiresEditor`).toBe(true);
+        if (result.safetyGate.requiresApproval) expect(declared.requiresApproval, `${ability}/${operation} requiresApproval`).toBe(true);
+      }
+    }
+  });
+});
+
+describe('Run ability ownership and composed command gates', () => {
+  test('unity-change-loop is a Run ability, not a Compose command', () => {
+    const fm = parseFrontmatter(readFileSync(join(commandDir, 'unity-change-loop.md'), 'utf8'));
+    expect(fm.family).toBe('run');
+    expect(RUN_ABILITIES).toContain('unity-change-loop');
+  });
+
+  test('a command may declare a stricter gate than the abilities it composes', () => {
+    const fm = parseFrontmatter(readFileSync(join(commandDir, 'unity-implement.md'), 'utf8'));
+    expect(frontmatterStringArray(fm, 'uses') ?? []).toContain('unity-change-loop');
+    const commandGate = fm.safetyGate as Record<string, unknown>;
+    const abilityGate = RUN_SAFETY_GATES['unity-change-loop'];
+    // Superset rule: every flag the composed ability requires, the composing
+    // command must also require. The reverse is allowed — a command may be
+    // stricter than the abilities it composes, never weaker.
+    for (const key of ['requiresEditor', 'requiresApproval'] as const) {
+      if (abilityGate[key]) expect(commandGate[key], `unity-implement.${key}`).toBe(true);
+    }
+    // The deliberate mismatch: the read-only ability needs neither, while the
+    // implementing command edits assets and drives the Editor.
+    expect(abilityGate).toEqual({ requiresEditor: false, requiresApproval: false });
+    expect(commandGate.requiresEditor).toBe(true);
+    expect(commandGate.requiresApproval).toBe(true);
   });
 });
 

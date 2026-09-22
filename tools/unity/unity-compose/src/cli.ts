@@ -48,5 +48,7 @@ export function resolveOptions(argv: string[]): ComposeOptions {
     tradeOffs: firstString(args, ['trade-offs', 'tradeOffs']),
     planAbilities,
     commandsDir: firstString(args, ['commands-dir', 'commandsDir']),
+    catalog: firstString(args, ['catalog']),
+    recipesDir: firstString(args, ['recipes-dir', 'recipesDir']),
   };
 }

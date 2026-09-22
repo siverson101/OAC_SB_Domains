@@ -1,0 +1,136 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Workflow Recipe",
+  "description": "Versioned data contract for an OAC workflow recipe (ADR-0016, Plan Step 6.2). A recipe is a named, versioned pipeline of phases and steps; each step names a command/ability and may declare a machine-evaluable artifact check (glob + required pattern) or a human `note` fallback when completion cannot be auto-detected.",
+  "schemaVersion": 1,
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["schemaVersion", "id", "name", "description", "version", "phases"],
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "const": 1,
+      "description": "Recipe contract version. Bump when the phase/step shape changes."
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+      "description": "Stable kebab-case recipe id, e.g. 'unity-change-loop'."
+    },
+    "name": {
+      "type": "string",
+      "description": "Human-readable recipe name."
+    },
+    "description": {
+      "type": "string",
+      "description": "One-to-two sentence summary of what the recipe does."
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Semantic version of this recipe revision, e.g. '1.0.0'."
+    },
+    "phases": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Ordered pipeline of phases.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "type", "description", "steps"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Unique kebab-case phase id within the recipe."
+          },
+          "type": {
+            "type": "string",
+            "enum": ["serial", "parallel"],
+            "description": "serial runs the phase's steps in order; parallel runs independent steps together."
+          },
+          "description": {
+            "type": "string",
+            "description": "What the phase accomplishes."
+          },
+          "dependsOn": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Phase ids that must complete before this phase starts. Every entry must name a phase in this recipe."
+          },
+          "steps": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "$ref": "#/$defs/step" }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "step": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "description"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique step id within its phase."
+        },
+        "kind": {
+          "type": "string",
+          "enum": ["agent", "manual", "command", "cli", "ability", "report"],
+          "description": "How the step executes: route to an agent, wait on a human, invoke a command, run a CLI command, call an ability, or emit a report."
+        },
+        "description": {
+          "type": "string",
+          "description": "What the step accomplishes."
+        },
+        "command": {
+          "type": "string",
+          "description": "Slash command or CLI command the step runs."
+        },
+        "abilities": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Ability ids the step orchestrates."
+        },
+        "agents": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Agent ids the step routes to."
+        },
+        "gates": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Named gates that must be satisfied for the step."
+        },
+        "artifact": { "$ref": "#/$defs/artifact" }
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Completion check. Machine-evaluable when `glob` is present: `minCount` (default 1) files must satisfy the check — the glob matches when `pattern` is absent, and matched files whose contents contain the regex when `pattern` is given (so `minCount` counts pattern-satisfying files, not all glob matches). `note` is the human fallback used only when completion cannot be auto-detected; it is mutually exclusive with `glob`.",
+      "properties": {
+        "glob": {
+          "type": "string",
+          "description": "Machine-evaluable file glob, relative to the project root."
+        },
+        "pattern": {
+          "type": "string",
+          "description": "Machine-evaluable regex; a glob-matched file counts toward `minCount` only when its contents contain it (requires `glob`)."
+        },
+        "minCount": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Machine-evaluable minimum number of files satisfying the check: glob matches when `pattern` is absent, otherwise pattern-containing matches (default 1; requires `glob`)."
+        },
+        "note": {
+          "type": "string",
+          "description": "Human fallback when completion cannot be auto-detected (used only when `glob` is absent)."
+        }
+      },
+      "oneOf": [{ "required": ["glob"] }, { "required": ["note"] }]
+    }
+  }
+}

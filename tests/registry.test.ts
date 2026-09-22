@@ -1,15 +1,33 @@
 import { describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import { buildRegistry } from '../tools/shared/registry/src/build';
+import { validateContract } from '../tools/shared/registry/src/contract';
 import { frontmatterStringArray, parseFrontmatter } from '../tools/shared/registry/src/frontmatter';
 import { renderRegistry } from '../tools/shared/registry/src/render';
+import { RUN_ABILITIES } from '../tools/unity/unity-run/src/types';
 
 const repoRoot = resolve(import.meta.dir, '..');
 const unity3dDir = join(repoRoot, 'xdomains', 'game-dev', 'unity-3d');
 const bundle = join(repoRoot, 'xdomains', 'scripts', 'shared', 'build-registry.mjs');
+const schemaPath = join(repoRoot, 'xdomains', 'context', 'capability-contract.schema.json');
+
+const LIFECYCLE_COMMANDS = [
+  'unity-setup',
+  'unity-brainstorm',
+  'unity-plan',
+  'unity-implement',
+  'unity-debug',
+  'unity-polish',
+  'unity-review',
+  'unity-runtime-target',
+  'unity-prefab-sweep',
+  'unity-performance',
+];
+
+const RUNTIME_LOOP_COMMANDS = ['unity-runtime-target', 'unity-prefab-sweep', 'unity-performance'];
 
 describe('registry build', () => {
   const registry = buildRegistry(unity3dDir, '2026-09-19T00:00:00.000Z');
@@ -19,8 +37,9 @@ describe('registry build', () => {
     expect(registry.subdomain).toBe('unity-3d');
     expect(registry.counts.agents).toBe(1);
     expect(registry.counts.subagents).toBe(7);
-    expect(registry.counts.abilities).toBe(34);
+    expect(registry.counts.abilities).toBe(35);
     expect(registry.counts.workflows).toBe(3);
+    expect(registry.counts.recipes).toBe(2);
   });
 
   test('includes a gated specialist only when its gate holds', () => {
@@ -119,12 +138,14 @@ describe('registry build', () => {
     expect(registry.edges).toContainEqual({ type: 'agent-ability', from: 'qa', to: 'unity-build' });
   });
 
-  test('records workflow edges from frontmatter declarations', () => {
-    expect(registry.edges).toContainEqual({ type: 'workflow-ability', from: 'feature-delivery', to: 'gather-unity-context' });
-    expect(registry.edges).toContainEqual({ type: 'workflow-ability', from: 'feature-delivery', to: 'unity-run-tests' });
-    expect(registry.edges).toContainEqual({ type: 'workflow-agent', from: 'feature-delivery', to: 'implementer' });
-    expect(registry.edges).toContainEqual({ type: 'workflow-agent', from: 'feature-delivery', to: 'qa' });
-    expect(registry.edges).toContainEqual({ type: 'workflow-agent', from: 'feature-delivery', to: 'scene' });
+  test('does not derive workflow edges from prose-workflow frontmatter (recipes are canonical)', () => {
+    const proseWorkflows = ['feature-delivery', 'quality-gate', 'scene-assembly'];
+    const fromProse = registry.edges.filter(
+      (edge) => (edge.type === 'workflow-ability' || edge.type === 'workflow-agent') && proseWorkflows.includes(edge.from)
+    );
+    expect(fromProse).toEqual([]);
+    // The prose workflows are still shipped as context; only their edges are gone.
+    expect(registry.workflows.map((entry) => entry.id).sort()).toEqual([...proseWorkflows].sort());
   });
 
   test('counts edges and renders an Edges section', () => {
@@ -135,6 +156,136 @@ describe('registry build', () => {
     expect(md).toContain('### workflow-ability');
     expect(md).toContain('### workflow-agent');
     expect(md).toContain('`unity-3d-orchestrator` → `gather-unity-context`');
+  });
+
+  test('enumerates the declared recipes', () => {
+    expect(registry.recipes.map((entry) => entry.id)).toEqual(['unity-change-loop', 'unity-prefab-scene']);
+    expect(registry.recipes.find((entry) => entry.id === 'unity-change-loop')?.path).toBe('recipes/unity-change-loop.json');
+    const md = renderRegistry(registry);
+    expect(md).toContain('## Recipes');
+  });
+
+  test('records workflow edges from recipe step abilities/agents', () => {
+    expect(registry.edges).toContainEqual({ type: 'workflow-ability', from: 'unity-change-loop', to: 'code-navigation' });
+    expect(registry.edges).toContainEqual({ type: 'workflow-ability', from: 'unity-change-loop', to: 'unity-run-tests' });
+    expect(registry.edges).toContainEqual({ type: 'workflow-ability', from: 'unity-change-loop', to: 'runtime-ui-validation' });
+    expect(registry.edges).toContainEqual({ type: 'workflow-agent', from: 'unity-change-loop', to: 'implementer' });
+    expect(registry.edges).toContainEqual({ type: 'workflow-ability', from: 'unity-prefab-scene', to: 'prefab-automation' });
+    expect(registry.edges).toContainEqual({ type: 'workflow-ability', from: 'unity-prefab-scene', to: 'scene-editing' });
+    expect(registry.edges).toContainEqual({ type: 'workflow-agent', from: 'unity-prefab-scene', to: 'scene' });
+  });
+
+  test('unity-change-loop names the Run ability and the recipe; workflow edges use the recipe id', () => {
+    // One string, three namespaces: the Run ability, the recipe id, and the
+    // lifecycle-catalog `change-loop` step command. Registry `workflow-*` edges
+    // name the *recipe* id as `from`, so every such edge resolves to a recipe.
+    const recipe = registry.recipes.find((entry) => entry.id === 'unity-change-loop');
+    expect(recipe?.id).toBe('unity-change-loop');
+    expect(recipe?.path).toBe('recipes/unity-change-loop.json');
+    expect(RUN_ABILITIES).toContain('unity-change-loop');
+
+    const recipeIds = new Set(registry.recipes.map((entry) => entry.id));
+    const workflowEdges = registry.edges.filter(
+      (edge) => edge.type === 'workflow-ability' || edge.type === 'workflow-agent'
+    );
+    expect(workflowEdges.length).toBeGreaterThan(0);
+    for (const edge of workflowEdges) {
+      expect(recipeIds.has(edge.from), `edge from "${edge.from}" is not a recipe id`).toBe(true);
+    }
+  });
+});
+
+describe('ability commands are declared', () => {
+  const manifest = JSON.parse(readFileSync(join(unity3dDir, 'sb-domain.json'), 'utf8')) as {
+    commands?: string[];
+    abilities?: string[];
+  };
+
+  test('every command file is declared in commands[] or realised from a declared ability', () => {
+    const declared = new Set(manifest.commands ?? []);
+    const abilities = new Set(manifest.abilities ?? []);
+    for (const entry of readdirSync(join(unity3dDir, 'command'))) {
+      if (!entry.endsWith('.md')) continue;
+      const id = basename(entry, '.md');
+      // merge-domains installs both `commands[]` files and every declared
+      // ability's `command/<ability>.md`, so either declaration is installable.
+      // An undeclared command file would be silently orphaned.
+      expect(declared.has(`command/${entry}`) || abilities.has(id), `command/${entry}`).toBe(true);
+    }
+  });
+
+  test('the workflow-catalog ability is also a declared command', () => {
+    expect(manifest.abilities).toContain('workflow-catalog');
+    expect(manifest.commands).toContain('command/workflow-catalog.md');
+  });
+});
+
+describe('lifecycle command contracts', () => {
+  const schema = JSON.parse(readFileSync(schemaPath, 'utf8'));
+
+  test('declares the ten lifecycle and runtime-loop commands', () => {
+    const manifest = JSON.parse(readFileSync(join(unity3dDir, 'sb-domain.json'), 'utf8')) as { commands?: string[] };
+    for (const id of LIFECYCLE_COMMANDS) {
+      expect(manifest.commands, id).toContain(`command/${id}.md`);
+    }
+  });
+
+  for (const id of LIFECYCLE_COMMANDS) {
+    test(`${id} has a valid capability contract`, () => {
+      const path = join(unity3dDir, 'command', `${id}.md`);
+      expect(existsSync(path)).toBe(true);
+      const fm = parseFrontmatter(readFileSync(path, 'utf8'));
+      expect(fm.id).toBe(id);
+      expect(typeof fm.summary).toBe('string');
+      expect(typeof fm.family).toBe('string');
+      expect(typeof fm.mode).toBe('string');
+      expect(typeof fm.inputs).toBe('object');
+      expect(typeof fm.outputs).toBe('object');
+      expect(typeof fm.safetyGate).toBe('object');
+      expect(validateContract(fm as Record<string, unknown>, schema).errors).toEqual([]);
+    });
+  }
+
+  test('the runtime loops are gated by editor/bridge availability', () => {
+    for (const id of RUNTIME_LOOP_COMMANDS) {
+      const fm = parseFrontmatter(readFileSync(join(unity3dDir, 'command', `${id}.md`), 'utf8'));
+      expect(['live', 'both'], id).toContain(fm.mode as string);
+      expect((fm.safetyGate as Record<string, unknown>).requiresEditor, id).toBe(true);
+    }
+    // The live-only loops carry mode `live`; the prefab sweep keeps an offline dry run (`both`).
+    for (const id of ['unity-runtime-target', 'unity-performance']) {
+      const fm = parseFrontmatter(readFileSync(join(unity3dDir, 'command', `${id}.md`), 'utf8'));
+      expect(fm.mode, id).toBe('live');
+    }
+  });
+});
+
+describe('lifecycle navigation', () => {
+  const navigation = readFileSync(join(unity3dDir, 'context', 'unity-3d', 'navigation.md'), 'utf8');
+
+  test('lists every lifecycle and runtime-loop command route', () => {
+    for (const id of LIFECYCLE_COMMANDS) {
+      expect(navigation, id).toContain(`/${id}`);
+    }
+  });
+
+  test('no longer routes to the removed feature command', () => {
+    expect(navigation).not.toContain('unity-feature');
+  });
+});
+
+describe('no dangling unity-feature reference', () => {
+  test('the unity-3d domain contains no unity-feature reference', () => {
+    const hits: string[] = [];
+    const walk = (dir: string): void => {
+      for (const entry of readdirSync(dir)) {
+        const full = join(dir, entry);
+        if (statSync(full).isDirectory()) walk(full);
+        else if (readFileSync(full, 'utf8').includes('unity-feature')) hits.push(full);
+      }
+    };
+    walk(unity3dDir);
+    expect(hits).toEqual([]);
   });
 });
 
@@ -164,6 +315,58 @@ describe('registry edge hygiene', () => {
       ]);
       expect(registry.warnings.some((warning) => warning.includes('nope'))).toBe(true);
       expect(registry.warnings.some((warning) => warning.includes('unknown ability'))).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('drops and warns on unknown recipe ability/agent link targets', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'oac-registry-recipe-edges-'));
+    try {
+      mkdirSync(join(dir, 'recipes'), { recursive: true });
+      writeFileSync(
+        join(dir, 'sb-domain.json'),
+        JSON.stringify({
+          name: 'test-domain',
+          domain: 'test',
+          subdomain: 'test',
+          abilities: ['unity-read-project'],
+          recipes: ['recipes/r1.json'],
+        })
+      );
+      writeFileSync(
+        join(dir, 'recipes', 'r1.json'),
+        JSON.stringify({
+          schemaVersion: 1,
+          id: 'r1',
+          name: 'R1',
+          description: 'x',
+          version: '1.0.0',
+          phases: [
+            {
+              id: 'p',
+              type: 'serial',
+              description: 'p',
+              steps: [
+                {
+                  id: 's',
+                  kind: 'ability',
+                  description: 's',
+                  abilities: ['unity-read-project', 'ghost-ability'],
+                  agents: ['ghost-agent'],
+                },
+              ],
+            },
+          ],
+        })
+      );
+
+      const registry = buildRegistry(dir, '2026-09-19T00:00:00.000Z');
+      expect(registry.edges.filter((edge) => edge.from === 'r1')).toEqual([
+        { type: 'workflow-ability', from: 'r1', to: 'unity-read-project' },
+      ]);
+      expect(registry.warnings).toContain('edge workflow-ability r1 -> ghost-ability: unknown ability');
+      expect(registry.warnings).toContain('edge workflow-agent r1 -> ghost-agent: unknown agent');
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

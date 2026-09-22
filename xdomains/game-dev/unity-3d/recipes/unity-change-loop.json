@@ -1,0 +1,119 @@
+{
+  "//": "The id `unity-change-loop` is shared on purpose by the Run ability (tools/unity/unity-run/src/types.ts), this recipe, and the lifecycle-catalog `change-loop` step command (xdomains/context/workflow-catalog.json).",
+  "schemaVersion": 1,
+  "id": "unity-change-loop",
+  "name": "Unity Change Loop",
+  "description": "Resolve -> inspect -> smallest change -> compile -> logs -> tests -> observe, with named gates and cited evidence. 'Done' is refused unless the required gates are green (ADR-0015/0018).",
+  "version": "1.0.0",
+  "phases": [
+    {
+      "id": "resolve",
+      "type": "serial",
+      "description": "Resolve the request to concrete files and symbols.",
+      "steps": [
+        {
+          "id": "resolve-request",
+          "kind": "ability",
+          "description": "Resolve the request to the files/symbols in scope and record the change scope.",
+          "abilities": ["code-navigation"],
+          "artifact": { "note": "Change scope recorded for the request." }
+        }
+      ]
+    },
+    {
+      "id": "inspect",
+      "type": "serial",
+      "description": "Read the current code/scene before touching it.",
+      "dependsOn": ["resolve"],
+      "steps": [
+        {
+          "id": "inspect-target",
+          "kind": "ability",
+          "description": "Read the target code, scene, or prefab and note the current behaviour.",
+          "abilities": ["code-navigation", "offline-project-inspection"],
+          "artifact": { "note": "Target inspected and current behaviour noted." }
+        }
+      ]
+    },
+    {
+      "id": "change",
+      "type": "serial",
+      "description": "Make the smallest change that satisfies the request.",
+      "dependsOn": ["inspect"],
+      "steps": [
+        {
+          "id": "apply-smallest-change",
+          "kind": "agent",
+          "description": "Apply the smallest change in scope; no drive-by edits.",
+          "agents": ["implementer"],
+          "artifact": { "note": "Diff reviewed against the change scope." }
+        }
+      ]
+    },
+    {
+      "id": "compile",
+      "type": "serial",
+      "description": "Compile and confirm fresh assemblies, not a silent no-op.",
+      "dependsOn": ["change"],
+      "steps": [
+        {
+          "id": "compile",
+          "kind": "cli",
+          "description": "Compile and confirm fresh assemblies (not a silent no-op).",
+          "command": "compile unity",
+          "abilities": ["compile-and-verify-project"],
+          "gates": ["compile"],
+          "artifact": { "glob": ".opencode/project-data/compile-state.json" }
+        }
+      ]
+    },
+    {
+      "id": "logs",
+      "type": "serial",
+      "description": "Read the Editor/runtime logs for errors introduced by the change.",
+      "dependsOn": ["compile"],
+      "steps": [
+        {
+          "id": "logs",
+          "kind": "cli",
+          "description": "Read the Editor/runtime logs for errors introduced by the change.",
+          "command": "get_logs --logType Error --count 50",
+          "gates": ["logs"],
+          "artifact": { "glob": ".opencode/project-data/log-digest.json" }
+        }
+      ]
+    },
+    {
+      "id": "tests",
+      "type": "serial",
+      "description": "Run the applicable tests; green tests are required for done.",
+      "dependsOn": ["logs"],
+      "steps": [
+        {
+          "id": "tests",
+          "kind": "ability",
+          "description": "Run EditMode/PlayMode tests; green tests are required for done.",
+          "abilities": ["unity-run-tests"],
+          "gates": ["tests"],
+          "artifact": { "glob": ".opencode/project-data/unity-verification-report.json" }
+        }
+      ]
+    },
+    {
+      "id": "observe",
+      "type": "serial",
+      "description": "Observe the result (screenshot/visual verification) when relevant.",
+      "dependsOn": ["tests"],
+      "steps": [
+        {
+          "id": "observe",
+          "kind": "ability",
+          "description": "Capture a screenshot / visual verification when relevant.",
+          "abilities": ["runtime-ui-validation"],
+          "gates": ["observe"],
+          "artifact": { "note": "Screenshot captured when the change is visual." }
+        }
+      ]
+    }
+  ]
+}

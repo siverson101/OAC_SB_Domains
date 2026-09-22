@@ -96,7 +96,8 @@ var COMPOSE_ABILITY_NAMES = [
   "contract-aware-design",
   "ci-status-baseline",
   "plan-feature",
-  "test-plan"
+  "test-plan",
+  "workflow-catalog"
 ];
 var COMPOSE_ABILITIES = [...COMPOSE_ABILITY_NAMES];
 var COMPOSE_MODES = {
@@ -105,7 +106,8 @@ var COMPOSE_MODES = {
   "contract-aware-design": "offline",
   "ci-status-baseline": "both",
   "plan-feature": "offline",
-  "test-plan": "offline"
+  "test-plan": "offline",
+  "workflow-catalog": "offline"
 };
 // tools/shared/json-helpers.ts
 function asRecord(value) {
@@ -1841,6 +1843,455 @@ function runTestPlan(options) {
   };
 }
 
+// tools/unity/unity-compose/src/workflow-catalog.ts
+import { existsSync as existsSync2, readdirSync as readdirSync4 } from "node:fs";
+import { basename as basename3, join as join8 } from "node:path";
+
+// tools/unity/unity-compose/src/recipes.ts
+import { readdirSync as readdirSync3, statSync as statSync4 } from "node:fs";
+import { join as join7, relative } from "node:path";
+var RECIPE_SCHEMA_VERSION = 1;
+var RECIPE_ID_PATTERN = "^[a-z0-9]+(?:-[a-z0-9]+)*$";
+var RECIPE_PHASE_TYPES = ["serial", "parallel"];
+var RECIPE_STEP_KINDS = ["agent", "manual", "command", "cli", "ability", "report"];
+var RECIPE_PHASE_KEYS = ["id", "type", "description", "dependsOn", "steps"];
+var RECIPE_STEP_KEYS = [
+  "id",
+  "kind",
+  "description",
+  "command",
+  "abilities",
+  "agents",
+  "gates",
+  "artifact"
+];
+var RECIPE_ARTIFACT_KEYS = ["glob", "pattern", "minCount", "note"];
+var RECIPE_REQUIRED_FIELDS = ["schemaVersion", "id", "name", "description", "version", "phases"];
+var PHASE_REQUIRED_FIELDS = ["id", "type", "description", "steps"];
+var STEP_REQUIRED_FIELDS = ["id", "kind", "description"];
+function isMissing2(value) {
+  if (value === undefined || value === null)
+    return true;
+  if (typeof value === "string" && value.trim() === "")
+    return true;
+  if (Array.isArray(value) && value.length === 0)
+    return true;
+  return false;
+}
+function isStringArray(value) {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+function requireFields(record, label, fields, errors) {
+  const prefix = label ? `${label} ` : "";
+  for (const key of fields) {
+    if (isMissing2(record[key]))
+      errors.push(`${prefix}missing required field: ${key}`);
+  }
+}
+function validateUniqueId(id, seen, errors, kind, where) {
+  if (!id)
+    return;
+  if (seen.has(id))
+    errors.push(where ? `duplicate ${kind} id "${id}" in ${where}` : `duplicate ${kind} id "${id}"`);
+  seen.add(id);
+}
+function rejectUnknownKeys(record, label, allowed, errors) {
+  for (const key of Object.keys(record)) {
+    if (!allowed.includes(key))
+      errors.push(`${label} has unknown key "${key}"`);
+  }
+}
+function validateArtifact(value, label, errors) {
+  if (value === undefined)
+    return;
+  const artifact = asRecord(value);
+  if (!artifact) {
+    errors.push(`${label} artifact must be an object`);
+    return;
+  }
+  rejectUnknownKeys(artifact, `${label} artifact`, RECIPE_ARTIFACT_KEYS, errors);
+  if (artifact.glob === undefined && artifact.note === undefined) {
+    errors.push(`${label} artifact must declare "glob" (machine-evaluable) or "note" (fallback)`);
+  }
+  if (artifact.glob !== undefined && artifact.note !== undefined) {
+    errors.push(`${label} artifact must not combine "glob" (machine-evaluable) with "note" (fallback)`);
+  }
+  if (artifact.glob !== undefined && (typeof artifact.glob !== "string" || artifact.glob.trim() === "")) {
+    errors.push(`${label} artifact.glob must be a non-empty string`);
+  }
+  if (artifact.pattern !== undefined && typeof artifact.pattern !== "string") {
+    errors.push(`${label} artifact.pattern must be a string`);
+  }
+  if (artifact.note !== undefined && typeof artifact.note !== "string") {
+    errors.push(`${label} artifact.note must be a string`);
+  }
+  if (artifact.minCount !== undefined && (!Number.isInteger(artifact.minCount) || artifact.minCount < 1)) {
+    errors.push(`${label} artifact.minCount must be a positive integer`);
+  }
+  if ((artifact.pattern !== undefined || artifact.minCount !== undefined) && artifact.glob === undefined) {
+    errors.push(`${label} artifact.pattern/minCount require artifact.glob`);
+  }
+}
+function validateRecipe(data) {
+  const errors = [];
+  const root = asRecord(data);
+  if (!root)
+    return { ok: false, errors: ["recipe must be a JSON object"] };
+  requireFields(root, "", RECIPE_REQUIRED_FIELDS, errors);
+  if (root.schemaVersion !== undefined && root.schemaVersion !== RECIPE_SCHEMA_VERSION) {
+    errors.push(`unsupported schemaVersion: expected ${RECIPE_SCHEMA_VERSION}, got ${JSON.stringify(root.schemaVersion)}`);
+  }
+  if (root.id !== undefined && (typeof root.id !== "string" || !new RegExp(RECIPE_ID_PATTERN).test(root.id))) {
+    errors.push(`invalid id: expected kebab-case matching ${RECIPE_ID_PATTERN}, got ${JSON.stringify(root.id)}`);
+  }
+  if (root.version !== undefined && (typeof root.version !== "string" || !/^\d+\.\d+\.\d+$/.test(root.version))) {
+    errors.push(`invalid version: expected MAJOR.MINOR.PATCH, got ${JSON.stringify(root.version)}`);
+  }
+  const phases = root.phases;
+  if (phases === undefined)
+    return { ok: errors.length === 0, errors };
+  if (!Array.isArray(phases)) {
+    errors.push("invalid phases: expected array");
+    return { ok: false, errors };
+  }
+  const phaseIds = new Set;
+  phases.forEach((phaseRaw, i) => {
+    const where = `phase[${i}]`;
+    const phase = asRecord(phaseRaw);
+    if (!phase) {
+      errors.push(`${where} must be an object`);
+      return;
+    }
+    const id = typeof phase.id === "string" ? phase.id : null;
+    const label = id ? `phase "${id}"` : where;
+    requireFields(phase, label, PHASE_REQUIRED_FIELDS, errors);
+    validateUniqueId(id, phaseIds, errors, "phase");
+    rejectUnknownKeys(phase, label, RECIPE_PHASE_KEYS, errors);
+    if (phase.type !== undefined && !RECIPE_PHASE_TYPES.includes(phase.type)) {
+      errors.push(`${label} has unknown type ${JSON.stringify(phase.type)}: expected one of ${RECIPE_PHASE_TYPES.join("|")}`);
+    }
+    if (phase.dependsOn !== undefined && !isStringArray(phase.dependsOn)) {
+      errors.push(`${label} dependsOn must be an array of phase ids`);
+    }
+    if (phase.steps === undefined)
+      return;
+    if (!Array.isArray(phase.steps)) {
+      errors.push(`${label} steps must be an array`);
+      return;
+    }
+    const stepIds = new Set;
+    phase.steps.forEach((stepRaw, j) => {
+      const step = asRecord(stepRaw);
+      if (!step) {
+        errors.push(`${label} step[${j}] must be an object`);
+        return;
+      }
+      const stepId = typeof step.id === "string" ? step.id : null;
+      const stepLabel = stepId ? `${label} step "${stepId}"` : `${label} step[${j}]`;
+      requireFields(step, stepLabel, STEP_REQUIRED_FIELDS, errors);
+      validateUniqueId(stepId, stepIds, errors, "step", label);
+      rejectUnknownKeys(step, stepLabel, RECIPE_STEP_KEYS, errors);
+      if (step.kind !== undefined && !RECIPE_STEP_KINDS.includes(step.kind)) {
+        errors.push(`${stepLabel} has unknown kind ${JSON.stringify(step.kind)}: expected one of ${RECIPE_STEP_KINDS.join("|")}`);
+      }
+      if (step.command !== undefined && typeof step.command !== "string")
+        errors.push(`${stepLabel} command must be a string`);
+      for (const key of ["abilities", "agents", "gates"]) {
+        if (step[key] !== undefined && !isStringArray(step[key]))
+          errors.push(`${stepLabel} ${key} must be an array of strings`);
+      }
+      validateArtifact(step.artifact, stepLabel, errors);
+    });
+  });
+  phases.forEach((phaseRaw, i) => {
+    const phase = asRecord(phaseRaw);
+    if (!phase || !isStringArray(phase.dependsOn))
+      return;
+    const id = typeof phase.id === "string" ? phase.id : `phase[${i}]`;
+    for (const dependency of phase.dependsOn) {
+      if (!phaseIds.has(dependency))
+        errors.push(`phase "${id}" dependsOn unknown phase "${dependency}"`);
+    }
+  });
+  return { ok: errors.length === 0, errors };
+}
+function globToRegExp(pattern) {
+  let source = "";
+  for (let i = 0;i < pattern.length; i += 1) {
+    const char = pattern[i];
+    if (char === "*") {
+      if (pattern[i + 1] === "*") {
+        i += 1;
+        if (pattern[i + 1] === "/") {
+          i += 1;
+          source += "(?:.*/)?";
+        } else {
+          source += ".*";
+        }
+      } else {
+        source += "[^/]*";
+      }
+    } else if (char === "?") {
+      source += "[^/]";
+    } else if (".+^${}()|[]\\".includes(char)) {
+      source += `\\${char}`;
+    } else {
+      source += char;
+    }
+  }
+  return new RegExp(`^${source}$`);
+}
+function literalBase(pattern) {
+  const firstWildcard = pattern.search(/[*?]/);
+  const prefix = firstWildcard === -1 ? pattern : pattern.slice(0, firstWildcard);
+  const slash = prefix.lastIndexOf("/");
+  return slash === -1 ? "" : prefix.slice(0, slash);
+}
+var MAX_GLOB_MATCHES = 20000;
+function makeProjectGlob(projectRoot) {
+  return (pattern, { cwd }) => {
+    const root = cwd || projectRoot;
+    const base = literalBase(toPosix(pattern));
+    const baseDir = base ? join7(root, base) : root;
+    if (!dirExists(baseDir))
+      return [];
+    const matcher = globToRegExp(toPosix(pattern));
+    const matches = [];
+    const walk = (dir) => {
+      let entries;
+      try {
+        entries = readdirSync3(dir);
+      } catch {
+        return;
+      }
+      for (const entry of entries) {
+        if (matches.length >= MAX_GLOB_MATCHES)
+          return;
+        const full = join7(dir, entry);
+        let directory = false;
+        try {
+          directory = statSync4(full).isDirectory();
+        } catch {
+          continue;
+        }
+        if (directory) {
+          walk(full);
+          continue;
+        }
+        const rel = toPosix(relative(root, full));
+        if (matcher.test(rel))
+          matches.push(rel);
+      }
+    };
+    walk(baseDir);
+    return matches;
+  };
+}
+function evaluateArtifactCheck(check, context) {
+  if (!check || typeof check.glob !== "string" || check.glob.trim() === "")
+    return "undetectable";
+  const glob = context.glob ?? makeProjectGlob(context.projectRoot);
+  let matches;
+  try {
+    matches = glob(check.glob, { cwd: context.projectRoot });
+  } catch {
+    return "undetectable";
+  }
+  if (!Array.isArray(matches))
+    return "undetectable";
+  const minCount = typeof check.minCount === "number" && Number.isInteger(check.minCount) && check.minCount > 0 ? check.minCount : 1;
+  if (typeof check.pattern !== "string" || check.pattern === "") {
+    return matches.length >= minCount ? "met" : "unmet";
+  }
+  let matcher;
+  try {
+    matcher = new RegExp(check.pattern);
+  } catch {
+    return "undetectable";
+  }
+  const readFile = context.readFile ?? ((path) => readText(join7(context.projectRoot, path)));
+  let satisfied = 0;
+  for (const file of matches) {
+    let content;
+    try {
+      content = readFile(file);
+    } catch {
+      return "undetectable";
+    }
+    if (typeof content === "string" && matcher.test(content))
+      satisfied += 1;
+  }
+  return satisfied >= minCount ? "met" : "unmet";
+}
+
+// tools/unity/unity-compose/src/workflow-catalog.ts
+var CATALOG_SCHEMA_VERSION = 1;
+var CATALOG_REQUIRED_FIELDS = ["schemaVersion", "id", "name", "description", "phases"];
+var CATALOG_PHASE_REQUIRED_FIELDS = ["id", "label", "description", "steps"];
+var CATALOG_STEP_REQUIRED_FIELDS = ["id", "name", "command", "description"];
+function validateWorkflowCatalog(data) {
+  const errors = [];
+  const root = asRecord(data);
+  if (!root)
+    return { ok: false, errors: ["workflow catalog must be a JSON object"] };
+  requireFields(root, "", CATALOG_REQUIRED_FIELDS, errors);
+  if (root.schemaVersion !== undefined && root.schemaVersion !== CATALOG_SCHEMA_VERSION) {
+    errors.push(`unsupported schemaVersion: expected ${CATALOG_SCHEMA_VERSION}, got ${JSON.stringify(root.schemaVersion)}`);
+  }
+  const phases = root.phases;
+  if (phases === undefined)
+    return { ok: errors.length === 0, errors };
+  if (!Array.isArray(phases)) {
+    errors.push("invalid phases: expected array");
+    return { ok: false, errors };
+  }
+  const phaseIds = new Set;
+  phases.forEach((phaseRaw, i) => {
+    const where = `phase[${i}]`;
+    const phase = asRecord(phaseRaw);
+    if (!phase) {
+      errors.push(`${where} must be an object`);
+      return;
+    }
+    const id = typeof phase.id === "string" ? phase.id : null;
+    const label = id ? `phase "${id}"` : where;
+    requireFields(phase, label, CATALOG_PHASE_REQUIRED_FIELDS, errors);
+    validateUniqueId(id, phaseIds, errors, "phase");
+    if (phase.nextPhase !== undefined && phase.nextPhase !== null && typeof phase.nextPhase !== "string") {
+      errors.push(`${label} nextPhase must be a string or null`);
+    }
+    if (phase.steps === undefined)
+      return;
+    if (!Array.isArray(phase.steps)) {
+      errors.push(`${label} steps must be an array`);
+      return;
+    }
+    const stepIds = new Set;
+    phase.steps.forEach((stepRaw, j) => {
+      const step = asRecord(stepRaw);
+      if (!step) {
+        errors.push(`${label} step[${j}] must be an object`);
+        return;
+      }
+      const stepId = typeof step.id === "string" ? step.id : null;
+      const stepLabel = stepId ? `${label} step "${stepId}"` : `${label} step[${j}]`;
+      requireFields(step, stepLabel, CATALOG_STEP_REQUIRED_FIELDS, errors);
+      if (typeof step.required !== "boolean")
+        errors.push(`${stepLabel} missing required field: required`);
+      validateUniqueId(stepId, stepIds, errors, "step", label);
+      for (const key of ["name", "command", "description"]) {
+        if (step[key] !== undefined && typeof step[key] !== "string")
+          errors.push(`${stepLabel} ${key} must be a string`);
+      }
+      if (step.repeatable !== undefined && typeof step.repeatable !== "boolean")
+        errors.push(`${stepLabel} repeatable must be a boolean`);
+      validateArtifact(step.artifact, stepLabel, errors);
+    });
+  });
+  phases.forEach((phaseRaw, i) => {
+    const phase = asRecord(phaseRaw);
+    if (!phase)
+      return;
+    const id = typeof phase.id === "string" ? phase.id : `phase[${i}]`;
+    const next = phase.nextPhase;
+    if (typeof next !== "string")
+      return;
+    if (!phaseIds.has(next))
+      errors.push(`phase "${id}" nextPhase names unknown phase "${next}"`);
+    if (next === phase.id)
+      errors.push(`phase "${id}" nextPhase must not reference itself`);
+  });
+  return { ok: errors.length === 0, errors };
+}
+function defaultXdomainsPath(options, ...rel) {
+  const installed = join8(options.opencodeDir, "xdomains", ...rel);
+  return existsSync2(installed) ? installed : join8(options.projectRoot, "xdomains", ...rel);
+}
+function defaultCatalogPath(options) {
+  return defaultXdomainsPath(options, "context", "workflow-catalog.json");
+}
+function defaultRecipesDir(options) {
+  return defaultXdomainsPath(options, "game-dev", "unity-3d", "recipes");
+}
+function readRecipes(dir) {
+  let entries;
+  try {
+    entries = readdirSync4(dir);
+  } catch {
+    return [];
+  }
+  return entries.filter((entry) => entry.endsWith(".json")).sort().map((entry) => {
+    const path = join8(dir, entry);
+    const data = readJson(path);
+    const record = asRecord(data);
+    const id = typeof record?.id === "string" ? record.id : basename3(entry, ".json");
+    if (data === null)
+      return { id, path: toPosix(path), valid: false, errors: [`unreadable recipe: ${toPosix(path)}`] };
+    const validation = validateRecipe(data);
+    return { id, path: toPosix(path), valid: validation.ok, errors: validation.errors };
+  });
+}
+function evaluatePhases(catalog, projectRoot) {
+  return catalog.phases.map((phase) => {
+    const steps = phase.steps.map((step) => {
+      const outcome = step.artifact ? evaluateArtifactCheck(step.artifact, { projectRoot }) : "undetectable";
+      return {
+        id: step.id,
+        name: step.name,
+        command: step.command,
+        required: step.required,
+        outcome,
+        blocking: step.required && outcome !== "met"
+      };
+    });
+    const complete = steps.every((step) => !step.blocking);
+    return { id: phase.id, label: phase.label, nextPhase: phase.nextPhase, complete, steps };
+  });
+}
+function firstBlocking(phases) {
+  for (const phase of phases) {
+    for (const step of phase.steps) {
+      if (step.blocking)
+        return { phaseId: phase.id, step };
+    }
+  }
+  return null;
+}
+function runWorkflowCatalog(options) {
+  const catalogPath = options.catalog ?? defaultCatalogPath(options);
+  const recipesDir = options.recipesDir ?? defaultRecipesDir(options);
+  const recipes = readRecipes(recipesDir);
+  const base = { catalogPath: toPosix(catalogPath), recipesDir: toPosix(recipesDir), recipes };
+  const raw = readJson(catalogPath);
+  if (raw === null) {
+    const result = makeResult("workflow-catalog", "unavailable", `no workflow catalog at ${toPosix(catalogPath)}`, []);
+    return { ...result, ...base, catalogValid: false, catalogErrors: [], phases: [], currentPhase: null, nextCommand: null, nextStepId: null };
+  }
+  const validation = validateWorkflowCatalog(raw);
+  if (!validation.ok) {
+    const result = makeResult("workflow-catalog", "observed_locally", `workflow catalog invalid: ${validation.errors.length} error(s)`, validation.errors);
+    return { ...result, ...base, catalogValid: false, catalogErrors: validation.errors, phases: [], currentPhase: null, nextCommand: null, nextStepId: null };
+  }
+  const catalog = raw;
+  const phases = evaluatePhases(catalog, options.projectRoot);
+  const blocking = firstBlocking(phases);
+  const invalidRecipes = recipes.filter((recipe) => !recipe.valid);
+  const status = invalidRecipes.length > 0 ? "observed_locally" : "ok";
+  const blockingNote = blocking ? `next: ${blocking.step.command} (required step "${blocking.step.id}" is ${blocking.step.outcome})` : "all machine-checkable phases complete";
+  const summary = invalidRecipes.length > 0 ? `catalog valid; ${invalidRecipes.length}/${recipes.length} recipe(s) invalid` : `catalog valid; ${recipes.length} recipe(s) valid; ${blockingNote}`;
+  const result = makeResult("workflow-catalog", status, summary, invalidRecipes.flatMap((recipe) => recipe.errors.map((error) => `recipe "${recipe.id}": ${error}`)));
+  return {
+    ...result,
+    ...base,
+    catalogValid: true,
+    catalogErrors: validation.errors,
+    phases,
+    currentPhase: blocking?.phaseId ?? null,
+    nextCommand: blocking?.step.command ?? null,
+    nextStepId: blocking?.step.id ?? null
+  };
+}
+
 // tools/unity/unity-compose/src/abilities.ts
 async function runCompose(options) {
   switch (options.ability) {
@@ -1856,6 +2307,8 @@ async function runCompose(options) {
       return runPlanFeature(options);
     case "test-plan":
       return runTestPlan(options);
+    case "workflow-catalog":
+      return runWorkflowCatalog(options);
     default: {
       const exhaustive = options.ability;
       throw new Error(`unsupported Compose ability: ${String(exhaustive)}`);
@@ -1864,7 +2317,7 @@ async function runCompose(options) {
 }
 
 // tools/unity/unity-compose/src/cli.ts
-import { join as join7, resolve } from "node:path";
+import { join as join9, resolve } from "node:path";
 
 // tools/shared/cli-args.ts
 function isFlag(token) {
@@ -1934,7 +2387,7 @@ function resolveOptions(argv) {
   const { values: args, positional } = parseArgs(argv);
   rejectPositionals(positional);
   const projectRoot = resolve(String(args["project-root"] || process.cwd()));
-  const opencodeDir = resolve(String(args["opencode-dir"] || join7(projectRoot, ".opencode")));
+  const opencodeDir = resolve(String(args["opencode-dir"] || join9(projectRoot, ".opencode")));
   const requested = String(args.ability || "coordination-board");
   const ability = resolveAbility(requested, COMPOSE_ABILITIES, "coordination-board");
   const leaseRaw = args["lease-seconds"] ?? args.leaseSeconds;
@@ -1966,7 +2419,9 @@ function resolveOptions(argv) {
     testability: firstString(args, ["testability"]),
     tradeOffs: firstString(args, ["trade-offs", "tradeOffs"]),
     planAbilities,
-    commandsDir: firstString(args, ["commands-dir", "commandsDir"])
+    commandsDir: firstString(args, ["commands-dir", "commandsDir"]),
+    catalog: firstString(args, ["catalog"]),
+    recipesDir: firstString(args, ["recipes-dir", "recipesDir"])
   };
 }
 
@@ -2009,6 +2464,20 @@ function render(result) {
     lines.push(`  action: ${result.action} · feature: ${result.feature ?? "n/a"} · testability: ${result.testability ?? "n/a"} · written: ${result.written}`);
     if (result.instruction)
       lines.push(`  instruction: ${result.instruction}`);
+  }
+  if ("phases" in result && "catalogValid" in result) {
+    const valid = result.recipes.filter((recipe) => recipe.valid).length;
+    lines.push(`  catalog: ${result.catalogPath} · valid: ${result.catalogValid} · recipes: ${valid}/${result.recipes.length}`);
+    for (const phase of result.phases) {
+      const met = phase.steps.filter((step) => step.outcome === "met").length;
+      lines.push(`  phase ${phase.id}: ${met}/${phase.steps.length} met${phase.complete ? " · complete" : ""}`);
+      for (const step of phase.steps) {
+        if (step.outcome === "unmet")
+          lines.push(`    unmet ${step.id} -> ${step.command}`);
+      }
+    }
+    if (result.nextCommand)
+      lines.push(`  next: ${result.nextCommand} (${result.currentPhase ?? "n/a"})`);
   }
   for (const error of result.errors)
     lines.push(`  error: ${error}`);
