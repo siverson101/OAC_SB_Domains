@@ -487,6 +487,8 @@ export function buildRegistry(domainDir: string, generatedAt: string, opencodeDi
   // same pipelines as knowledge, so their frontmatter is deliberately not an
   // edge source: reading both would emit duplicate/conflicting edges under
   // different ids (e.g. `feature-delivery` vs the `unity-change-loop` recipe).
+  // Recipe links go through the same `addEdges` validation as agent allowlists,
+  // so an unknown ability/agent is dropped and warned, never silently emitted.
   for (const recipe of recipeEntries) {
     const links = recipeLinks(readJson(join(domainDir, recipe.path)));
     addEdges('workflow-ability', recipe.id, links.abilities);

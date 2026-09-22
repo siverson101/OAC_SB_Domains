@@ -1844,7 +1844,7 @@ function runTestPlan(options) {
 }
 
 // tools/unity/unity-compose/src/workflow-catalog.ts
-import { readdirSync as readdirSync4 } from "node:fs";
+import { existsSync as existsSync2, readdirSync as readdirSync4 } from "node:fs";
 import { basename as basename3, join as join8 } from "node:path";
 
 // tools/unity/unity-compose/src/recipes.ts
@@ -1912,6 +1912,9 @@ function validateArtifact(value, label, errors) {
   rejectUnknownKeys(artifact, `${label} artifact`, RECIPE_ARTIFACT_KEYS, errors);
   if (artifact.glob === undefined && artifact.note === undefined) {
     errors.push(`${label} artifact must declare "glob" (machine-evaluable) or "note" (fallback)`);
+  }
+  if (artifact.glob !== undefined && artifact.note !== undefined) {
+    errors.push(`${label} artifact must not combine "glob" (machine-evaluable) with "note" (fallback)`);
   }
   if (artifact.glob !== undefined && (typeof artifact.glob !== "string" || artifact.glob.trim() === "")) {
     errors.push(`${label} artifact.glob must be a non-empty string`);
@@ -2039,7 +2042,7 @@ function globToRegExp(pattern) {
   return new RegExp(`^${source}$`);
 }
 function literalBase(pattern) {
-  const firstWildcard = pattern.search(/[*?[\]]/);
+  const firstWildcard = pattern.search(/[*?]/);
   const prefix = firstWildcard === -1 ? pattern : pattern.slice(0, firstWildcard);
   const slash = prefix.lastIndexOf("/");
   return slash === -1 ? "" : prefix.slice(0, slash);
@@ -2200,11 +2203,15 @@ function validateWorkflowCatalog(data) {
   });
   return { ok: errors.length === 0, errors };
 }
+function defaultXdomainsPath(options, ...rel) {
+  const installed = join8(options.opencodeDir, "xdomains", ...rel);
+  return existsSync2(installed) ? installed : join8(options.projectRoot, "xdomains", ...rel);
+}
 function defaultCatalogPath(options) {
-  return join8(options.projectRoot, "xdomains", "context", "workflow-catalog.json");
+  return defaultXdomainsPath(options, "context", "workflow-catalog.json");
 }
 function defaultRecipesDir(options) {
-  return join8(options.projectRoot, "xdomains", "game-dev", "unity-3d", "recipes");
+  return defaultXdomainsPath(options, "game-dev", "unity-3d", "recipes");
 }
 function readRecipes(dir) {
   let entries;

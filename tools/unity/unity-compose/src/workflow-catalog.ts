@@ -9,13 +9,12 @@
 // (xdomains/game-dev/unity-3d/recipes/*.json) are validated with the same
 // `validateRecipe` the Compose family ships (ADR-0016). Offline, read-only and
 // fail-soft: a missing catalog or recipe is reported, never thrown.
-import { readdirSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { readJson, toPosix } from '../../../shared/io';
 import { asRecord } from '../../../shared/json-helpers';
 import {
   evaluateArtifactCheck,
-  makeProjectGlob,
   requireFields,
   validateArtifact,
   validateRecipe,
@@ -25,8 +24,6 @@ import {
   type RecipeValidation,
 } from './recipes';
 import { makeResult, type ComposeBase, type ComposeOptions } from './shared';
-
-export { makeProjectGlob };
 
 export const CATALOG_SCHEMA_VERSION = 1;
 
@@ -169,12 +166,21 @@ export interface WorkflowCatalogResult extends ComposeBase {
   nextStepId: string | null;
 }
 
+// The xdomains tree lives at `<opencodeDir>/xdomains/` in an installed
+// `.opencode/` layout and at `<projectRoot>/xdomains/` in the source repo.
+// Resolve the installed layout first and fall back to the source layout; a
+// caller with a different layout must pass `--catalog`/`--recipes-dir`.
+function defaultXdomainsPath(options: ComposeOptions, ...rel: string[]): string {
+  const installed = join(options.opencodeDir, 'xdomains', ...rel);
+  return existsSync(installed) ? installed : join(options.projectRoot, 'xdomains', ...rel);
+}
+
 export function defaultCatalogPath(options: ComposeOptions): string {
-  return join(options.projectRoot, 'xdomains', 'context', 'workflow-catalog.json');
+  return defaultXdomainsPath(options, 'context', 'workflow-catalog.json');
 }
 
 export function defaultRecipesDir(options: ComposeOptions): string {
-  return join(options.projectRoot, 'xdomains', 'game-dev', 'unity-3d', 'recipes');
+  return defaultXdomainsPath(options, 'game-dev', 'unity-3d', 'recipes');
 }
 
 function readRecipes(dir: string): WorkflowRecipeCheck[] {
