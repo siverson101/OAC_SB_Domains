@@ -742,6 +742,30 @@ function buildStudioConfig(domainDir, opencodeDir) {
     valid: resolved.resolution.valid
   };
 }
+function stringList(value) {
+  return Array.isArray(value) ? value.filter((item) => typeof item === "string") : [];
+}
+function asObject(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? value : null;
+}
+function recipeLinks(data) {
+  const abilities = new Set;
+  const agents = new Set;
+  const phases = asObject(data)?.phases;
+  for (const phaseRaw of Array.isArray(phases) ? phases : []) {
+    const steps = asObject(phaseRaw)?.steps;
+    for (const stepRaw of Array.isArray(steps) ? steps : []) {
+      const step = asObject(stepRaw);
+      if (!step)
+        continue;
+      for (const ability of stringList(step.abilities))
+        abilities.add(ability);
+      for (const agent of stringList(step.agents))
+        agents.add(agent);
+    }
+  }
+  return { abilities: [...abilities], agents: [...agents] };
+}
 function buildRegistry(domainDir, generatedAt, opencodeDir) {
   const manifest = readJson(join2(domainDir, "sb-domain.json")) ?? {};
   const projections = readJson(join2(domainDir, "context-projections.json")) ?? {};
@@ -803,6 +827,18 @@ function buildRegistry(domainDir, generatedAt, opencodeDir) {
   const knownAbilities = new Set(manifest.abilities ?? []);
   const knownAgents = new Set(allStudioAgents(manifest).map((rel) => basename(rel, ".md")));
   const warnings = [];
+  const recipeEntries = (manifest.recipes ?? []).map((rel) => {
+    const data = readJson(join2(domainDir, rel));
+    if (data === null)
+      warnings.push(`declared recipe not found: ${rel}`);
+    const id = data && typeof data.id === "string" ? data.id : basename(rel, ".json");
+    return {
+      id,
+      name: data && typeof data.name === "string" ? data.name : id,
+      path: rel,
+      description: data && typeof data.description === "string" ? data.description : undefined
+    };
+  });
   const edges = [];
   const seenEdges = new Set;
   const addEdges = (type, from, tos) => {
@@ -831,6 +867,11 @@ function buildRegistry(domainDir, generatedAt, opencodeDir) {
     addEdges("workflow-ability", workflow.id, frontmatterStringArray(fm, "abilities") ?? []);
     addEdges("workflow-agent", workflow.id, frontmatterStringArray(fm, "agents") ?? []);
   }
+  for (const recipe of recipeEntries) {
+    const links = recipeLinks(readJson(join2(domainDir, recipe.path)));
+    addEdges("workflow-ability", recipe.id, links.abilities);
+    addEdges("workflow-agent", recipe.id, links.agents);
+  }
   edges.sort((a, b) => {
     if (a.type !== b.type)
       return a.type < b.type ? -1 : 1;
@@ -847,6 +888,7 @@ function buildRegistry(domainDir, generatedAt, opencodeDir) {
     abilities: abilities.length,
     context: context.length,
     workflows: workflows.length,
+    recipes: recipeEntries.length,
     snippets: snippets.length,
     templates: templates.length,
     tools: tools.length,
@@ -869,6 +911,7 @@ function buildRegistry(domainDir, generatedAt, opencodeDir) {
     abilities,
     context,
     workflows,
+    recipes: recipeEntries,
     snippets,
     templates,
     tools,
@@ -995,6 +1038,7 @@ function renderRegistry(registry) {
   section(lines, "Abilities", registry.abilities, { realised: true, layer: true });
   section(lines, "Context", registry.context, { consumes: true });
   section(lines, "Workflows", registry.workflows, { consumes: true });
+  section(lines, "Recipes", registry.recipes);
   section(lines, "Snippets", registry.snippets, { standards: true });
   section(lines, "Templates", registry.templates, { standards: true });
   section(lines, "Tools", registry.tools, { layer: true });

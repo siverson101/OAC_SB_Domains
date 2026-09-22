@@ -14,6 +14,7 @@ const COMPOSE_ABILITY_NAMES = [
   'ci-status-baseline',
   'plan-feature',
   'test-plan',
+  'workflow-catalog',
 ] as const;
 
 export type ComposeAbility = (typeof COMPOSE_ABILITY_NAMES)[number];
@@ -31,6 +32,7 @@ export const COMPOSE_MODES: Record<ComposeAbility, ComposeMode> = {
   'ci-status-baseline': 'both',
   'plan-feature': 'offline',
   'test-plan': 'offline',
+  'workflow-catalog': 'offline',
 };
 
 export type ComposeStatus =
@@ -95,4 +97,6 @@ export interface ComposeOptions {
   tradeOffs?: string;
   planAbilities?: string[];
   commandsDir?: string;
+  catalog?: string;
+  recipesDir?: string;
 }

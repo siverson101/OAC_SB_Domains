@@ -127,6 +127,7 @@ export function renderRegistry(registry: Registry): string {
   section(lines, 'Abilities', registry.abilities, { realised: true, layer: true });
   section(lines, 'Context', registry.context, { consumes: true });
   section(lines, 'Workflows', registry.workflows, { consumes: true });
+  section(lines, 'Recipes', registry.recipes);
   section(lines, 'Snippets', registry.snippets, { standards: true });
   section(lines, 'Templates', registry.templates, { standards: true });
   section(lines, 'Tools', registry.tools, { layer: true });

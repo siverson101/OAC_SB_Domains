@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import {
@@ -32,6 +32,9 @@ import {
 } from '../tools/unity/unity-compose/src/plan-feature';
 import { runTestPlan } from '../tools/unity/unity-compose/src/test-plan';
 import { runCompose } from '../tools/unity/unity-compose/src/abilities';
+import { validateRecipe } from '../tools/unity/unity-compose/src/recipes';
+import { runWorkflowCatalog, validateWorkflowCatalog } from '../tools/unity/unity-compose/src/workflow-catalog';
+import { CHANGE_LOOP_STAGES } from '../tools/unity/unity-run/src/change-loop';
 import { parseYaml } from '../tools/shared/yaml';
 import { COMPOSE_ABILITIES, COMPOSE_MODES, type ComposeOptions } from '../tools/unity/unity-compose/src/types';
 import { parseFrontmatter } from '../tools/shared/registry/src/frontmatter';
@@ -663,6 +666,100 @@ describe('test-plan', () => {
   });
 });
 
+describe('workflow-catalog', () => {
+  const catalogPath = join(repoRoot, 'xdomains', 'context', 'workflow-catalog.json');
+  const recipesDir = join(repoRoot, 'xdomains', 'game-dev', 'unity-3d', 'recipes');
+  const catalog = JSON.parse(readFileSync(catalogPath, 'utf8')) as {
+    phases: { id: string; steps: { command: string }[] }[];
+  };
+
+  test('the shipped catalog validates with the seven phases in order', () => {
+    const result = validateWorkflowCatalog(catalog);
+    expect(result.errors).toEqual([]);
+    expect(catalog.phases.map((phase) => phase.id)).toEqual([
+      'concept',
+      'systems-design',
+      'technical-setup',
+      'pre-production',
+      'production',
+      'polish',
+      'release',
+    ]);
+  });
+
+  test('every referenced command exists as command/<name>.md', () => {
+    for (const phase of catalog.phases) {
+      for (const step of phase.steps) {
+        expect(existsSync(join(commandDir, `${step.command}.md`)), `command/${step.command}.md`).toBe(true);
+      }
+    }
+  });
+
+  test('the shipped recipes validate', () => {
+    const files = readdirSync(recipesDir).filter((entry) => entry.endsWith('.json')).sort();
+    expect(files).toEqual(['unity-change-loop.json', 'unity-prefab-scene.json']);
+    for (const file of files) {
+      const result = validateRecipe(JSON.parse(readFileSync(join(recipesDir, file), 'utf8')));
+      expect(result.errors, file).toEqual([]);
+    }
+  });
+
+  test('a malformed recipe is rejected', () => {
+    const malformed = JSON.parse(readFileSync(join(recipesDir, 'unity-change-loop.json'), 'utf8'));
+    delete malformed.phases[0].type;
+    const result = validateRecipe(malformed);
+    expect(result.ok).toBe(false);
+    expect(result.errors.join(' ')).toContain('missing required field: type');
+  });
+
+  test('the change-loop recipe stages/gates match CHANGE_LOOP_STAGES', () => {
+    const recipe = JSON.parse(readFileSync(join(recipesDir, 'unity-change-loop.json'), 'utf8')) as {
+      phases: { id: string; steps: { gates?: string[] }[] }[];
+    };
+    expect(recipe.phases.map((phase) => phase.id)).toEqual(CHANGE_LOOP_STAGES.map((stage) => stage.name));
+    recipe.phases.forEach((phase, i) => {
+      const expected = CHANGE_LOOP_STAGES[i].gate ? [CHANGE_LOOP_STAGES[i].gate] : [];
+      const gates = phase.steps.flatMap((step) => step.gates ?? []);
+      expect(gates, phase.id).toEqual(expected);
+    });
+  });
+
+  test('reports phase progression and surfaces the next command on a fixture', () => {
+    const root = join(fixture, 'workflow-project');
+    const dataDir = join(root, '.opencode', 'project-data');
+    mkdirSync(dataDir, { recursive: true });
+    writeFileSync(join(dataDir, 'project-structure.json'), JSON.stringify({ counts: { scripts: 1 } }));
+
+    const result = runWorkflowCatalog({
+      ...base,
+      ability: 'workflow-catalog',
+      projectRoot: root,
+      catalog: catalogPath,
+      recipesDir,
+    });
+
+    expect(result.status).toBe('ok');
+    expect(result.catalogValid).toBe(true);
+    expect(result.recipes.every((recipe) => recipe.valid)).toBe(true);
+    expect(result.phases.find((phase) => phase.id === 'concept')?.complete).toBe(true);
+    expect(result.currentPhase).toBe('technical-setup');
+    expect(result.nextStepId).toBe('compile-baseline');
+    expect(result.nextCommand).toBe('compile-and-verify-project');
+  });
+
+  test('a missing catalog is unavailable, not thrown', () => {
+    const result = runWorkflowCatalog({
+      ...base,
+      ability: 'workflow-catalog',
+      projectRoot: join(fixture, 'no-catalog'),
+      catalog: join(fixture, 'no-catalog', 'missing.json'),
+      recipesDir,
+    });
+    expect(result.status).toBe('unavailable');
+    expect(result.phases).toEqual([]);
+  });
+});
+
 describe('compose dispatcher', () => {
   test('routes each ability to its handler', async () => {
     const board = await runCompose({ ...base, ability: 'coordination-board', verb: 'status' });
@@ -688,7 +785,7 @@ describe('compose dispatcher', () => {
 describe('Compose command contracts', () => {
   const schema = JSON.parse(readFileSync(schemaPath, 'utf8'));
 
-  test('declares exactly the six abilities', () => {
+  test('declares exactly the seven abilities', () => {
     expect(COMPOSE_ABILITIES).toEqual([
       'coordination-board',
       'primitive-composition',
@@ -696,6 +793,7 @@ describe('Compose command contracts', () => {
       'ci-status-baseline',
       'plan-feature',
       'test-plan',
+      'workflow-catalog',
     ]);
   });
 

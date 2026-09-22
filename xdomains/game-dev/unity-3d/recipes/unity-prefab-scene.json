@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 1,
+  "id": "unity-prefab-scene",
+  "name": "Unity Prefab / Scene Escalation",
+  "description": "Inspector / SerializedProperty edits -> prefab patch with a mandatory --dryRun first pass -> unity-yaml-editing as the last-resort fallback (ADR-0018).",
+  "version": "1.0.0",
+  "phases": [
+    {
+      "id": "inspect",
+      "type": "serial",
+      "description": "Inspect the target prefab/scene through the inspector / SerializedProperty API.",
+      "steps": [
+        {
+          "id": "inspector-read",
+          "kind": "agent",
+          "role": "scene",
+          "description": "Read the target structure via the inspector / SerializedProperty API.",
+          "agents": ["scene"],
+          "abilities": ["scene-editing"],
+          "artifact": { "note": "Target structure read via the inspector API." }
+        }
+      ]
+    },
+    {
+      "id": "patch",
+      "type": "serial",
+      "description": "Propose the edit as prefab patch JSON ops and run a mandatory dry run.",
+      "dependsOn": ["inspect"],
+      "steps": [
+        {
+          "id": "prefab-dry-run",
+          "kind": "cli",
+          "description": "Propose JSON ops (ensure_child/ensure_component/set_property/...) and run a mandatory dry run; nothing mutates.",
+          "command": "prefab patch --dryRun",
+          "abilities": ["prefab-automation"],
+          "gates": ["prefab-dry-run"],
+          "artifact": { "note": "Dry-run receipt recorded; no mutation." }
+        }
+      ]
+    },
+    {
+      "id": "escalate",
+      "type": "serial",
+      "description": "When the API cannot express the edit, escalate to unity-yaml-editing as the last resort.",
+      "dependsOn": ["patch"],
+      "steps": [
+        {
+          "id": "yaml-escalation",
+          "kind": "ability",
+          "description": "Fall back to unity-yaml-editing only when the prefab patch API cannot express the edit.",
+          "abilities": ["scene-editing"],
+          "gates": ["yaml-escalation"],
+          "artifact": { "note": "Escalation justified in the report." }
+        }
+      ]
+    }
+  ]
+}
