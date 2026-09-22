@@ -265,7 +265,7 @@ function asModelTier(value: string | undefined): ModelTier | undefined {
   return value && (MODEL_TIERS as readonly string[]).includes(value) ? (value as ModelTier) : undefined;
 }
 
-function parseDelegationMap(content: string): AgentDelegationMap {
+export function parseDelegationMap(content: string): AgentDelegationMap {
   const marker = '## Delegation Map';
   const start = content.indexOf(marker);
   if (start === -1) return {};

@@ -257,7 +257,7 @@ export function renderVersionMatrixDoc(matrix: VersionMatrix, subdomain: string)
   const lines: string[] = [];
   lines.push(`<!-- Context: ${subdomain}/version-matrix | Priority: high | Version: 1.0 -->`);
   lines.push('');
-  lines.push('# Unity Version Matrix');
+  lines.push(`# Unity Version Matrix (${subdomain})`);
   lines.push('');
   lines.push('> Generated from `xdomains/context/unity/version-matrix.json`. Do not edit by hand; regenerate with `build-registry.mjs`.');
   lines.push('');

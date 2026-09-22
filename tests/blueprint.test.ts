@@ -8,7 +8,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import type { VersionMatrix } from '../tools/shared/unity-version';
-import { buildRegistry } from '../tools/shared/registry/src/build';
+import { buildRegistry, parseDelegationMap } from '../tools/shared/registry/src/build';
 import { renderAgentSystemBlueprint, renderVersionMatrixDoc } from '../tools/shared/registry/src/render';
 
 const repoRoot = resolve(import.meta.dir, '..');
@@ -105,6 +105,58 @@ describe('agent-system blueprint', () => {
     expect(existsSync(blueprintPath)).toBe(true);
     expect(readFileSync(blueprintPath, 'utf8')).toBe(blueprint);
   });
+});
+
+describe('parseDelegationMap', () => {
+  interface Expected {
+    reportsTo?: string;
+    implementsFrom?: string;
+    escalationTargets?: string;
+    siblings?: string;
+  }
+  const cases: { name: string; content: string; expected: Expected }[] = [
+    {
+      name: 'reads bullets with no continuation',
+      content: ['## Delegation Map', '- **Reports to**: Unity3DOrchestrator', '- **Siblings**: UnityImplementer, UnityQa'].join('\n'),
+      expected: { reportsTo: 'Unity3DOrchestrator', siblings: 'UnityImplementer, UnityQa' },
+    },
+    {
+      name: 'folds wrapped bullets without stray spaces',
+      content: [
+        '## Delegation Map',
+        '- **Escalation targets**: the human reviewer,',
+        '  then the full-studio',
+        '  orchestrator.',
+        '- **Implements from**: the plan',
+      ].join('\n'),
+      expected: { escalationTargets: 'the human reviewer, then the full-studio orchestrator.', implementsFrom: 'the plan' },
+    },
+    {
+      name: 'stops at the next ## section terminator',
+      content: ['## Delegation Map', '- **Reports to**: Unity3DOrchestrator', '', '## Something Else', '- **Reports to**: NotThis'].join('\n'),
+      expected: { reportsTo: 'Unity3DOrchestrator' },
+    },
+    {
+      name: 'returns an empty map when the section is absent',
+      content: ['# Agent', '', 'No delegation map here.'].join('\n'),
+      expected: {},
+    },
+    {
+      name: 'returns an empty map when the section has no bullets',
+      content: ['## Delegation Map', ''].join('\n'),
+      expected: {},
+    },
+  ];
+  for (const { name, content, expected } of cases) {
+    test(name, () => {
+      expect(parseDelegationMap(content)).toEqual({
+        reportsTo: expected.reportsTo,
+        implementsFrom: expected.implementsFrom,
+        escalationTargets: expected.escalationTargets,
+        siblings: expected.siblings,
+      });
+    });
+  }
 });
 
 describe('version-matrix doc', () => {

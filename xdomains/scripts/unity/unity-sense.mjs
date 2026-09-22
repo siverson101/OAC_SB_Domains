@@ -1172,8 +1172,8 @@ function defaultCommandDir(options) {
     return options.commandDir;
   const here = dirname5(fileURLToPath2(import.meta.url));
   const candidates = [
-    join7(options.projectRoot, "xdomains", "game-dev", "unity-3d", "command"),
     join7(options.opencodeDir, "command"),
+    join7(options.projectRoot, "xdomains", "game-dev", "unity-3d", "command"),
     join7(here, "..", "..", "game-dev", "unity-3d", "command"),
     join7(here, "..", "..", "..", "..", "xdomains", "game-dev", "unity-3d", "command")
   ];
@@ -1181,12 +1181,12 @@ function defaultCommandDir(options) {
 }
 function declaredCapabilities(commandDir, detectedKey, matrix) {
   if (!commandDir)
-    return [];
+    return { capabilities: [], checked: false };
   let entries;
   try {
     entries = readdirSync3(commandDir);
   } catch {
-    return [];
+    return { capabilities: [], checked: false };
   }
   const out = [];
   for (const entry of entries.sort()) {
@@ -1202,7 +1202,7 @@ function declaredCapabilities(commandDir, detectedKey, matrix) {
     const check = checkVersionCompatibility(fm.versionCompatibility, detectedKey, matrix);
     out.push({ id, status: check.status, declaredVersions: check.declaredVersions, reason: check.reason });
   }
-  return out;
+  return { capabilities: out, checked: true };
 }
 function versionMatrix(options) {
   const load = loadVersionMatrix(options.tableDir);
@@ -1211,11 +1211,12 @@ function versionMatrix(options) {
   const parsed = parseUnityVersion(detectedRaw, matrix);
   const features = featureFlagsFor(matrix, parsed.dispatchKey);
   const commandDir = defaultCommandDir(options);
-  const capabilities = declaredCapabilities(commandDir, parsed.dispatchKey, matrix);
+  const { capabilities, checked } = declaredCapabilities(commandDir, parsed.dispatchKey, matrix);
   const compatible = capabilities.filter((capability) => capability.status === "compatible").map((capability) => capability.id);
   const incompatible = capabilities.filter((capability) => capability.status === "incompatible").map((capability) => capability.id);
   const unknown = capabilities.filter((capability) => capability.status === "unknown").map((capability) => capability.id);
-  const status = !matrix ? "unavailable" : parsed.dispatchKey ? "observed_locally" : "unknown";
+  const notCheckedReason = checked ? null : "no command directory found; capability compatibility not checked";
+  const status = !matrix ? "unavailable" : !parsed.dispatchKey ? "unknown" : incompatible.length > 0 ? "warning" : notCheckedReason ? "available_but_unverified" : "observed_locally";
   const result = {
     ...makeResult("version-matrix", status, "Detected editor version, dispatch key, feature flags and capability compatibility", []),
     detected: {
@@ -1238,6 +1239,8 @@ function versionMatrix(options) {
     },
     compatibility: {
       checked: capabilities.length,
+      commandDir,
+      notCheckedReason,
       compatible,
       incompatible,
       unknown,
@@ -1247,7 +1250,12 @@ function versionMatrix(options) {
   };
   if (load.source === "missing")
     result.errors.push("version-matrix.json not found");
-  result.summary = matrix ? `Unity ${parsed.raw ?? "unknown"} -> ${parsed.dispatchKey ?? "unmapped"} · ${features.length} feature flag(s) · ${incompatible.length} incompatible capability/ies` : "version-matrix.json not found";
+  if (matrix) {
+    const compatibilityNote = notCheckedReason ? ` · compatibility not checked (${notCheckedReason})` : ` · ${incompatible.length} incompatible capability/ies`;
+    result.summary = `Unity ${parsed.raw ?? "unknown"} -> ${parsed.dispatchKey ?? "unmapped"} · ${features.length} feature flag(s)${compatibilityNote}`;
+  } else {
+    result.summary = "version-matrix.json not found";
+  }
   return result;
 }
 function runSense(options) {

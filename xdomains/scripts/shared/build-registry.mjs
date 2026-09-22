@@ -1,9 +1,10 @@
 // tools/shared/registry/src/index.ts
 import { mkdirSync as mkdirSync2, writeFileSync as writeFileSync2 } from "node:fs";
-import { dirname, join as join3, resolve as resolve2 } from "node:path";
+import { dirname as dirname2, join as join3, resolve as resolve2 } from "node:path";
 
 // tools/shared/io.ts
 import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { dirname, sep } from "node:path";
 function fileExists(path) {
   try {
     return statSync(path).isFile();
@@ -31,10 +32,13 @@ function nowIso() {
 function unique(values) {
   return Array.from(new Set(values));
 }
+function toPosix(path) {
+  return path.split(sep).join("/");
+}
 
 // tools/shared/registry/src/build.ts
 import { readdirSync, statSync as statSync2 } from "node:fs";
-import { basename, join as join2, relative, resolve, sep } from "node:path";
+import { basename, join as join2, relative, resolve, sep as sep2 } from "node:path";
 
 // tools/shared/context-files.ts
 import { join } from "node:path";
@@ -606,8 +610,8 @@ function frontmatterStringArray(fm, key) {
 }
 
 // tools/shared/registry/src/build.ts
-function toPosix(path) {
-  return path.split(sep).join("/");
+function toPosix2(path) {
+  return path.split(sep2).join("/");
 }
 function selectStudioRoster(manifest, studioMode, gates, domainDir) {
   const mode = manifest.studioModes?.[studioMode];
@@ -653,7 +657,7 @@ function walkFiles(dir, base, out = []) {
     if (isDir(full))
       walkFiles(full, base, out);
     else
-      out.push(toPosix(relative(base, full)));
+      out.push(toPosix2(relative(base, full)));
   }
   return out;
 }
@@ -790,7 +794,7 @@ function readKindManifest(domainDir, context, kind) {
     const manifestPath = join2(full, kind, "manifest.json");
     const manifest = readJson(manifestPath);
     if (manifest)
-      return { baseDir: toPosix(join2(rel, kind)), manifest };
+      return { baseDir: toPosix2(join2(rel, kind)), manifest };
   }
   return null;
 }
@@ -883,7 +887,7 @@ function buildRegistry(domainDir, generatedAt, opencodeDir, studioConfigPath) {
     })();
     return { id: ability, name: ability, path: rel, realisedAs: exists ? rel : undefined, layer: "ability" };
   });
-  const kindDirs = (manifest.context ?? []).filter((rel) => isDir(join2(domainDir, rel))).flatMap((rel) => [toPosix(join2(rel, "snippets")), toPosix(join2(rel, "templates"))]);
+  const kindDirs = (manifest.context ?? []).filter((rel) => isDir(join2(domainDir, rel))).flatMap((rel) => [toPosix2(join2(rel, "snippets")), toPosix2(join2(rel, "templates"))]);
   const isKindFile = (rel) => kindDirs.some((dir) => rel === dir || rel.startsWith(`${dir}/`));
   const contextFiles = (manifest.context ?? []).flatMap((rel) => {
     const full = join2(domainDir, rel);
@@ -894,8 +898,8 @@ function buildRegistry(domainDir, generatedAt, opencodeDir, studioConfigPath) {
   const snippetsManifest = readKindManifest(domainDir, manifest.context, "snippets");
   const templatesManifest = readKindManifest(domainDir, manifest.context, "templates");
   const defaultContextDir = (manifest.context ?? []).find((rel) => isDir(join2(domainDir, rel))) ?? `context/${manifest.subdomain ?? manifest.name ?? ""}`;
-  const snippetsBaseDir = snippetsManifest?.baseDir ?? toPosix(join2(defaultContextDir, "snippets"));
-  const templatesBaseDir = templatesManifest?.baseDir ?? toPosix(join2(defaultContextDir, "templates"));
+  const snippetsBaseDir = snippetsManifest?.baseDir ?? toPosix2(join2(defaultContextDir, "snippets"));
+  const templatesBaseDir = templatesManifest?.baseDir ?? toPosix2(join2(defaultContextDir, "templates"));
   const snippets = (snippetsManifest?.manifest.snippets ?? []).map((snippet) => ({
     id: snippet.id,
     name: snippet.id,
@@ -1237,7 +1241,7 @@ function renderVersionMatrixDoc(matrix, subdomain) {
   const lines = [];
   lines.push(`<!-- Context: ${subdomain}/version-matrix | Priority: high | Version: 1.0 -->`);
   lines.push("");
-  lines.push("# Unity Version Matrix");
+  lines.push(`# Unity Version Matrix (${subdomain})`);
   lines.push("");
   lines.push("> Generated from `xdomains/context/unity/version-matrix.json`. Do not edit by hand; regenerate with `build-registry.mjs`.");
   lines.push("");
@@ -1315,16 +1319,16 @@ function parseArgs(argv) {
   return out;
 }
 function write(path, body) {
-  mkdirSync2(dirname(path), { recursive: true });
+  mkdirSync2(dirname2(path), { recursive: true });
   writeFileSync2(path, body);
 }
 function findVersionMatrix(domainDir, opencodeDir) {
   const candidates = [
-    join3(domainDir, "..", "..", "context", "unity", "version-matrix.json"),
     join3(opencodeDir, "xdomains", "context", "unity", "version-matrix.json"),
+    join3(domainDir, "..", "..", "context", "unity", "version-matrix.json"),
     join3(opencodeDir, "..", "xdomains", "context", "unity", "version-matrix.json")
   ];
-  return candidates.find((candidate) => fileExists(candidate)) ?? null;
+  return { path: candidates.find((candidate) => fileExists(candidate)) ?? null, searched: candidates };
 }
 function main() {
   const args = parseArgs(process.argv.slice(2));
@@ -1347,11 +1351,17 @@ function main() {
   const outVersionMatrix = join3(docsDir, "version-matrix.md");
   const paths = { blueprint: outBlueprint };
   write(outBlueprint, renderAgentSystemBlueprint(registry));
-  const matrixPath = findVersionMatrix(domainDir, opencodeDir);
+  const warnings = [];
+  const { path: matrixPath, searched } = findVersionMatrix(domainDir, opencodeDir);
   const matrix = matrixPath ? readJson(matrixPath) : null;
   if (matrix) {
     write(outVersionMatrix, renderVersionMatrixDoc(matrix, subdomain));
     paths.versionMatrix = outVersionMatrix;
+  } else {
+    const message = `version-matrix.json not found; searched: ${searched.map(toPosix).join(", ")}`;
+    warnings.push(message);
+    process.stderr.write(`warning: ${message}
+`);
   }
   if (!args["docs-only"]) {
     write(outJson, JSON.stringify(registry, null, 2) + `
@@ -1365,8 +1375,12 @@ function main() {
     domain: registry.domain,
     subdomain: registry.subdomain,
     counts: registry.counts,
-    paths
+    paths,
+    warnings
   }, null, 2) + `
 `);
 }
 main();
+export {
+  findVersionMatrix
+};

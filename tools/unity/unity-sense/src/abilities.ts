@@ -410,6 +410,8 @@ export interface VersionMatrixResult extends SenseBase {
   };
   compatibility: {
     checked: number;
+    commandDir: string | null;
+    notCheckedReason: string | null;
     compatible: string[];
     incompatible: string[];
     unknown: string[];
@@ -428,29 +430,36 @@ function detectedEditorVersion(options: SenseOptions): string | null {
   return str(project, 'unityVersion') ?? str(settings, 'editorVersion') ?? str(scan, 'unityVer');
 }
 
+// Resolve the command dir the way `defaultXdomainsPath` does: the installed
+// layout first, then the source layout. Commands install directly under
+// `<opencode-dir>/command`; in the source tree they live under
+// `<project-root>/xdomains/game-dev/unity-3d/command`, reachable from the
+// project root or relative to this module's bundle/source location.
 function defaultCommandDir(options: SenseOptions): string | null {
   if (options.commandDir) return options.commandDir;
   const here = dirname(fileURLToPath(import.meta.url));
   const candidates = [
-    join(options.projectRoot, 'xdomains', 'game-dev', 'unity-3d', 'command'),
     join(options.opencodeDir, 'command'),
+    join(options.projectRoot, 'xdomains', 'game-dev', 'unity-3d', 'command'),
     join(here, '..', '..', 'game-dev', 'unity-3d', 'command'),
     join(here, '..', '..', '..', '..', 'xdomains', 'game-dev', 'unity-3d', 'command'),
   ];
   return candidates.find((candidate) => dirExists(candidate)) ?? null;
 }
 
+// `checked` is false when there is no command dir (or it cannot be read), so the
+// caller can tell "compatibility never checked" from "checked, none incompatible".
 function declaredCapabilities(
   commandDir: string | null,
   detectedKey: string | null,
   matrix: VersionMatrix | null
-): VersionMatrixCapability[] {
-  if (!commandDir) return [];
+): { capabilities: VersionMatrixCapability[]; checked: boolean } {
+  if (!commandDir) return { capabilities: [], checked: false };
   let entries: string[];
   try {
     entries = readdirSync(commandDir);
   } catch {
-    return [];
+    return { capabilities: [], checked: false };
   }
   const out: VersionMatrixCapability[] = [];
   for (const entry of entries.sort()) {
@@ -467,7 +476,7 @@ function declaredCapabilities(
     );
     out.push({ id, status: check.status, declaredVersions: check.declaredVersions, reason: check.reason });
   }
-  return out;
+  return { capabilities: out, checked: true };
 }
 
 export function versionMatrix(options: SenseOptions): VersionMatrixResult {
@@ -478,13 +487,27 @@ export function versionMatrix(options: SenseOptions): VersionMatrixResult {
 
   const features = featureFlagsFor(matrix, parsed.dispatchKey);
   const commandDir = defaultCommandDir(options);
-  const capabilities = declaredCapabilities(commandDir, parsed.dispatchKey, matrix);
+  const { capabilities, checked } = declaredCapabilities(commandDir, parsed.dispatchKey, matrix);
 
   const compatible = capabilities.filter((capability) => capability.status === 'compatible').map((capability) => capability.id);
   const incompatible = capabilities.filter((capability) => capability.status === 'incompatible').map((capability) => capability.id);
   const unknown = capabilities.filter((capability) => capability.status === 'unknown').map((capability) => capability.id);
 
-  const status: SenseStatus = !matrix ? 'unavailable' : parsed.dispatchKey ? 'observed_locally' : 'unknown';
+  // No readable command dir means compatibility was never checked: a
+  // `checked: 0` must not read as "checked everything, all clear".
+  const notCheckedReason = checked ? null : 'no command directory found; capability compatibility not checked';
+
+  // An incompatible capability must surface in the top-level status, not just in
+  // the compatibility block, so a consumer reading only `status` is not misled.
+  const status: SenseStatus = !matrix
+    ? 'unavailable'
+    : !parsed.dispatchKey
+      ? 'unknown'
+      : incompatible.length > 0
+        ? 'warning'
+        : notCheckedReason
+          ? 'available_but_unverified'
+          : 'observed_locally';
   const result: VersionMatrixResult = {
     ...makeResult('version-matrix', status, 'Detected editor version, dispatch key, feature flags and capability compatibility', []),
     detected: {
@@ -507,6 +530,8 @@ export function versionMatrix(options: SenseOptions): VersionMatrixResult {
     },
     compatibility: {
       checked: capabilities.length,
+      commandDir,
+      notCheckedReason,
       compatible,
       incompatible,
       unknown,
@@ -515,9 +540,14 @@ export function versionMatrix(options: SenseOptions): VersionMatrixResult {
     sources: present({ matrix, commandDir, detectedVersion: parsed.raw }),
   };
   if (load.source === 'missing') result.errors.push('version-matrix.json not found');
-  result.summary = matrix
-    ? `Unity ${parsed.raw ?? 'unknown'} -> ${parsed.dispatchKey ?? 'unmapped'} · ${features.length} feature flag(s) · ${incompatible.length} incompatible capability/ies`
-    : 'version-matrix.json not found';
+  if (matrix) {
+    const compatibilityNote = notCheckedReason
+      ? ` · compatibility not checked (${notCheckedReason})`
+      : ` · ${incompatible.length} incompatible capability/ies`;
+    result.summary = `Unity ${parsed.raw ?? 'unknown'} -> ${parsed.dispatchKey ?? 'unmapped'} · ${features.length} feature flag(s)${compatibilityNote}`;
+  } else {
+    result.summary = 'version-matrix.json not found';
+  }
   return result;
 }
 
