@@ -30,6 +30,13 @@ function backupDirs(dir: string): string[] {
   return existsSync(root) ? readdirSync(root).map((name) => join(root, name)) : [];
 }
 
+function metadataAgentIds(dir: string): string[] {
+  const metadata = JSON.parse(readFileSync(join(dir, 'config', 'agent-metadata.json'), 'utf8')) as {
+    agents?: Record<string, unknown>;
+  };
+  return Object.keys(metadata.agents ?? {}).sort();
+}
+
 describe('unity-studio-mode swap', () => {
   test('round-trips lean -> full -> lean preserving shared assets', () => {
     const dir = freshOpencode();
@@ -39,10 +46,17 @@ describe('unity-studio-mode swap', () => {
       expect(existsSync(join(dir, 'agent', 'unity-3d-orchestrator.md'))).toBe(true);
       expect(existsSync(join(dir, 'agent', 'subagents', 'unity', 'implementer.md'))).toBe(true);
 
+      const leanMetadata = metadataAgentIds(dir);
+      expect(leanMetadata).toContain('unity-3d-orchestrator');
+      expect(leanMetadata).toContain('implementer');
+      expect(leanMetadata).not.toContain('full-studio-orchestrator');
+
       mkdirSync(join(dir, 'project-data'), { recursive: true });
       writeFileSync(join(dir, 'project-data', 'sentinel.json'), '{"keep":true}\n');
       const recipeBefore = readFileSync(join(dir, 'recipes', 'unity-change-loop.json'), 'utf8');
       const commandBefore = readFileSync(join(dir, 'command', 'unity-implement.md'), 'utf8');
+      const contextBefore = readFileSync(join(dir, 'context', 'unity-3d', 'navigation.md'), 'utf8');
+      const abilityCommandBefore = readFileSync(join(dir, 'command', 'version-matrix.md'), 'utf8');
 
       const toFull = swap(dir, 'full');
       expect(toFull.status).toBe(0);
@@ -50,6 +64,11 @@ describe('unity-studio-mode swap', () => {
       expect(existsSync(join(dir, 'agent', 'unity-3d-orchestrator.md'))).toBe(false);
       expect(existsSync(join(dir, 'agent', 'subagents'))).toBe(false);
       expect(JSON.parse(readFileSync(join(dir, 'unity-studio.json'), 'utf8')).studioMode).toBe('full');
+
+      const fullMetadata = metadataAgentIds(dir);
+      expect(fullMetadata).toContain('full-studio-orchestrator');
+      expect(fullMetadata).not.toContain('unity-3d-orchestrator');
+      expect(fullMetadata).not.toContain('implementer');
 
       const leanBackup = backupDirs(dir).find((backup) =>
         existsSync(join(backup, 'agent', 'unity-3d-orchestrator.md'))
@@ -80,11 +99,18 @@ describe('unity-studio-mode swap', () => {
 
       expect(readFileSync(join(dir, 'project-data', 'sentinel.json'), 'utf8')).toBe('{"keep":true}\n');
       expect(readFileSync(join(dir, 'command', 'unity-implement.md'), 'utf8')).toBe(commandBefore);
+      expect(readFileSync(join(dir, 'context', 'unity-3d', 'navigation.md'), 'utf8')).toBe(contextBefore);
+      expect(readFileSync(join(dir, 'command', 'version-matrix.md'), 'utf8')).toBe(abilityCommandBefore);
 
       const commandFiles = readdirSync(join(dir, 'command'));
       expect(commandFiles.some((file) => file.startsWith('unity-3d_'))).toBe(false);
       expect(commandFiles).toContain('unity-studio-mode.md');
       expect(commandFiles).toContain('coordination-board.md');
+
+      const backMetadata = metadataAgentIds(dir);
+      expect(backMetadata).toContain('unity-3d-orchestrator');
+      expect(backMetadata).toContain('implementer');
+      expect(backMetadata).not.toContain('full-studio-orchestrator');
 
       const leanRegistry = JSON.parse(readFileSync(join(dir, 'registry.json'), 'utf8'));
       expect(leanRegistry.studioConfig.studioMode).toBe('lean');

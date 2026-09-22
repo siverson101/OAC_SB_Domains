@@ -12,7 +12,7 @@
 //   node merge-domains.js --domain-dir .opencode/xdomains/game-dev/unity-3d \
 //        --opencode-dir <dir> [--subdomain unity-3d] \
 //        [--mode extend|separate|replace] [--studio-mode lean|full] [--dry-run] \
-//        [--no-register-metadata] [--no-rewrite-paths] [--force]
+//        [--no-register-metadata] [--prune-metadata] [--no-rewrite-paths] [--force]
 //
 // The domain and sub-domain are read from sb-domain.json; --subdomain is an
 // optional override.
@@ -405,7 +405,8 @@ function collectAssets(domainDir, manifest, warnings, options) {
 // Agent metadata registration
 // ---------------------------------------------------------------------------
 
-function registerMetadata(opencodeDir, domain, subdomain, assets, copied, warnings) {
+function registerMetadata(opencodeDir, domain, subdomain, assets, copied, warnings, options) {
+  const opts = options || {};
   const metadataPath = path.join(opencodeDir, 'config', 'agent-metadata.json');
   let metadata;
   try {
@@ -419,11 +420,13 @@ function registerMetadata(opencodeDir, domain, subdomain, assets, copied, warnin
   const author = `domain:${domain}/${subdomain}`;
 
   let added = 0;
+  const activeIds = new Set();
   for (const asset of assets) {
     if (!/^agent\/.*\.md$/.test(asset.rel)) continue;
     if (!copied.has(asset.rel)) continue;
 
     const id = path.basename(asset.rel, '.md');
+    activeIds.add(id);
     if (metadata.agents[id]) continue;
 
     let fm = {};
@@ -451,7 +454,21 @@ function registerMetadata(opencodeDir, domain, subdomain, assets, copied, warnin
     added++;
   }
 
-  if (added > 0) {
+  // A studio-mode swap replaces the hierarchy. Entries this domain registered
+  // for agents no longer installed must be dropped, or `agent-metadata.json`
+  // would list both hierarchies after a lean -> full -> lean round-trip. Only
+  // this domain's own entries are touched.
+  let pruned = 0;
+  if (opts.prune) {
+    for (const [id, entry] of Object.entries(metadata.agents)) {
+      if (entry && entry.author === author && !activeIds.has(id)) {
+        delete metadata.agents[id];
+        pruned++;
+      }
+    }
+  }
+
+  if (added > 0 || pruned > 0) {
     fs.writeFileSync(metadataPath, JSON.stringify(metadata, null, 2) + '\n');
   }
   return added;
@@ -506,6 +523,7 @@ async function main() {
   const mode = argv.mode || 'extend';
   const dryRun = Boolean(argv['dry-run'] || argv.dry);
   const doRegister = argv['no-register-metadata'] !== true;
+  const doPruneMetadata = argv['prune-metadata'] === true;
   const doRewrite = argv['no-rewrite-paths'] !== true;
   const force = argv.force === true;
 
@@ -586,7 +604,9 @@ async function main() {
 
   let metadataAdded = 0;
   if (doRegister) {
-    metadataAdded = registerMetadata(opencodeDir, domain, subdomain, assets, copied, warnings);
+    metadataAdded = registerMetadata(opencodeDir, domain, subdomain, assets, copied, warnings, {
+      prune: doPruneMetadata,
+    });
   }
 
   console.log(`Applied domain ${domain}/${subdomain} (mode=${mode}, studioMode=${studioMode})`);

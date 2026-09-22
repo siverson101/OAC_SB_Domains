@@ -55,7 +55,7 @@ function main(): void {
   const domainDirArg = args['domain-dir'];
   if (!domainDirArg) {
     process.stderr.write(
-      'Usage: build-registry.mjs --domain-dir <dir> [--opencode-dir <dir>] [--out-json <file>] [--out-md <file>] [--docs-only]\n'
+      'Usage: build-registry.mjs --domain-dir <dir> [--opencode-dir <dir>] [--studio-config <file>] [--out-json <file>] [--out-md <file>] [--docs-only]\n'
     );
     process.exitCode = 2;
     return;
@@ -63,7 +63,8 @@ function main(): void {
 
   const domainDir = resolve(String(domainDirArg));
   const opencodeDir = resolve(String(args['opencode-dir'] || '.opencode'));
-  const registry = buildRegistry(domainDir, nowIso(), opencodeDir);
+  const studioConfigPath = args['studio-config'] ? String(args['studio-config']) : undefined;
+  const registry = buildRegistry(domainDir, nowIso(), opencodeDir, studioConfigPath);
   const subdomain = registry.subdomain || 'unity';
 
   const docsDir = join(opencodeDir, 'context', subdomain);

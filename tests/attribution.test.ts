@@ -98,9 +98,10 @@ describe('attribution file', () => {
     }
   });
 
-  test('carries the required license texts', () => {
+  test('carries the required license text/notice for every redistributed license', () => {
     expect(attribution).toContain('Permission is hereby granted, free of charge');
     expect(attribution).toContain('This is free and unencumbered software released into the public domain');
+    expect(attribution).toContain('Licensed under the Apache License, Version 2.0');
   });
 
   test('names the analysed upstream repositories and flags the CC-BY-NC-ND reference', () => {
@@ -133,15 +134,16 @@ describe('attribution file', () => {
     }
   });
 
-  test('every imported primitive lists a holder and license', () => {
+  test('every imported primitive lists a holder, license and use', () => {
     const section = markdownSection(attribution, '## Imported primitives');
     const rows = tableRows(section).filter((cells) => cells[0] !== 'Primitive id');
     expect(rows.length).toBe(primitiveIds.length);
     for (const cells of rows) {
-      const [id, sourceRepo, license, holder] = cells;
+      const [id, sourceRepo, license, holder, use] = cells;
       expect(sourceRepo.startsWith('https://github.com/'), `${id} is missing a source repo`).toBe(true);
       expect(LICENSES).toContain(license);
       expect(holder.length, `${id} is missing a holder`).toBeGreaterThan(0);
+      expect((use ?? '').length, `${id} is missing a use note`).toBeGreaterThan(0);
     }
   });
 });

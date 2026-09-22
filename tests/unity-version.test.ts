@@ -16,13 +16,14 @@ import type { SenseOptions } from '../tools/unity/unity-sense/src/types';
 const repoRoot = resolve(import.meta.dir, '..');
 const matrixPath = join(repoRoot, 'xdomains', 'context', 'unity', 'version-matrix.json');
 const manifestPath = join(repoRoot, 'xdomains', 'game-dev', 'unity-3d', 'context', 'unity-3d', 'knowledge', 'manifest.json');
+const dispatchDocPath = join(repoRoot, 'xdomains', 'game-dev', 'unity-3d', 'context', 'unity-3d', 'knowledge', 'version-dispatch.md');
 const domainPath = join(repoRoot, 'xdomains', 'game-dev', 'unity-3d', 'sb-domain.json');
 
 const matrix = JSON.parse(readFileSync(matrixPath, 'utf8')) as VersionMatrix;
 
 describe('parseUnityVersion', () => {
   test('parses a well-formed editor version', () => {
-    const parsed = parseUnityVersion('6000.5.7f1');
+    const parsed = parseUnityVersion('6000.5.7f1', matrix);
     expect(parsed.valid).toBe(true);
     expect(parsed.raw).toBe('6000.5.7f1');
     expect(parsed.major).toBe(6000);
@@ -33,14 +34,14 @@ describe('parseUnityVersion', () => {
   });
 
   test('accepts a version without a stream suffix', () => {
-    const parsed = parseUnityVersion('6000.3.12');
+    const parsed = parseUnityVersion('6000.3.12', matrix);
     expect(parsed.valid).toBe(true);
     expect(parsed.stream).toBeNull();
     expect(parsed.dispatchKey).toBe('6.3');
   });
 
   test('fails soft on an absent version', () => {
-    const parsed = parseUnityVersion(null);
+    const parsed = parseUnityVersion(null, matrix);
     expect(parsed.valid).toBe(false);
     expect(parsed.raw).toBeNull();
     expect(parsed.dispatchKey).toBeNull();
@@ -48,7 +49,7 @@ describe('parseUnityVersion', () => {
   });
 
   test('fails soft on a malformed version', () => {
-    const parsed = parseUnityVersion('not-a-version');
+    const parsed = parseUnityVersion('not-a-version', matrix);
     expect(parsed.valid).toBe(false);
     expect(parsed.major).toBeNull();
     expect(parsed.dispatchKey).toBeNull();
@@ -56,7 +57,7 @@ describe('parseUnityVersion', () => {
   });
 
   test('parses an older editor line but leaves it unmapped', () => {
-    const parsed = parseUnityVersion('2022.3.10f1');
+    const parsed = parseUnityVersion('2022.3.10f1', matrix);
     expect(parsed.valid).toBe(true);
     expect(parsed.dispatchKey).toBeNull();
     expect(parsed.reason).toContain('older than');
@@ -66,19 +67,49 @@ describe('parseUnityVersion', () => {
 describe('dispatchKeyFor', () => {
   const cases: [number, number, UnityDispatchKey | null][] = [
     [6000, 0, '6.0'],
+    [6000, 1, '6.0'],
+    [6000, 2, '6.0'],
     [6000, 3, '6.3'],
+    [6000, 4, '6.3'],
     [6000, 5, '6.5'],
     [6000, 6, 'LTS+'],
     [7000, 0, 'LTS+'],
-    [6000, 2, null],
     [2022, 3, null],
     [0, 0, null],
   ];
   for (const [major, minor, expected] of cases) {
     test(`${major}.${minor} -> ${expected ?? 'unknown'}`, () => {
-      expect(dispatchKeyFor(major, minor)).toBe(expected);
+      expect(dispatchKeyFor(major, minor, matrix)).toBe(expected);
     });
   }
+
+  test('reads the matrix dispatch map (the single source of the mapping)', () => {
+    for (const [editorLine, key] of Object.entries(matrix.dispatch ?? {})) {
+      const [major, minor] = editorLine.split('.').map(Number);
+      expect(dispatchKeyFor(major, minor, matrix), editorLine).toBe(key as UnityDispatchKey);
+    }
+    expect(dispatchKeyFor(7000, 0, matrix)).toBe(matrix.newerDispatchKey as UnityDispatchKey);
+    expect(dispatchKeyFor(6000, 0, null)).toBeNull();
+  });
+
+  test('every 6000.x editor line resolves to a defined key (no 6000.1/6000.2 hole)', () => {
+    for (let minor = 0; minor <= 9; minor++) {
+      const key = dispatchKeyFor(6000, minor, matrix);
+      expect(key, `6000.${minor}`).not.toBeNull();
+      expect(matrix.versions, `6000.${minor}`).toContain(key as string);
+    }
+  });
+
+  test('version-dispatch.md mirrors the matrix dispatch and overlays', () => {
+    const doc = readFileSync(dispatchDocPath, 'utf8');
+    for (const editorLine of Object.keys(matrix.dispatch ?? {})) {
+      expect(doc, editorLine).toContain(editorLine);
+    }
+    for (const [key, overlay] of Object.entries(matrix.overlays ?? {})) {
+      expect(doc, key).toContain(`\`${key}\``);
+      expect(doc, overlay).toContain(overlay);
+    }
+  });
 });
 
 describe('version matrix', () => {
@@ -146,8 +177,18 @@ describe('version matrix', () => {
     const feature = (id: string) => matrix.features.find((entry) => entry.id === id);
     expect(feature('built-in-render-pipeline')?.deprecatedSince).toBe('6.5');
     expect(feature('lighting-auto-generate')?.removedSince).toBe('6.0');
-    expect(feature('rigidbody-set-density')?.deprecatedSince).toBe('6.1');
-    expect(feature('cluster-light-loop-keyword')?.deprecatedSince).toBe('6.1');
+    expect(feature('rigidbody-set-density')?.deprecatedSince).toBe('6.3');
+    expect(feature('cluster-light-loop-keyword')?.deprecatedSince).toBe('6.3');
+  });
+
+  test('every since/deprecatedSince/removedSince is a dispatchable version', () => {
+    for (const feature of matrix.features) {
+      for (const field of ['since', 'deprecatedSince', 'removedSince'] as const) {
+        const value = feature[field];
+        if (value === null || value === undefined) continue;
+        expect(matrix.versions, `${feature.id}.${field}=${value}`).toContain(value);
+      }
+    }
   });
 
   test('a missing or unmapped key yields no flags', () => {
@@ -165,7 +206,8 @@ describe('checkVersionCompatibility', () => {
   });
 
   test('accepts a raw editor version for the detected side', () => {
-    expect(checkVersionCompatibility(['6.5'], '6000.5.7f1').status).toBe('compatible');
+    expect(checkVersionCompatibility(['6.5'], '6000.5.7f1', matrix).status).toBe('compatible');
+    expect(checkVersionCompatibility(['6.0'], '6000.1.0f1', matrix).status).toBe('compatible');
   });
 
   test('incompatible when the declared range excludes the detected key', () => {

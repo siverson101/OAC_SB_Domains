@@ -14,6 +14,7 @@ import {
   parseUnityVersion,
   type VersionCompatibilityStatus,
   type VersionFeatureFlag,
+  type VersionMatrix,
 } from '../../../shared/unity-version';
 import { codeNavigation } from './code-navigation';
 import {
@@ -439,7 +440,11 @@ function defaultCommandDir(options: SenseOptions): string | null {
   return candidates.find((candidate) => dirExists(candidate)) ?? null;
 }
 
-function declaredCapabilities(commandDir: string | null, detectedKey: string | null): VersionMatrixCapability[] {
+function declaredCapabilities(
+  commandDir: string | null,
+  detectedKey: string | null,
+  matrix: VersionMatrix | null
+): VersionMatrixCapability[] {
   if (!commandDir) return [];
   let entries: string[];
   try {
@@ -457,7 +462,8 @@ function declaredCapabilities(commandDir: string | null, detectedKey: string | n
     const id = typeof fm.id === 'string' ? fm.id : entry.replace(/\.md$/, '');
     const check = checkVersionCompatibility(
       fm.versionCompatibility as Parameters<typeof checkVersionCompatibility>[0],
-      detectedKey
+      detectedKey,
+      matrix
     );
     out.push({ id, status: check.status, declaredVersions: check.declaredVersions, reason: check.reason });
   }
@@ -465,14 +471,14 @@ function declaredCapabilities(commandDir: string | null, detectedKey: string | n
 }
 
 export function versionMatrix(options: SenseOptions): VersionMatrixResult {
-  const detectedRaw = detectedEditorVersion(options);
-  const parsed = parseUnityVersion(detectedRaw);
   const load = loadVersionMatrix(options.tableDir);
   const matrix = load.data;
+  const detectedRaw = detectedEditorVersion(options);
+  const parsed = parseUnityVersion(detectedRaw, matrix);
 
   const features = featureFlagsFor(matrix, parsed.dispatchKey);
   const commandDir = defaultCommandDir(options);
-  const capabilities = declaredCapabilities(commandDir, parsed.dispatchKey);
+  const capabilities = declaredCapabilities(commandDir, parsed.dispatchKey, matrix);
 
   const compatible = capabilities.filter((capability) => capability.status === 'compatible').map((capability) => capability.id);
   const incompatible = capabilities.filter((capability) => capability.status === 'incompatible').map((capability) => capability.id);

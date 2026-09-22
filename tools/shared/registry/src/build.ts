@@ -1,5 +1,5 @@
 import { readdirSync, statSync } from 'node:fs';
-import { basename, join, relative, sep } from 'node:path';
+import { basename, join, relative, resolve, sep } from 'node:path';
 import { findPatternCatalog } from '../../../shared/context-files';
 import { readJson, readText } from '../../../shared/io';
 import {
@@ -214,8 +214,8 @@ function selectStudioRoster(
 }
 
 // Every agent any mode can install, for validating cross-hierarchy workflow
-// edges without depending on the active mode.
-function allStudioAgents(manifest: Manifest): string[] {
+// edges without depending on the active mode, and for the doc-drift check.
+export function allStudioAgents(manifest: Manifest): string[] {
   if (!manifest.studioModes) return [...(manifest.agents ?? []), ...(manifest.subagents ?? [])];
   const out: string[] = [];
   for (const mode of Object.values(manifest.studioModes)) {
@@ -434,15 +434,24 @@ function absentStudioConfig(): RegistryStudioConfig {
   };
 }
 
-function buildStudioConfig(domainDir: string, opencodeDir?: string): RegistryStudioConfig {
+function buildStudioConfig(
+  domainDir: string,
+  opencodeDir?: string,
+  studioConfigPath?: string
+): RegistryStudioConfig {
   const opencodePath = opencodeDir ? join(opencodeDir, 'unity-studio.json') : null;
   const domainPath = join(domainDir, 'unity-studio.json');
   const catalogPath = findPatternCatalog({ domainDir, opencodeDir });
 
-  // Prefer the installed `.opencode/unity-studio.json`; fall back to the default
-  // config shipped with the domain; otherwise the fail-soft defaults.
-  let resolved = resolveStudioConfigProject({ configPath: opencodePath ?? domainPath, catalogPath });
-  if (opencodePath && !resolved.present) {
+  // Prefer an explicit `--studio-config` path (used by `build:docs` so the
+  // committed blueprint depends on the domain's shipped config, never on a
+  // developer's untracked `.opencode/unity-studio.json`); then the installed
+  // `.opencode/unity-studio.json`; then the config shipped with the domain;
+  // otherwise the fail-soft defaults.
+  let resolved = studioConfigPath
+    ? resolveStudioConfigProject({ configPath: resolve(studioConfigPath), catalogPath })
+    : resolveStudioConfigProject({ configPath: opencodePath ?? domainPath, catalogPath });
+  if (!resolved.present && resolved.configPath !== domainPath) {
     resolved = resolveStudioConfigProject({ configPath: domainPath, catalogPath });
   }
   if (!resolved.present) return absentStudioConfig();
@@ -489,11 +498,16 @@ function recipeLinks(data: unknown): { abilities: string[]; agents: string[] } {
   return { abilities: [...abilities], agents: [...agents] };
 }
 
-export function buildRegistry(domainDir: string, generatedAt: string, opencodeDir?: string): Registry {
+export function buildRegistry(
+  domainDir: string,
+  generatedAt: string,
+  opencodeDir?: string,
+  studioConfigPath?: string
+): Registry {
   const manifest = readJson<Manifest>(join(domainDir, 'sb-domain.json')) ?? {};
   const projections = readJson<Projections>(join(domainDir, 'context-projections.json')) ?? {};
   const consumers = projections.consumers ?? {};
-  const studioConfig = buildStudioConfig(domainDir, opencodeDir);
+  const studioConfig = buildStudioConfig(domainDir, opencodeDir, studioConfigPath);
 
   const mapEntries = (
     paths: string[] | undefined,

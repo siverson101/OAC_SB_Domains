@@ -4,7 +4,7 @@
 import { describe, expect, test } from 'bun:test';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
-import { buildRegistry } from '../tools/shared/registry/src/build';
+import { allStudioAgents, buildRegistry } from '../tools/shared/registry/src/build';
 
 const repoRoot = resolve(import.meta.dir, '..');
 const unity3dDir = join(repoRoot, 'xdomains', 'game-dev', 'unity-3d');
@@ -32,23 +32,6 @@ function walkFiles(dir: string, base: string, out: string[] = []): string[] {
     else out.push(toPosix(relative(base, full)));
   }
   return out;
-}
-
-function declaredAgentPaths(source: Manifest): string[] {
-  const out = new Set<string>();
-  if (source.studioModes) {
-    for (const mode of Object.values(source.studioModes)) {
-      for (const rel of mode.agents ?? []) out.add(rel);
-      for (const rel of mode.subagents ?? []) out.add(rel);
-      for (const entry of mode.optional ?? []) {
-        const rel = typeof entry === 'string' ? entry : entry.path;
-        if (rel) out.add(rel);
-      }
-    }
-  } else {
-    for (const rel of [...(source.agents ?? []), ...(source.subagents ?? [])]) out.add(rel);
-  }
-  return [...out].sort();
 }
 
 const registry = buildRegistry(unity3dDir, '2026-09-22T00:00:00.000Z');
@@ -116,7 +99,10 @@ describe('declared counts match the files on disk', () => {
   test('agents and subagents', () => {
     const agentDir = join(unity3dDir, 'agent');
     const disk = walkFiles(agentDir, unity3dDir).filter((rel) => rel.endsWith('.md')).sort();
-    expect(declaredAgentPaths(manifest)).toEqual(disk);
+    // Reuse the registry's own roster union so the drift check cannot diverge
+    // from what the engine actually installs.
+    const declared = [...new Set(allStudioAgents(manifest))].sort();
+    expect(declared).toEqual(disk);
   });
 
   test('recipes', () => {

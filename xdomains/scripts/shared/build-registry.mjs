@@ -1,6 +1,6 @@
 // tools/shared/registry/src/index.ts
 import { mkdirSync as mkdirSync2, writeFileSync as writeFileSync2 } from "node:fs";
-import { dirname, join as join3, resolve } from "node:path";
+import { dirname, join as join3, resolve as resolve2 } from "node:path";
 
 // tools/shared/io.ts
 import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
@@ -34,7 +34,7 @@ function unique(values) {
 
 // tools/shared/registry/src/build.ts
 import { readdirSync, statSync as statSync2 } from "node:fs";
-import { basename, join as join2, relative, sep } from "node:path";
+import { basename, join as join2, relative, resolve, sep } from "node:path";
 
 // tools/shared/context-files.ts
 import { join } from "node:path";
@@ -810,12 +810,12 @@ function absentStudioConfig() {
     valid: true
   };
 }
-function buildStudioConfig(domainDir, opencodeDir) {
+function buildStudioConfig(domainDir, opencodeDir, studioConfigPath) {
   const opencodePath = opencodeDir ? join2(opencodeDir, "unity-studio.json") : null;
   const domainPath = join2(domainDir, "unity-studio.json");
   const catalogPath = findPatternCatalog({ domainDir, opencodeDir });
-  let resolved = resolveStudioConfigProject({ configPath: opencodePath ?? domainPath, catalogPath });
-  if (opencodePath && !resolved.present) {
+  let resolved = studioConfigPath ? resolveStudioConfigProject({ configPath: resolve(studioConfigPath), catalogPath }) : resolveStudioConfigProject({ configPath: opencodePath ?? domainPath, catalogPath });
+  if (!resolved.present && resolved.configPath !== domainPath) {
     resolved = resolveStudioConfigProject({ configPath: domainPath, catalogPath });
   }
   if (!resolved.present)
@@ -858,11 +858,11 @@ function recipeLinks(data) {
   }
   return { abilities: [...abilities], agents: [...agents] };
 }
-function buildRegistry(domainDir, generatedAt, opencodeDir) {
+function buildRegistry(domainDir, generatedAt, opencodeDir, studioConfigPath) {
   const manifest = readJson(join2(domainDir, "sb-domain.json")) ?? {};
   const projections = readJson(join2(domainDir, "context-projections.json")) ?? {};
   const consumers = projections.consumers ?? {};
-  const studioConfig = buildStudioConfig(domainDir, opencodeDir);
+  const studioConfig = buildStudioConfig(domainDir, opencodeDir, studioConfigPath);
   const mapEntries = (paths, layer, modelTiers) => (paths ?? []).map((rel) => entry(domainDir, rel, basename(rel, ".md"), consumedOutputs(rel, basename(rel, ".md"), consumers), layer, modelTiers));
   const gates = {
     tdd: studioConfig.toggles.tdd === true,
@@ -1330,18 +1330,19 @@ function main() {
   const args = parseArgs(process.argv.slice(2));
   const domainDirArg = args["domain-dir"];
   if (!domainDirArg) {
-    process.stderr.write(`Usage: build-registry.mjs --domain-dir <dir> [--opencode-dir <dir>] [--out-json <file>] [--out-md <file>] [--docs-only]
+    process.stderr.write(`Usage: build-registry.mjs --domain-dir <dir> [--opencode-dir <dir>] [--studio-config <file>] [--out-json <file>] [--out-md <file>] [--docs-only]
 `);
     process.exitCode = 2;
     return;
   }
-  const domainDir = resolve(String(domainDirArg));
-  const opencodeDir = resolve(String(args["opencode-dir"] || ".opencode"));
-  const registry = buildRegistry(domainDir, nowIso(), opencodeDir);
+  const domainDir = resolve2(String(domainDirArg));
+  const opencodeDir = resolve2(String(args["opencode-dir"] || ".opencode"));
+  const studioConfigPath = args["studio-config"] ? String(args["studio-config"]) : undefined;
+  const registry = buildRegistry(domainDir, nowIso(), opencodeDir, studioConfigPath);
   const subdomain = registry.subdomain || "unity";
   const docsDir = join3(opencodeDir, "context", subdomain);
-  const outJson = resolve(String(args["out-json"] || join3(opencodeDir, "registry.json")));
-  const outMd = resolve(String(args["out-md"] || join3(docsDir, "registry.md")));
+  const outJson = resolve2(String(args["out-json"] || join3(opencodeDir, "registry.json")));
+  const outMd = resolve2(String(args["out-md"] || join3(docsDir, "registry.md")));
   const outBlueprint = join3(docsDir, "agent-system-blueprint.md");
   const outVersionMatrix = join3(docsDir, "version-matrix.md");
   const paths = { blueprint: outBlueprint };

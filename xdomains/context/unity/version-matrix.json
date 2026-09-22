@@ -113,25 +113,25 @@
     {
       "id": "rigidbody-set-density",
       "label": "Rigidbody.SetDensity/GetDensity",
-      "summary": "Rigidbody density setters are deprecated in the 6.1 cycle; set mass directly or use a collider-based approach.",
+      "summary": "Rigidbody density setters are deprecated as of the 6.3 line; set mass directly or use a collider-based approach.",
       "since": "6.0",
-      "deprecatedSince": "6.1",
+      "deprecatedSince": "6.3",
       "removedSince": null,
       "versions": { "6.0": true, "6.3": true, "6.5": true, "LTS+": true }
     },
     {
       "id": "cluster-light-loop-keyword",
       "label": "_CLUSTER_LIGHT_LOOP shader keyword",
-      "summary": "The _CLUSTER_LIGHT_LOOP shader keyword is deprecated in the 6.1 cycle.",
+      "summary": "The _CLUSTER_LIGHT_LOOP shader keyword is deprecated as of the 6.3 line.",
       "since": "6.0",
-      "deprecatedSince": "6.1",
+      "deprecatedSince": "6.3",
       "removedSince": null,
       "versions": { "6.0": true, "6.3": true, "6.5": true, "LTS+": true }
     },
     {
       "id": "dx12-default-graphics-api",
       "label": "DirectX 12 default graphics API",
-      "summary": "DirectX 12 became the default graphics API on Windows in the 6.1 cycle.",
+      "summary": "DirectX 12 became the default graphics API on Windows in the 6.3 cycle.",
       "since": "6.3",
       "deprecatedSince": null,
       "removedSince": null,
