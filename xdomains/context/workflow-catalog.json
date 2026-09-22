@@ -141,7 +141,7 @@
         {
           "id": "implement",
           "name": "Implement Feature",
-          "command": "unity-feature",
+          "command": "unity-implement",
           "required": true,
           "description": "Implement the scoped feature and wire it into the scene/prefab.",
           "artifact": { "note": "Feature diff reviewed against the plan and acceptance criteria." }

@@ -18,7 +18,7 @@ Applies to all new code, data files, and documentation (see `CONTRIBUTING.md`):
 |-------|-----------|----------------------|
 | Agent | kebab-case id (`unity-3d-orchestrator`) | PascalCase frontmatter `name` (`Unity3DOrchestrator`) |
 | SubAgent | kebab-case file/id (`implementer`) | PascalCase `name` (`UnityImplementer`), used as `subagent_type` |
-| Command | kebab-case file (`unity-feature.md`) | slash name = filename (`/unity-feature`) |
+| Command | kebab-case file (`unity-implement.md`) | slash name = filename (`/unity-implement`) |
 | Ability | kebab-case (`unity-build`, `gather-unity-context`) | realised as `command/<ability>.md` (ADR-0004) |
 | Tool | kebab-case id (`unity-cli-wrapper`) | PascalCase TS const (`UnityCliWrapperTool`) |
 

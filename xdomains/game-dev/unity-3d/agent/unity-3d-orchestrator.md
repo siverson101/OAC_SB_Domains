@@ -94,7 +94,7 @@ BEFORE any implementation, load:
 ## Delegation Map
 
 - **Reports to**: the user (project owner)
-- **Implements from**: project requests and the Unity commands (`/unity-feature`, `/unity-scene`, `/unity-test`, `/unity-build`, `/unity-architecture`, `/unity-animator`, `/unity-vfx`, `/unity-ase`, `/uitk`)
+- **Implements from**: project requests and the Unity commands (`/unity-setup`, `/unity-brainstorm`, `/unity-plan`, `/unity-implement`, `/unity-debug`, `/unity-polish`, `/unity-review`, `/unity-scene`, `/unity-test`, `/unity-build`, `/unity-architecture`, `/unity-animator`, `/unity-vfx`, `/unity-ase`, `/uitk`, `/unity-runtime-target`, `/unity-prefab-sweep`, `/unity-performance`)
 - **Escalation targets**: the user for scope, approval, or blocked work; `CodeReviewer`, `DocWriter`, `OpenRepoManager` for non-Unity concerns
 - **Siblings**: none — top of the Lean hierarchy
 
