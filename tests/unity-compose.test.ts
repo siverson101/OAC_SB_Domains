@@ -33,13 +33,20 @@ import {
 import { runTestPlan } from '../tools/unity/unity-compose/src/test-plan';
 import { runCompose } from '../tools/unity/unity-compose/src/abilities';
 import { validateRecipe } from '../tools/unity/unity-compose/src/recipes';
-import { runWorkflowCatalog, validateWorkflowCatalog } from '../tools/unity/unity-compose/src/workflow-catalog';
+import {
+  defaultCatalogPath,
+  defaultRecipesDir,
+  defaultXdomainsPath,
+  runWorkflowCatalog,
+  validateWorkflowCatalog,
+} from '../tools/unity/unity-compose/src/workflow-catalog';
 import { CHANGE_LOOP_STAGES } from '../tools/unity/unity-run/src/change-loop';
 import { parseYaml } from '../tools/shared/yaml';
 import { COMPOSE_ABILITIES, COMPOSE_MODES, type ComposeOptions } from '../tools/unity/unity-compose/src/types';
 import { parseFrontmatter } from '../tools/shared/registry/src/frontmatter';
 import { validateContract } from '../tools/shared/registry/src/contract';
 import { SAFETY_GATE_KEYS } from '../tools/shared/safety-gate';
+import { toPosix } from '../tools/shared/io';
 
 const repoRoot = resolve(import.meta.dir, '..');
 const commandDir = join(repoRoot, 'xdomains', 'game-dev', 'unity-3d', 'command');
@@ -768,6 +775,41 @@ describe('workflow-catalog', () => {
     });
     expect(result.status).toBe('unavailable');
     expect(result.phases).toEqual([]);
+  });
+
+  test('defaults resolve the installed .opencode/xdomains layout without --catalog/--recipes-dir', () => {
+    const root = join(fixture, 'installed-layout');
+    const oc = join(root, '.opencode');
+    const installedCatalog = join(oc, 'xdomains', 'context', 'workflow-catalog.json');
+    const installedRecipes = join(oc, 'xdomains', 'game-dev', 'unity-3d', 'recipes');
+    mkdirSync(join(oc, 'xdomains', 'context'), { recursive: true });
+    mkdirSync(installedRecipes, { recursive: true });
+    writeFileSync(installedCatalog, JSON.stringify(catalog));
+    writeFileSync(join(installedRecipes, 'unity-change-loop.json'), readFileSync(join(recipesDir, 'unity-change-loop.json')));
+
+    const options: ComposeOptions = { ...base, ability: 'workflow-catalog', projectRoot: root, opencodeDir: oc };
+    expect(toPosix(defaultXdomainsPath(options, 'context', 'workflow-catalog.json'))).toBe(toPosix(installedCatalog));
+    expect(toPosix(defaultCatalogPath(options))).toBe(toPosix(installedCatalog));
+    expect(toPosix(defaultRecipesDir(options))).toBe(toPosix(installedRecipes));
+
+    const result = runWorkflowCatalog(options);
+    expect(result.catalogPath).toBe(toPosix(installedCatalog));
+    expect(result.recipesDir).toBe(toPosix(installedRecipes));
+    expect(result.catalogValid).toBe(true);
+    expect(result.recipes.map((recipe) => recipe.id)).toContain('unity-change-loop');
+  });
+
+  test('defaults report unavailable, not a crash, when neither layout exists', () => {
+    const root = join(fixture, 'no-layout');
+    const result = runWorkflowCatalog({
+      ...base,
+      ability: 'workflow-catalog',
+      projectRoot: root,
+      opencodeDir: join(root, '.opencode'),
+    });
+    expect(result.status).toBe('unavailable');
+    expect(result.phases).toEqual([]);
+    expect(result.recipes).toEqual([]);
   });
 
   function catalogWith(required: boolean, artifact: Record<string, unknown>): { file: string; dir: string } {

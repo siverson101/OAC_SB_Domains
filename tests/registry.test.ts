@@ -7,6 +7,7 @@ import { buildRegistry } from '../tools/shared/registry/src/build';
 import { validateContract } from '../tools/shared/registry/src/contract';
 import { frontmatterStringArray, parseFrontmatter } from '../tools/shared/registry/src/frontmatter';
 import { renderRegistry } from '../tools/shared/registry/src/render';
+import { RUN_ABILITIES } from '../tools/unity/unity-run/src/types';
 
 const repoRoot = resolve(import.meta.dir, '..');
 const unity3dDir = join(repoRoot, 'xdomains', 'game-dev', 'unity-3d');
@@ -172,6 +173,25 @@ describe('registry build', () => {
     expect(registry.edges).toContainEqual({ type: 'workflow-ability', from: 'unity-prefab-scene', to: 'prefab-automation' });
     expect(registry.edges).toContainEqual({ type: 'workflow-ability', from: 'unity-prefab-scene', to: 'scene-editing' });
     expect(registry.edges).toContainEqual({ type: 'workflow-agent', from: 'unity-prefab-scene', to: 'scene' });
+  });
+
+  test('unity-change-loop names the Run ability and the recipe; workflow edges use the recipe id', () => {
+    // One string, three namespaces: the Run ability, the recipe id, and the
+    // lifecycle-catalog `change-loop` step command. Registry `workflow-*` edges
+    // name the *recipe* id as `from`, so every such edge resolves to a recipe.
+    const recipe = registry.recipes.find((entry) => entry.id === 'unity-change-loop');
+    expect(recipe?.id).toBe('unity-change-loop');
+    expect(recipe?.path).toBe('recipes/unity-change-loop.json');
+    expect(RUN_ABILITIES).toContain('unity-change-loop');
+
+    const recipeIds = new Set(registry.recipes.map((entry) => entry.id));
+    const workflowEdges = registry.edges.filter(
+      (edge) => edge.type === 'workflow-ability' || edge.type === 'workflow-agent'
+    );
+    expect(workflowEdges.length).toBeGreaterThan(0);
+    for (const edge of workflowEdges) {
+      expect(recipeIds.has(edge.from), `edge from "${edge.from}" is not a recipe id`).toBe(true);
+    }
   });
 });
 

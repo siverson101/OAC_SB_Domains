@@ -170,7 +170,7 @@ export interface WorkflowCatalogResult extends ComposeBase {
 // `.opencode/` layout and at `<projectRoot>/xdomains/` in the source repo.
 // Resolve the installed layout first and fall back to the source layout; a
 // caller with a different layout must pass `--catalog`/`--recipes-dir`.
-function defaultXdomainsPath(options: ComposeOptions, ...rel: string[]): string {
+export function defaultXdomainsPath(options: ComposeOptions, ...rel: string[]): string {
   const installed = join(options.opencodeDir, 'xdomains', ...rel);
   return existsSync(installed) ? installed : join(options.projectRoot, 'xdomains', ...rel);
 }

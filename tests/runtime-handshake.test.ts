@@ -60,6 +60,6 @@ describe('runtime CLI handshake (opt-in)', () => {
         if (started && instance) stopEditor(instance);
       }
     },
-    900000
+    { timeout: 900000 }
   );
 });
