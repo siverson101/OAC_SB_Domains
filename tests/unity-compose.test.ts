@@ -670,8 +670,19 @@ describe('workflow-catalog', () => {
   const catalogPath = join(repoRoot, 'xdomains', 'context', 'workflow-catalog.json');
   const recipesDir = join(repoRoot, 'xdomains', 'game-dev', 'unity-3d', 'recipes');
   const catalog = JSON.parse(readFileSync(catalogPath, 'utf8')) as {
-    phases: { id: string; steps: { command: string }[] }[];
+    phases: {
+      id: string;
+      steps: { id: string; command: string; required: boolean; artifact?: { glob?: string; note?: string } }[];
+    }[];
   };
+
+  test('every required catalog step is machine-checkable (has a glob)', () => {
+    for (const phase of catalog.phases) {
+      for (const step of phase.steps) {
+        if (step.required) expect(step.artifact?.glob, `${phase.id}/${step.id}`).toBeDefined();
+      }
+    }
+  });
 
   test('the shipped catalog validates with the seven phases in order', () => {
     const result = validateWorkflowCatalog(catalog);
@@ -757,6 +768,60 @@ describe('workflow-catalog', () => {
     });
     expect(result.status).toBe('unavailable');
     expect(result.phases).toEqual([]);
+  });
+
+  function catalogWith(required: boolean, artifact: Record<string, unknown>): { file: string; dir: string } {
+    const dir = mkdtempSync(join(tmpdir(), 'oac-catalog-'));
+    const file = join(dir, 'catalog.json');
+    writeFileSync(
+      file,
+      JSON.stringify({
+        schemaVersion: 1,
+        id: 'test-catalog',
+        name: 'Test Catalog',
+        description: 'A catalog with one step.',
+        phases: [
+          {
+            id: 'p1',
+            label: 'P1',
+            description: 'One phase.',
+            nextPhase: null,
+            steps: [{ id: 'manual', name: 'Manual', command: 'plan-feature', required, description: 'Do it.', artifact }],
+          },
+        ],
+      })
+    );
+    return { file, dir };
+  }
+
+  test('a required note-only step blocks its phase as undetectable, not complete', () => {
+    const { file, dir } = catalogWith(true, { note: 'a human checks this' });
+    try {
+      const result = runWorkflowCatalog({ ...base, ability: 'workflow-catalog', projectRoot: dir, catalog: file, recipesDir });
+      expect(result.catalogValid).toBe(true);
+      const phase = result.phases[0];
+      expect(phase.complete).toBe(false);
+      expect(phase.steps[0].outcome).toBe('undetectable');
+      expect(phase.steps[0].blocking).toBe(true);
+      expect(result.currentPhase).toBe('p1');
+      expect(result.nextStepId).toBe('manual');
+      expect(result.nextCommand).toBe('plan-feature');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('a required:false note-only step never blocks', () => {
+    const { file, dir } = catalogWith(false, { note: 'a human checks this' });
+    try {
+      const result = runWorkflowCatalog({ ...base, ability: 'workflow-catalog', projectRoot: dir, catalog: file, recipesDir });
+      const phase = result.phases[0];
+      expect(phase.complete).toBe(true);
+      expect(phase.steps[0].blocking).toBe(false);
+      expect(result.currentPhase).toBeNull();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

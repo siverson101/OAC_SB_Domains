@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "unity-lifecycle",
   "name": "Unity Lifecycle Catalog",
-  "description": "The seven lifecycle phases (Concept -> Systems Design -> Technical Setup -> Pre-Production -> Production -> Polish -> Release). Each step names the command that realises it and, where progression is machine-checkable, an artifact check (glob + required pattern). Steps whose completion cannot be auto-detected carry a human `note` fallback; optional steps are marked `required: false`.",
+  "description": "The seven lifecycle phases (Concept -> Systems Design -> Technical Setup -> Pre-Production -> Production -> Polish -> Release). Each step names the command that realises it and, where progression is machine-checkable, an artifact check (glob + required pattern). Required steps are machine-checkable and gate the phase; steps whose completion cannot be auto-detected carry a human `note` fallback and are marked `required: false` so they never falsely report complete.",
   "phases": [
     {
       "id": "concept",
@@ -22,9 +22,9 @@
           "id": "architecture-baseline",
           "name": "Architecture Baseline",
           "command": "unity-architecture",
-          "required": true,
-          "description": "Author the architecture baseline from the scanned structure and package set.",
-          "artifact": { "glob": ".opencode/project-data/project-structure.json", "pattern": "counts" }
+          "required": false,
+          "description": "Optional: author the architecture baseline from the scanned structure and package set. Not machine-checkable, so it does not gate the phase.",
+          "artifact": { "note": "Architecture baseline authored and reviewed from the scanned structure and package set." }
         },
         {
           "id": "concept-plan",
@@ -46,16 +46,16 @@
           "id": "systems-map",
           "name": "Systems Map",
           "command": "primitive-composition",
-          "required": true,
-          "description": "Map the systems and primitives, and check the composition graph for cycles and unresolved references.",
+          "required": false,
+          "description": "Optional: map the systems and primitives, and check the composition graph for cycles and unresolved references.",
           "artifact": { "note": "Review the composition graph for cycles and unresolved primitives." }
         },
         {
           "id": "contract-design",
           "name": "Contract Design",
           "command": "contract-aware-design",
-          "required": true,
-          "description": "Validate every capability contract so the design and the registry agree.",
+          "required": false,
+          "description": "Optional: validate every capability contract so the design and the registry agree.",
           "artifact": { "note": "Every capability contract validates with no errors." }
         },
         {
@@ -142,8 +142,8 @@
           "id": "implement",
           "name": "Implement Feature",
           "command": "unity-implement",
-          "required": true,
-          "description": "Implement the scoped feature and wire it into the scene/prefab.",
+          "required": false,
+          "description": "Optional: implement the scoped feature and wire it into the scene/prefab.",
           "artifact": { "note": "Feature diff reviewed against the plan and acceptance criteria." }
         },
         {

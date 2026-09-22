@@ -862,11 +862,6 @@ function buildRegistry(domainDir, generatedAt, opencodeDir) {
     const fm = readFrontmatter(join2(domainDir, rel));
     addEdges("agent-ability", basename(rel, ".md"), frontmatterStringArray(fm, "abilities") ?? []);
   }
-  for (const workflow of workflows) {
-    const fm = readFrontmatter(join2(domainDir, workflow.path));
-    addEdges("workflow-ability", workflow.id, frontmatterStringArray(fm, "abilities") ?? []);
-    addEdges("workflow-agent", workflow.id, frontmatterStringArray(fm, "agents") ?? []);
-  }
   for (const recipe of recipeEntries) {
     const links = recipeLinks(readJson(join2(domainDir, recipe.path)));
     addEdges("workflow-ability", recipe.id, links.abilities);

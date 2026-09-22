@@ -61,6 +61,7 @@ Lifecycle commands route to the Unity 3D Orchestrator and run the lifecycle cata
 | `/unity-vfx` | Shaders / VFX Graph / materials | `lookup/performance-budgets.md` |
 | `/unity-ase` | Amplify Shader Editor node graphs | `lookup/performance-budgets.md` |
 | `/uitk` | UI Toolkit screens (UXML/USS/C#) | `concepts/project-layout.md` |
+| `/workflow-catalog` | Validate the lifecycle catalog and recipes; report phase progression and the next command | `workflows/feature-delivery.md` |
 
 ## Runtime Loops
 

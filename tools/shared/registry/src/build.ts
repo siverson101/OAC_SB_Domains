@@ -482,12 +482,11 @@ export function buildRegistry(domainDir: string, generatedAt: string, opencodeDi
     addEdges('agent-ability', basename(rel, '.md'), frontmatterStringArray(fm, 'abilities') ?? []);
   }
 
-  for (const workflow of workflows) {
-    const fm = readFrontmatter(join(domainDir, workflow.path));
-    addEdges('workflow-ability', workflow.id, frontmatterStringArray(fm, 'abilities') ?? []);
-    addEdges('workflow-agent', workflow.id, frontmatterStringArray(fm, 'agents') ?? []);
-  }
-
+  // Recipes are the canonical data layer for workflow↔ability/agent edges
+  // (ADR-0016). The prose workflows under `context/**/workflows/` describe the
+  // same pipelines as knowledge, so their frontmatter is deliberately not an
+  // edge source: reading both would emit duplicate/conflicting edges under
+  // different ids (e.g. `feature-delivery` vs the `unity-change-loop` recipe).
   for (const recipe of recipeEntries) {
     const links = recipeLinks(readJson(join(domainDir, recipe.path)));
     addEdges('workflow-ability', recipe.id, links.abilities);

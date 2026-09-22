@@ -43,7 +43,6 @@
         {
           "id": "apply-smallest-change",
           "kind": "agent",
-          "role": "implementer",
           "description": "Apply the smallest change in scope; no drive-by edits.",
           "agents": ["implementer"],
           "artifact": { "note": "Diff reviewed against the change scope." }

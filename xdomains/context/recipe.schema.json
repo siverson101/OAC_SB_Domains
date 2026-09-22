@@ -81,10 +81,6 @@
           "enum": ["agent", "manual", "command", "cli", "ability", "report"],
           "description": "How the step executes: route to an agent, wait on a human, invoke a command, run a CLI command, call an ability, or emit a report."
         },
-        "role": {
-          "type": "string",
-          "description": "Agent role to route to (agent steps)."
-        },
         "description": {
           "type": "string",
           "description": "What the step accomplishes."
