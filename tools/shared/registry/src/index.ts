@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { fileExists, nowIso, readJson } from '../../../shared/io';
+import { fileExists, nowIso, readJson, toPosix } from '../../../shared/io';
 import type { VersionMatrix } from '../../unity-version';
 import { buildRegistry } from './build';
 import { renderAgentSystemBlueprint, renderRegistry, renderVersionMatrixDoc } from './render';
@@ -38,16 +38,20 @@ function write(path: string, body: string): void {
   writeFileSync(path, body);
 }
 
-// The version matrix lives at `xdomains/context/unity/version-matrix.json` in
-// the repo and under `<opencode-dir>/xdomains/context/unity/` once installed.
-// Fail-soft: a missing matrix simply skips the version-matrix doc.
-function findVersionMatrix(domainDir: string, opencodeDir: string): string | null {
+// The version matrix lives at `xdomains/context/unity/version-matrix.json`.
+// Resolve it the same way `defaultXdomainsPath` does: the installed layout
+// first, then the source layout. Fail-soft, but a caller whose layout matches
+// neither gets the searched paths back (never a silent skip).
+export function findVersionMatrix(domainDir: string, opencodeDir: string): { path: string | null; searched: string[] } {
   const candidates = [
-    join(domainDir, '..', '..', 'context', 'unity', 'version-matrix.json'),
+    // Installed layout: the distributed tree under `<opencode-dir>/xdomains/`.
     join(opencodeDir, 'xdomains', 'context', 'unity', 'version-matrix.json'),
+    // Source layout: `<repo>/xdomains/`, reached from the domain dir
+    // (`xdomains/<domain>/<subdomain>`) or from the project root beside opencodeDir.
+    join(domainDir, '..', '..', 'context', 'unity', 'version-matrix.json'),
     join(opencodeDir, '..', 'xdomains', 'context', 'unity', 'version-matrix.json'),
   ];
-  return candidates.find((candidate) => fileExists(candidate)) ?? null;
+  return { path: candidates.find((candidate) => fileExists(candidate)) ?? null, searched: candidates };
 }
 
 function main(): void {
@@ -76,11 +80,16 @@ function main(): void {
   const paths: Record<string, string> = { blueprint: outBlueprint };
   write(outBlueprint, renderAgentSystemBlueprint(registry));
 
-  const matrixPath = findVersionMatrix(domainDir, opencodeDir);
+  const warnings: string[] = [];
+  const { path: matrixPath, searched } = findVersionMatrix(domainDir, opencodeDir);
   const matrix = matrixPath ? readJson<VersionMatrix>(matrixPath) : null;
   if (matrix) {
     write(outVersionMatrix, renderVersionMatrixDoc(matrix, subdomain));
     paths.versionMatrix = outVersionMatrix;
+  } else {
+    const message = `version-matrix.json not found; searched: ${searched.map(toPosix).join(', ')}`;
+    warnings.push(message);
+    process.stderr.write(`warning: ${message}\n`);
   }
 
   if (!args['docs-only']) {
@@ -98,6 +107,7 @@ function main(): void {
         subdomain: registry.subdomain,
         counts: registry.counts,
         paths,
+        warnings,
       },
       null,
       2

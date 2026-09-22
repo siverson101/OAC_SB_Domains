@@ -44,6 +44,18 @@ function timestamp() {
   return new Date().toISOString().replace(/[:.]/g, '-');
 }
 
+// Millisecond-resolution timestamps can collide when two swaps land in the same
+// tick; suffix until the backup dir is unique so a backup is never overwritten.
+function uniqueBackupDir(base, name) {
+  let candidate = path.join(base, name);
+  let suffix = 1;
+  while (fs.existsSync(candidate)) {
+    candidate = path.join(base, `${name}-${suffix}`);
+    suffix += 1;
+  }
+  return candidate;
+}
+
 function pruneEmptyDirs(dir) {
   if (!fs.existsSync(dir)) return;
   for (const entry of fs.readdirSync(dir)) {
@@ -94,7 +106,7 @@ function main() {
 
   let backupDir = null;
   if (backupEntries.length > 0) {
-    backupDir = path.join(opencodeDir, BACKUP_ROOT, timestamp());
+    backupDir = uniqueBackupDir(path.join(opencodeDir, BACKUP_ROOT), timestamp());
     for (const rel of backupEntries) {
       const dest = path.join(backupDir, rel);
       fs.mkdirSync(path.dirname(dest), { recursive: true });

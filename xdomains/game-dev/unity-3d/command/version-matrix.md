@@ -7,7 +7,6 @@ description: Map the detected editor version to a dispatch key (6.0/6.3/6.5/LTS+
 inputs: { projectRoot: "string", opencodeDir: "string", commandDir: "string?" }
 outputs: { detected: "object", matrix: "object", compatibility: "object", sources: "object" }
 sideEffects: []
-uses: [context/unity/version-matrix.json]
 provides: [version-matrix]
 requires: [project-data]
 versionCompatibility: { unity: ["6.0", "6.3", "6.5", "LTS+"] }

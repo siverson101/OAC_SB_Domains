@@ -19,7 +19,7 @@ export type SenseAbility = (typeof SENSE_ABILITY_NAMES)[number];
 
 export const SENSE_ABILITIES: SenseAbility[] = [...SENSE_ABILITY_NAMES];
 
-export type SenseStatus = 'observed_locally' | 'available_but_unverified' | 'unavailable' | 'unknown';
+export type SenseStatus = 'observed_locally' | 'available_but_unverified' | 'warning' | 'unavailable' | 'unknown';
 
 export interface SenseBase {
   schemaVersion: number;

@@ -281,7 +281,7 @@ describe('version-matrix ability', () => {
     const result = versionMatrix(options);
     expect(result.family).toBe('sense');
     expect(result.mode).toBe('offline');
-    expect(result.status).toBe('observed_locally');
+    expect(result.status).toBe('warning');
     expect(result.detected.raw).toBe('6000.5.7f1');
     expect(result.detected.dispatchKey).toBe('6.5');
     expect(result.matrix.source).toBe('bundle');
@@ -292,12 +292,30 @@ describe('version-matrix ability', () => {
   test('reports capability compatibility and never throws', () => {
     const result = versionMatrix(options);
     expect(result.compatibility.checked).toBe(2);
+    expect(result.compatibility.commandDir).toBe(options.commandDir ?? null);
+    expect(result.compatibility.notCheckedReason).toBeNull();
     expect(result.compatibility.compatible).toContain('compatible');
     expect(result.compatibility.incompatible).toContain('incompatible');
     expect(result.compatibility.unknown).toEqual([]);
     const bad = result.compatibility.capabilities.find((capability) => capability.id === 'incompatible');
     expect(bad?.status).toBe('incompatible');
     expect(bad?.reason).toContain('6.5');
+  });
+
+  test('reflects an incompatible capability in the top-level status', () => {
+    const result = versionMatrix(options);
+    expect(result.compatibility.incompatible).toContain('incompatible');
+    expect(result.status).toBe('warning');
+    expect(result.summary).toContain('1 incompatible capability');
+  });
+
+  test('marks compatibility not checked when no command dir is readable', () => {
+    const result = versionMatrix({ ...options, commandDir: join(fixture, 'no-such-command-dir') });
+    expect(result.compatibility.checked).toBe(0);
+    expect(result.compatibility.notCheckedReason).toContain('not checked');
+    expect(result.status).toBe('available_but_unverified');
+    expect(result.summary).toContain('compatibility not checked');
+    expect(result.compatibility.incompatible).toEqual([]);
   });
 
   test('fails soft when no version is detected', () => {
