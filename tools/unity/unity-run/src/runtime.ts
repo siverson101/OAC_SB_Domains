@@ -1,11 +1,10 @@
 // The runtime abilities — debugging, UI validation, profiling, UI Toolkit.
 //
 // Each one reaches the *running* Editor/Player through the live Unity CLI
-// channel. The concrete `cli`/`mcp` transports land later; this module consumes
-// the `RuntimeChannel` seam and is strictly fail-soft: no channel, a channel
-// that reports unavailable, or a channel that throws all resolve to
-// `unavailable`, never a thrown error.
-import { findExecutable } from '../../../shared/toolchain';
+// channel (`unity command` / `unity eval`, ADR-0017). The `RuntimeChannel` seam
+// is strictly fail-soft: no channel, a channel that reports unavailable, or a
+// channel that throws all resolve to `unavailable`, never a thrown error.
+import { findExecutable, run, stripAnsi, type CommandResult } from '../../../shared/toolchain';
 import { findLiveInstance } from '../../gather-unity-context/src/editor';
 import { checkCodeExecutionApproval } from './approval';
 import { makeResult } from './shared';
@@ -13,30 +12,33 @@ import {
   RUN_MODES,
   RUNTIME_ABILITIES,
   type ApprovalDecision,
+  type CliRunner,
+  type Json,
   type RunOptions,
   type RuntimeAbility,
   type RuntimeChannel,
+  type RuntimeRequest,
+  type RuntimeResponse,
   type RuntimeResult,
 } from './types';
 
 export interface RuntimeOperationSpec {
   operation: string;
-  command: string;
   args: string[];
   codeExecution: boolean;
 }
 
 const OPERATION_SPECS: Record<string, RuntimeOperationSpec> = {
-  get_logs: { operation: 'get_logs', command: 'get_logs', args: ['--logType', 'Error'], codeExecution: false },
-  'execute-code': { operation: 'execute-code', command: 'eval', args: [], codeExecution: true },
-  ui_snapshot: { operation: 'ui_snapshot', command: 'ui_snapshot', args: [], codeExecution: false },
-  ui_find: { operation: 'ui_find', command: 'ui_find', args: [], codeExecution: false },
-  ui_click: { operation: 'ui_click', command: 'ui_click', args: [], codeExecution: false },
-  ui_key: { operation: 'ui_key', command: 'ui_key', args: [], codeExecution: false },
-  profiler_counters: { operation: 'profiler_counters', command: 'profiler_counters', args: [], codeExecution: false },
-  profiler_snapshot: { operation: 'profiler_snapshot', command: 'profiler_snapshot', args: [], codeExecution: false },
-  uitk_tree: { operation: 'uitk_tree', command: 'uitk_tree', args: [], codeExecution: false },
-  uitk_click: { operation: 'uitk_click', command: 'uitk_click', args: [], codeExecution: false },
+  get_logs: { operation: 'get_logs', args: ['--logType', 'Error'], codeExecution: false },
+  'execute-code': { operation: 'execute-code', args: [], codeExecution: true },
+  ui_snapshot: { operation: 'ui_snapshot', args: [], codeExecution: false },
+  ui_find: { operation: 'ui_find', args: [], codeExecution: false },
+  ui_click: { operation: 'ui_click', args: [], codeExecution: false },
+  ui_key: { operation: 'ui_key', args: [], codeExecution: false },
+  profiler_counters: { operation: 'profiler_counters', args: [], codeExecution: false },
+  profiler_snapshot: { operation: 'profiler_snapshot', args: [], codeExecution: false },
+  uitk_tree: { operation: 'uitk_tree', args: [], codeExecution: false },
+  uitk_click: { operation: 'uitk_click', args: [], codeExecution: false },
 };
 
 // The operations each runtime ability may invoke.
@@ -78,10 +80,10 @@ export function resolveOperation(ability: RuntimeAbility, requested?: string): R
 }
 
 function buildCommand(options: RunOptions, spec: RuntimeOperationSpec): string[] {
-  const args = spec.codeExecution ? [options.code ?? ''] : [...spec.args];
+  const head = spec.codeExecution ? ['eval', options.code ?? ''] : ['command', spec.operation];
   return [
-    spec.command,
-    ...args,
+    ...head,
+    ...spec.args,
     '--json',
     '--no-banner',
     '--quiet',
@@ -100,21 +102,71 @@ function channelAvailable(channel: RuntimeChannel | null): boolean {
   }
 }
 
+const CLI_TIMEOUT_MS = 30000;
+
+interface CliEnvelope {
+  success?: boolean;
+  data?: unknown;
+  errors?: { message?: string }[];
+}
+
+function parseEnvelope(stdout: string): CliEnvelope | null {
+  try {
+    const parsed = JSON.parse(stdout) as CliEnvelope;
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function envelopeErrors(envelope: CliEnvelope): string[] {
+  const errors = Array.isArray(envelope.errors) ? envelope.errors : [];
+  return errors.map((entry) => (entry && typeof entry.message === 'string' ? entry.message : 'unity CLI error'));
+}
+
+// The concrete CLI transport: `unity command <op> ...` for runtime handlers and
+// `unity eval <code> ...` for code execution (ADR-0017 — never bare `unity mcp`).
+// The runner is injected so the envelope parsing is testable without a live
+// Editor; every failure mode resolves to an `ok: false` response, never a throw.
+export function createCliChannel(cliCommand: string, runner: CliRunner = run): RuntimeChannel {
+  return {
+    transport: 'cli',
+    available: () => true,
+    invoke: async (request: RuntimeRequest): Promise<RuntimeResponse> => {
+      let result: CommandResult;
+      try {
+        result = runner(cliCommand, request.args, { timeout: CLI_TIMEOUT_MS });
+      } catch (err) {
+        return { ok: false, data: null, errors: [`unity CLI invocation threw: ${errorMessage(err)}`] };
+      }
+      const raw = stripAnsi(result.stdout || result.stderr);
+      const envelope = parseEnvelope(result.stdout);
+      if (!envelope) {
+        return { ok: false, data: null, errors: [`malformed unity CLI output: ${raw || `exit ${result.status}`}`], raw };
+      }
+      const errors = envelopeErrors(envelope);
+      const ok = envelope.success === true && result.ok;
+      if (!ok && errors.length === 0) errors.push(raw || `unity CLI exited ${result.status}`);
+      return {
+        ok,
+        data: (envelope.data as Json | null) ?? null,
+        errors: ok ? [] : errors,
+        raw,
+      };
+    },
+  };
+}
+
 // Probe for a live channel: an explicitly injected channel wins (including an
 // explicit `null`); otherwise the Unity CLI must exist and report a live
-// instance for this project. No custom bridge is built — this is the CLI seam.
-//
-// TODO(Phase 6): the concrete `cli`/`mcp` transports are not wired yet. The
-// channel returned here only reports `available`; it carries no `invoke`, so
-// `runRuntimeAbility` still ends `unavailable` below. Selecting the `cli`
-// transport therefore means "a live channel was chosen", NOT "the call
-// succeeded" — the result is fail-soft until a transport lands.
+// instance for this project, in which case the concrete CLI transport is wired.
+// No custom bridge is built — this is the CLI seam.
 export function resolveRuntimeChannel(options: RunOptions): RuntimeChannel | null {
   if (options.live !== undefined) return options.live;
   if (!findExecutable(options.cliCommand)) return null;
   const instance = findLiveInstance(options.projectRoot, options.cliCommand);
   if (!instance) return null;
-  return { transport: 'cli', available: () => true };
+  return createCliChannel(options.cliCommand, options.cliRunner ?? run);
 }
 
 function errorMessage(err: unknown): string {
@@ -203,15 +255,16 @@ export async function runRuntimeAbility(options: RunOptions): Promise<RuntimeRes
     const command = buildCommand(options, spec);
     const response = await channel.invoke({ operation: spec.operation, args: command });
     if (!response.ok) {
+      const reason = `${spec.operation} failed on the live ${transport ?? 'runtime'} channel`;
       return {
         ...base,
-        status: 'unknown',
-        summary: `${spec.operation} failed on the live channel`,
+        status: 'unavailable',
+        summary: reason,
         errors: [...errors, ...response.errors],
         route: 'live',
         operation: spec.operation,
         transport,
-        data: response.data,
+        data: null,
         approval,
       };
     }

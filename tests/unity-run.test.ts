@@ -9,7 +9,7 @@ import {
   evaluateChangeLoop,
   type ChangeLoopEvidence,
 } from '../tools/unity/unity-run/src/change-loop';
-import { runRuntimeAbility } from '../tools/unity/unity-run/src/runtime';
+import { createCliChannel, resolveRuntimeChannel, runRuntimeAbility } from '../tools/unity/unity-run/src/runtime';
 import { runRun } from '../tools/unity/unity-run/src/abilities';
 import {
   RUN_ABILITIES,
@@ -226,6 +226,80 @@ describe('runtime abilities fail soft without a live channel', () => {
     const result = await runRuntimeAbility({ ...base, operation: 'frobnicate' });
     expect(result.operation).toBe('get_logs');
     expect(result.errors.join(' ')).toContain('unknown --operation');
+  });
+});
+
+describe('runtime CLI transport', () => {
+  test('resolves no channel when the CLI is missing (fail-soft)', () => {
+    expect(resolveRuntimeChannel(base)).toBeNull();
+  });
+
+  test('an injected channel wins over probing', () => {
+    const live = createCliChannel('unity');
+    expect(resolveRuntimeChannel({ ...base, live })).toBe(live);
+    expect(resolveRuntimeChannel({ ...base, live: null })).toBeNull();
+  });
+
+  test('selects the cli transport and parses a unity command round-trip', async () => {
+    const calls: string[][] = [];
+    const live = createCliChannel('unity', (command, args) => {
+      calls.push([command, ...args]);
+      return { ok: true, stdout: JSON.stringify({ success: true, data: { logs: [{ message: 'boom' }] } }), stderr: '', status: 0 };
+    });
+    const result = await runRuntimeAbility({ ...base, live, ability: 'runtime-debugging', operation: 'get_logs' });
+    expect(result.status).toBe('observed_locally');
+    expect(result.transport).toBe('cli');
+    expect(result.data).toEqual({ logs: [{ message: 'boom' }] });
+    expect(calls[0][0]).toBe('unity');
+    expect(calls[0]).toContain('command');
+    expect(calls[0]).toContain('get_logs');
+    expect(calls[0]).toContain('--json');
+  });
+
+  test('routes execute-code through unity eval, not unity command', async () => {
+    const calls: string[][] = [];
+    const live = createCliChannel('unity', (_command, args) => {
+      calls.push(args);
+      return { ok: true, stdout: JSON.stringify({ success: true, data: { result: 2 } }), stderr: '', status: 0 };
+    });
+    const result = await runRuntimeAbility({
+      ...base,
+      live,
+      operation: 'execute-code',
+      code: 'return 1 + 1;',
+      approveCodeExecution: true,
+    });
+    expect(result.status).toBe('observed_locally');
+    expect(calls[0]).toContain('eval');
+    expect(calls[0]).not.toContain('command');
+  });
+
+  test('malformed CLI output fails soft to unavailable', async () => {
+    const live = createCliChannel('unity', () => ({ ok: true, stdout: 'not json at all', stderr: '', status: 0 }));
+    const result = await runRuntimeAbility({ ...base, live, operation: 'get_logs' });
+    expect(result.status).toBe('unavailable');
+    expect(result.errors.join(' ')).toContain('malformed');
+  });
+
+  test('a non-zero CLI exit fails soft to unavailable', async () => {
+    const live = createCliChannel('unity', () => ({
+      ok: false,
+      stdout: JSON.stringify({ success: false, errors: [{ message: 'no live player' }] }),
+      stderr: '',
+      status: 1,
+    }));
+    const result = await runRuntimeAbility({ ...base, live, operation: 'get_logs' });
+    expect(result.status).toBe('unavailable');
+    expect(result.errors.join(' ')).toContain('no live player');
+  });
+
+  test('a throwing CLI runner fails soft to unavailable', async () => {
+    const live = createCliChannel('unity', () => {
+      throw new Error('spawn failed');
+    });
+    const result = await runRuntimeAbility({ ...base, live, operation: 'get_logs' });
+    expect(result.status).toBe('unavailable');
+    expect(result.errors.join(' ')).toContain('spawn failed');
   });
 });
 
