@@ -1,13 +1,14 @@
 import { readdirSync, statSync } from 'node:fs';
 import { basename, join, relative, sep } from 'node:path';
 import { findPatternCatalog } from '../../../shared/context-files';
-import { readJson } from '../../../shared/io';
+import { readJson, readText } from '../../../shared/io';
 import {
   defaultStudioConfig,
   MODEL_TIERS,
   optionalPaths,
   resolveStudioConfigProject,
   selectActiveRoster,
+  STUDIO_MODES,
   type ConfigProblem,
   type ModelTier,
   type ModelTiers,
@@ -59,6 +60,46 @@ export interface RegistryStudioConfig {
   valid: boolean;
 }
 
+// The prose `## Delegation Map` bullets from an agent file, surfaced verbatim
+// (continuation lines folded) so the blueprint mirrors what the agent declares.
+export interface AgentDelegationMap {
+  reportsTo?: string;
+  implementsFrom?: string;
+  escalationTargets?: string;
+  siblings?: string;
+}
+
+export interface BlueprintAgent {
+  id: string;
+  name: string;
+  path: string;
+  role: 'agent' | 'subagent';
+  tier?: ModelTier;
+  model?: string;
+  abilities: string[];
+  optional: boolean;
+  gate?: string;
+  delegation: AgentDelegationMap;
+}
+
+export interface BlueprintHierarchy {
+  mode: StudioMode;
+  agents: BlueprintAgent[];
+  subagents: BlueprintAgent[];
+}
+
+// FR8 agent-system blueprint: every hierarchy a studio mode can install (not
+// just the active one), with per-agent ability allowlists, delegation maps, and
+// resolved model tiers.
+export interface AgentSystemBlueprint {
+  domain: string;
+  subdomain: string;
+  displayName: string;
+  version: string;
+  modelTiers: ModelTiers;
+  hierarchies: BlueprintHierarchy[];
+}
+
 export interface Registry {
   schemaVersion: number;
   generatedAt: string;
@@ -81,6 +122,7 @@ export interface Registry {
   edges: RegistryEdge[];
   warnings: string[];
   studioConfig: RegistryStudioConfig;
+  agentSystem: AgentSystemBlueprint;
   projections: { outputDir: string | null; outputs: { file: string; title: string; consumedBy: string[] }[] };
 }
 
@@ -221,6 +263,102 @@ function walkFiles(dir: string, base: string, out: string[] = []): string[] {
 
 function asModelTier(value: string | undefined): ModelTier | undefined {
   return value && (MODEL_TIERS as readonly string[]).includes(value) ? (value as ModelTier) : undefined;
+}
+
+function parseDelegationMap(content: string): AgentDelegationMap {
+  const marker = '## Delegation Map';
+  const start = content.indexOf(marker);
+  if (start === -1) return {};
+  const fields: Record<string, string> = {};
+  let current: string | null = null;
+  let buffer: string[] = [];
+  const flush = (): void => {
+    if (current) fields[current] = buffer.join(' ').replace(/\s+/g, ' ').trim();
+    current = null;
+    buffer = [];
+  };
+  for (const line of content.slice(start + marker.length).split(/\r?\n/)) {
+    if (/^##\s/.test(line)) break;
+    const bullet = /^\s*-\s*\*\*([^*]+)\*\*:\s*(.*)$/.exec(line);
+    if (bullet) {
+      flush();
+      current = bullet[1].trim().toLowerCase();
+      buffer = [bullet[2]];
+      continue;
+    }
+    if (line.trim() === '') {
+      flush();
+      continue;
+    }
+    if (/^\s/.test(line)) {
+      if (current) buffer.push(line.trim());
+      continue;
+    }
+    break;
+  }
+  flush();
+  return {
+    reportsTo: fields['reports to'],
+    implementsFrom: fields['implements from'],
+    escalationTargets: fields['escalation targets'],
+    siblings: fields['siblings'],
+  };
+}
+
+function blueprintAgent(
+  domainDir: string,
+  rel: string,
+  role: BlueprintAgent['role'],
+  optional: boolean,
+  modelTiers: ModelTiers
+): BlueprintAgent {
+  const fm = readFrontmatter(join(domainDir, rel));
+  const id = basename(rel, '.md');
+  const tier = asModelTier(frontmatterString(fm, 'tier'));
+  return {
+    id,
+    name: frontmatterString(fm, 'name') || id,
+    path: rel,
+    role,
+    tier,
+    model: tier ? modelTiers[tier] : undefined,
+    abilities: frontmatterStringArray(fm, 'abilities') ?? [],
+    optional,
+    gate: optional ? frontmatterString(fm, 'enabledBy') : undefined,
+    delegation: parseDelegationMap(readText(join(domainDir, rel)) ?? ''),
+  };
+}
+
+function buildAgentSystem(manifest: Manifest, domainDir: string, modelTiers: ModelTiers): AgentSystemBlueprint {
+  const hierarchies: BlueprintHierarchy[] = [];
+  if (manifest.studioModes) {
+    for (const mode of STUDIO_MODES) {
+      const roster = manifest.studioModes[mode];
+      if (!roster) continue;
+      hierarchies.push({
+        mode,
+        agents: (roster.agents ?? []).map((rel) => blueprintAgent(domainDir, rel, 'agent', false, modelTiers)),
+        subagents: [
+          ...(roster.subagents ?? []).map((rel) => blueprintAgent(domainDir, rel, 'subagent', false, modelTiers)),
+          ...optionalPaths(roster.optional).map((rel) => blueprintAgent(domainDir, rel, 'subagent', true, modelTiers)),
+        ],
+      });
+    }
+  } else {
+    hierarchies.push({
+      mode: 'lean',
+      agents: (manifest.agents ?? []).map((rel) => blueprintAgent(domainDir, rel, 'agent', false, modelTiers)),
+      subagents: (manifest.subagents ?? []).map((rel) => blueprintAgent(domainDir, rel, 'subagent', false, modelTiers)),
+    });
+  }
+  return {
+    domain: manifest.domain ?? '',
+    subdomain: manifest.subdomain ?? manifest.name ?? '',
+    displayName: manifest.displayName ?? manifest.name ?? '',
+    version: manifest.version ?? '',
+    modelTiers,
+    hierarchies,
+  };
 }
 
 function entry(
@@ -543,6 +681,7 @@ export function buildRegistry(domainDir: string, generatedAt: string, opencodeDi
     edges,
     warnings,
     studioConfig,
+    agentSystem: buildAgentSystem(manifest, domainDir, studioConfig.modelTiers),
     projections: { outputDir: projections.outputDir ?? null, outputs },
   };
 }
