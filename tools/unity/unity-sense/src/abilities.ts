@@ -1,11 +1,30 @@
-// Offline Sense abilities (Phase 2 Step 2.3).
+// Offline Sense abilities (Phase 2 Step 2.3, Phase 7 Step 7.1).
 //
-// Five of the six abilities live here; `code-navigation` is in its own module
+// Six of the seven abilities live here; `code-navigation` is in its own module
 // because it walks project source. All reads are fail-soft and read-only.
-import { join } from 'node:path';
-import { readJson } from '../../../shared/io';
+import { readdirSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { dirExists, readJson, readText } from '../../../shared/io';
+import { editorVersionInfo } from '../../../shared/toolchain';
+import { parseFrontmatter } from '../../../shared/registry/src/frontmatter';
+import {
+  checkVersionCompatibility,
+  featureFlagsFor,
+  parseUnityVersion,
+  type VersionCompatibilityStatus,
+  type VersionFeatureFlag,
+  type VersionMatrix,
+} from '../../../shared/unity-version';
 import { codeNavigation } from './code-navigation';
-import { loadApiQuickref, loadPlatformDefines, type ApiEntry, type PlatformEntry, type VersionDefineEntry } from './tables';
+import {
+  loadApiQuickref,
+  loadPlatformDefines,
+  loadVersionMatrix,
+  type ApiEntry,
+  type PlatformEntry,
+  type VersionDefineEntry,
+} from './tables';
 import {
   asArray,
   asRecord,
@@ -359,6 +378,184 @@ export function platformInfo(options: SenseOptions): PlatformInfoResult {
 }
 
 // ---------------------------------------------------------------------------
+// version-matrix — detected version, dispatch key, feature flags, capability
+// compatibility (Phase 7 Step 7.1, FR5)
+// ---------------------------------------------------------------------------
+
+export interface VersionMatrixCapability {
+  id: string;
+  status: VersionCompatibilityStatus;
+  declaredVersions: string[];
+  reason: string;
+}
+
+export interface VersionMatrixResult extends SenseBase {
+  detected: {
+    raw: string | null;
+    valid: boolean;
+    major: number | null;
+    minor: number | null;
+    patch: number | null;
+    stream: string | null;
+    dispatchKey: string | null;
+    reason: string;
+  };
+  matrix: {
+    source: 'bundle' | 'missing';
+    path: string | null;
+    versions: string[];
+    primaryVersion: string | null;
+    featureCount: number;
+    features: VersionFeatureFlag[];
+  };
+  compatibility: {
+    checked: number;
+    commandDir: string | null;
+    notCheckedReason: string | null;
+    compatible: string[];
+    incompatible: string[];
+    unknown: string[];
+    capabilities: VersionMatrixCapability[];
+  };
+  sources: Record<string, boolean>;
+}
+
+function detectedEditorVersion(options: SenseOptions): string | null {
+  const fromProject = editorVersionInfo(options.projectRoot).version;
+  if (fromProject) return fromProject;
+  const dataDir = projectDataDir(options);
+  const project = readData(dataDir, 'unity-project.json');
+  const settings = readData(dataDir, 'project-settings.json');
+  const scan = readData(dataDir, 'scan-result.json');
+  return str(project, 'unityVersion') ?? str(settings, 'editorVersion') ?? str(scan, 'unityVer');
+}
+
+// Resolve the command dir the way `defaultXdomainsPath` does: the installed
+// layout first, then the source layout. Commands install directly under
+// `<opencode-dir>/command`; in the source tree they live under
+// `<project-root>/xdomains/game-dev/unity-3d/command`, reachable from the
+// project root or relative to this module's bundle/source location.
+function defaultCommandDir(options: SenseOptions): string | null {
+  if (options.commandDir) return options.commandDir;
+  const here = dirname(fileURLToPath(import.meta.url));
+  const candidates = [
+    join(options.opencodeDir, 'command'),
+    join(options.projectRoot, 'xdomains', 'game-dev', 'unity-3d', 'command'),
+    join(here, '..', '..', 'game-dev', 'unity-3d', 'command'),
+    join(here, '..', '..', '..', '..', 'xdomains', 'game-dev', 'unity-3d', 'command'),
+  ];
+  return candidates.find((candidate) => dirExists(candidate)) ?? null;
+}
+
+// `checked` is false when there is no command dir (or it cannot be read), so the
+// caller can tell "compatibility never checked" from "checked, none incompatible".
+function declaredCapabilities(
+  commandDir: string | null,
+  detectedKey: string | null,
+  matrix: VersionMatrix | null
+): { capabilities: VersionMatrixCapability[]; checked: boolean } {
+  if (!commandDir) return { capabilities: [], checked: false };
+  let entries: string[];
+  try {
+    entries = readdirSync(commandDir);
+  } catch {
+    return { capabilities: [], checked: false };
+  }
+  const out: VersionMatrixCapability[] = [];
+  for (const entry of entries.sort()) {
+    if (!entry.endsWith('.md')) continue;
+    const text = readText(join(commandDir, entry));
+    if (text === null) continue;
+    const fm = parseFrontmatter(text);
+    if (fm.versionCompatibility === undefined || fm.versionCompatibility === null) continue;
+    const id = typeof fm.id === 'string' ? fm.id : entry.replace(/\.md$/, '');
+    const check = checkVersionCompatibility(
+      fm.versionCompatibility as Parameters<typeof checkVersionCompatibility>[0],
+      detectedKey,
+      matrix
+    );
+    out.push({ id, status: check.status, declaredVersions: check.declaredVersions, reason: check.reason });
+  }
+  return { capabilities: out, checked: true };
+}
+
+export function versionMatrix(options: SenseOptions): VersionMatrixResult {
+  const load = loadVersionMatrix(options.tableDir);
+  const matrix = load.data;
+  const detectedRaw = detectedEditorVersion(options);
+  const parsed = parseUnityVersion(detectedRaw, matrix);
+
+  const features = featureFlagsFor(matrix, parsed.dispatchKey);
+  const commandDir = defaultCommandDir(options);
+  const { capabilities, checked } = declaredCapabilities(commandDir, parsed.dispatchKey, matrix);
+
+  const compatible = capabilities.filter((capability) => capability.status === 'compatible').map((capability) => capability.id);
+  const incompatible = capabilities.filter((capability) => capability.status === 'incompatible').map((capability) => capability.id);
+  const unknown = capabilities.filter((capability) => capability.status === 'unknown').map((capability) => capability.id);
+
+  // No readable command dir means compatibility was never checked: a
+  // `checked: 0` must not read as "checked everything, all clear".
+  const notCheckedReason = checked
+    ? null
+    : commandDir
+      ? `command directory could not be read: ${commandDir}; capability compatibility not checked`
+      : 'no command directory found; capability compatibility not checked';
+
+  // An incompatible capability must surface in the top-level status, not just in
+  // the compatibility block, so a consumer reading only `status` is not misled.
+  const status: SenseStatus = !matrix
+    ? 'unavailable'
+    : !parsed.dispatchKey
+      ? 'unknown'
+      : incompatible.length > 0
+        ? 'warning'
+        : notCheckedReason
+          ? 'available_but_unverified'
+          : 'observed_locally';
+  const result: VersionMatrixResult = {
+    ...makeResult('version-matrix', status, 'Detected editor version, dispatch key, feature flags and capability compatibility', []),
+    detected: {
+      raw: parsed.raw,
+      valid: parsed.valid,
+      major: parsed.major,
+      minor: parsed.minor,
+      patch: parsed.patch,
+      stream: parsed.stream,
+      dispatchKey: parsed.dispatchKey,
+      reason: parsed.reason,
+    },
+    matrix: {
+      source: load.source,
+      path: load.path,
+      versions: matrix?.versions ?? [],
+      primaryVersion: matrix?.primaryVersion ?? null,
+      featureCount: features.length,
+      features,
+    },
+    compatibility: {
+      checked: capabilities.length,
+      commandDir,
+      notCheckedReason,
+      compatible,
+      incompatible,
+      unknown,
+      capabilities,
+    },
+    sources: present({ matrix, commandDir, detectedVersion: parsed.raw }),
+  };
+  if (load.source === 'missing') result.errors.push('version-matrix.json not found');
+  if (matrix) {
+    const compatibilityNote = notCheckedReason
+      ? ` · compatibility not checked (${notCheckedReason})`
+      : ` · ${incompatible.length} incompatible capability/ies`;
+    result.summary = `Unity ${parsed.raw ?? 'unknown'} -> ${parsed.dispatchKey ?? 'unmapped'} · ${features.length} feature flag(s)${compatibilityNote}`;
+  } else {
+    result.summary = 'version-matrix.json not found';
+  }
+  return result;
+}
+
+// ---------------------------------------------------------------------------
 // dispatcher
 // ---------------------------------------------------------------------------
 
@@ -368,6 +565,7 @@ export type SenseResult =
   | OfflineInspectionResult
   | ApiLookupResult
   | PlatformInfoResult
+  | VersionMatrixResult
   | ReturnType<typeof codeNavigation>;
 
 export function runSense(options: SenseOptions): SenseResult {
@@ -384,6 +582,8 @@ export function runSense(options: SenseOptions): SenseResult {
       return platformInfo(options);
     case 'code-navigation':
       return codeNavigation(options);
+    case 'version-matrix':
+      return versionMatrix(options);
     default: {
       const exhaustive: never = options.ability;
       throw new Error(`unsupported Sense ability: ${String(exhaustive)}`);

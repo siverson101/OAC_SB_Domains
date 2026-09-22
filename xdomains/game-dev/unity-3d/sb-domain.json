@@ -124,7 +124,9 @@
     "plan-feature",
     "test-plan",
     "test-deduplication",
-    "workflow-catalog"
+    "workflow-catalog",
+    "version-matrix",
+    "unity-studio-mode"
   ],
     "recipes": [
       "recipes/unity-change-loop.json",
@@ -136,7 +138,8 @@
     ],
     "scripts": [
       "scripts/setup-unity-env.sh",
-      "scripts/build-project-context.js"
+      "scripts/build-project-context.js",
+      "scripts/unity-studio-mode.js"
     ],
     "compatibility": {
       "opencode_min_version": "1.0.0",

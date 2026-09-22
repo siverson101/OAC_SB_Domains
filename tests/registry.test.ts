@@ -37,7 +37,7 @@ describe('registry build', () => {
     expect(registry.subdomain).toBe('unity-3d');
     expect(registry.counts.agents).toBe(1);
     expect(registry.counts.subagents).toBe(7);
-    expect(registry.counts.abilities).toBe(35);
+    expect(registry.counts.abilities).toBe(37);
     expect(registry.counts.workflows).toBe(3);
     expect(registry.counts.recipes).toBe(2);
   });

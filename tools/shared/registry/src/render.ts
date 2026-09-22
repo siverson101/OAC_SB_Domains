@@ -1,5 +1,13 @@
 import { renderStudioConfigLines } from '../../../unity/studio-config/src/resolve';
-import type { Registry, RegistryEdge, RegistryEntry, RegistryStudioConfig } from './build';
+import type { VersionMatrix } from '../../unity-version';
+import type {
+  AgentSystemBlueprint,
+  BlueprintAgent,
+  Registry,
+  RegistryEdge,
+  RegistryEntry,
+  RegistryStudioConfig,
+} from './build';
 
 function escapeCell(value: string | undefined): string {
   return (value ?? '').replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
@@ -152,5 +160,147 @@ export function renderRegistry(registry: Registry): string {
     lines.push('');
   }
 
+  return lines.join('\n');
+}
+
+function hierarchyTitle(mode: string): string {
+  return mode === 'full' ? 'Full Studio Hierarchy' : `${mode.charAt(0).toUpperCase()}${mode.slice(1)} Hierarchy`;
+}
+
+function blueprintAgentTable(agents: BlueprintAgent[]): string[] {
+  const lines: string[] = [];
+  lines.push('| Id | Name | Path | Tier | Model | Abilities | Gate |');
+  lines.push('|---|---|---|---|---|---|---|');
+  for (const agent of agents) {
+    lines.push(
+      `| ${agent.id} | ${escapeCell(agent.name)} | \`${agent.path}\` | ${agent.tier ?? ''} | ${agent.model ?? ''} | ${escapeCell(agent.abilities.join(', '))} | ${agent.optional ? escapeCell(agent.gate ?? 'gated') : ''} |`
+    );
+  }
+  return lines;
+}
+
+function delegationMapLines(agents: BlueprintAgent[]): string[] {
+  const lines: string[] = [];
+  const withMaps = agents.filter((agent) => Object.values(agent.delegation).some((value) => value));
+  if (withMaps.length === 0) return lines;
+  lines.push('### Delegation Maps');
+  lines.push('');
+  for (const agent of withMaps) {
+    const parts: string[] = [];
+    if (agent.delegation.reportsTo) parts.push(`Reports to: ${agent.delegation.reportsTo}`);
+    if (agent.delegation.implementsFrom) parts.push(`Implements from: ${agent.delegation.implementsFrom}`);
+    if (agent.delegation.escalationTargets) parts.push(`Escalation targets: ${agent.delegation.escalationTargets}`);
+    if (agent.delegation.siblings) parts.push(`Siblings: ${agent.delegation.siblings}`);
+    lines.push(`- **${agent.id}** — ${parts.join('; ')}`);
+  }
+  lines.push('');
+  return lines;
+}
+
+function blueprintHierarchy(lines: string[], hierarchy: AgentSystemBlueprint['hierarchies'][number]): void {
+  lines.push(`## ${hierarchyTitle(hierarchy.mode)}`);
+  lines.push('');
+  lines.push(
+    `Orchestrator: ${hierarchy.agents.map((agent) => `\`${agent.id}\``).join(', ') || '(none)'}; subagents: ${hierarchy.subagents.length}.`
+  );
+  lines.push('');
+  if (hierarchy.agents.length > 0) {
+    lines.push('### Agents');
+    lines.push('');
+    lines.push(...blueprintAgentTable(hierarchy.agents));
+    lines.push('');
+  }
+  if (hierarchy.subagents.length > 0) {
+    lines.push('### SubAgents');
+    lines.push('');
+    lines.push(...blueprintAgentTable(hierarchy.subagents));
+    lines.push('');
+  }
+  lines.push(...delegationMapLines([...hierarchy.agents, ...hierarchy.subagents]));
+}
+
+// The FR8 agent-system blueprint. Deliberately timestamp-free so the committed
+// copy can be drift-checked byte-for-byte by `bun run build:check`.
+export function renderAgentSystemBlueprint(registry: Registry): string {
+  const blueprint = registry.agentSystem;
+  const lines: string[] = [];
+  lines.push(`<!-- Context: ${blueprint.subdomain}/agent-system-blueprint | Priority: high | Version: 1.0 -->`);
+  lines.push('');
+  lines.push(`# ${blueprint.displayName} Agent System Blueprint`);
+  lines.push('');
+  lines.push('> Generated from `sb-domain.json`, agent frontmatter, and the studio config. Do not edit by hand; regenerate with `build-registry.mjs`.');
+  lines.push('');
+  lines.push(`- Domain: \`${blueprint.domain}\``);
+  lines.push(`- Sub-domain: \`${blueprint.subdomain}\``);
+  lines.push(`- Version: ${blueprint.version}`);
+  lines.push('');
+  lines.push('## Model Tiers');
+  lines.push('');
+  lines.push('| Tier | Model |');
+  lines.push('|---|---|');
+  for (const tier of ['router', 'lead', 'specialist']) {
+    lines.push(`| ${tier} | ${blueprint.modelTiers[tier as keyof typeof blueprint.modelTiers] ?? '(unset)'} |`);
+  }
+  lines.push('');
+  for (const hierarchy of blueprint.hierarchies) blueprintHierarchy(lines, hierarchy);
+  return lines.join('\n');
+}
+
+function featureMark(enabled: boolean | undefined): string {
+  return enabled === true ? 'yes' : 'no';
+}
+
+// The version-matrix doc, generated from `xdomains/context/unity/version-matrix.json`.
+// Timestamp-free for the same drift-check reason as the blueprint.
+export function renderVersionMatrixDoc(matrix: VersionMatrix, subdomain: string): string {
+  const versions = matrix.versions ?? [];
+  const lines: string[] = [];
+  lines.push(`<!-- Context: ${subdomain}/version-matrix | Priority: high | Version: 1.0 -->`);
+  lines.push('');
+  lines.push(`# Unity Version Matrix (${subdomain})`);
+  lines.push('');
+  lines.push('> Generated from `xdomains/context/unity/version-matrix.json`. Do not edit by hand; regenerate with `build-registry.mjs`.');
+  lines.push('');
+  if (matrix.description) {
+    lines.push(matrix.description);
+    lines.push('');
+  }
+  lines.push(`- Versions: ${versions.map((version) => `\`${version}\``).join(', ')}`);
+  if (matrix.primaryVersion) lines.push(`- Primary version: \`${matrix.primaryVersion}\``);
+  if (matrix.newerDispatchKey) lines.push(`- Newer dispatch key: \`${matrix.newerDispatchKey}\``);
+  lines.push('');
+  lines.push('## Dispatch keys');
+  lines.push('');
+  lines.push('| Editor line | Dispatch key |');
+  lines.push('|---|---|');
+  for (const [editorLine, key] of Object.entries(matrix.dispatch ?? {})) {
+    lines.push(`| \`${editorLine}\` | \`${key}\` |`);
+  }
+  lines.push('');
+  lines.push('## Feature flags');
+  lines.push('');
+  lines.push(`| Feature | Since | Deprecated | Removed | ${versions.map((version) => `\`${version}\``).join(' | ')} |`);
+  lines.push(`|---|---|---|---|${versions.map(() => '---').join('|')}|`);
+  for (const feature of matrix.features ?? []) {
+    const flags = versions.map((version) => featureMark(feature.versions[version]));
+    lines.push(
+      `| ${feature.id} | ${feature.since ?? '—'} | ${feature.deprecatedSince ?? '—'} | ${feature.removedSince ?? '—'} | ${flags.join(' | ')} |`
+    );
+  }
+  lines.push('');
+  if (matrix.overlays && Object.keys(matrix.overlays).length > 0) {
+    lines.push('## Overlays');
+    lines.push('');
+    lines.push('| Dispatch key | Overlay |');
+    lines.push('|---|---|');
+    for (const [key, overlay] of Object.entries(matrix.overlays)) {
+      lines.push(`| \`${key}\` | \`${overlay}\` |`);
+    }
+    lines.push('');
+  }
+  if (matrix.verifyNote) {
+    lines.push(`> ${matrix.verifyNote}`);
+    lines.push('');
+  }
   return lines.join('\n');
 }

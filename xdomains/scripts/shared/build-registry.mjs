@@ -1,9 +1,10 @@
 // tools/shared/registry/src/index.ts
 import { mkdirSync as mkdirSync2, writeFileSync as writeFileSync2 } from "node:fs";
-import { dirname, join as join3, resolve } from "node:path";
+import { dirname as dirname2, join as join3, resolve as resolve2 } from "node:path";
 
 // tools/shared/io.ts
 import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { dirname, sep } from "node:path";
 function fileExists(path) {
   try {
     return statSync(path).isFile();
@@ -31,10 +32,13 @@ function nowIso() {
 function unique(values) {
   return Array.from(new Set(values));
 }
+function toPosix(path) {
+  return path.split(sep).join("/");
+}
 
 // tools/shared/registry/src/build.ts
 import { readdirSync, statSync as statSync2 } from "node:fs";
-import { basename, join as join2, relative, sep } from "node:path";
+import { basename, join as join2, relative, resolve, sep as sep2 } from "node:path";
 
 // tools/shared/context-files.ts
 import { join } from "node:path";
@@ -606,8 +610,8 @@ function frontmatterStringArray(fm, key) {
 }
 
 // tools/shared/registry/src/build.ts
-function toPosix(path) {
-  return path.split(sep).join("/");
+function toPosix2(path) {
+  return path.split(sep2).join("/");
 }
 function selectStudioRoster(manifest, studioMode, gates, domainDir) {
   const mode = manifest.studioModes?.[studioMode];
@@ -653,12 +657,104 @@ function walkFiles(dir, base, out = []) {
     if (isDir(full))
       walkFiles(full, base, out);
     else
-      out.push(toPosix(relative(base, full)));
+      out.push(toPosix2(relative(base, full)));
   }
   return out;
 }
 function asModelTier(value) {
   return value && MODEL_TIERS.includes(value) ? value : undefined;
+}
+function parseDelegationMap(content) {
+  const marker = "## Delegation Map";
+  const start = content.indexOf(marker);
+  if (start === -1)
+    return {};
+  const fields = {};
+  let current = null;
+  let buffer = [];
+  const flush = () => {
+    if (current)
+      fields[current] = buffer.join(" ").replace(/\s+/g, " ").trim();
+    current = null;
+    buffer = [];
+  };
+  for (const line of content.slice(start + marker.length).split(/\r?\n/)) {
+    if (/^##\s/.test(line))
+      break;
+    const bullet = /^\s*-\s*\*\*([^*]+)\*\*:\s*(.*)$/.exec(line);
+    if (bullet) {
+      flush();
+      current = bullet[1].trim().toLowerCase();
+      buffer = [bullet[2]];
+      continue;
+    }
+    if (line.trim() === "") {
+      flush();
+      continue;
+    }
+    if (/^\s/.test(line)) {
+      if (current)
+        buffer.push(line.trim());
+      continue;
+    }
+    break;
+  }
+  flush();
+  return {
+    reportsTo: fields["reports to"],
+    implementsFrom: fields["implements from"],
+    escalationTargets: fields["escalation targets"],
+    siblings: fields["siblings"]
+  };
+}
+function blueprintAgent(domainDir, rel, role, optional, modelTiers) {
+  const fm = readFrontmatter(join2(domainDir, rel));
+  const id = basename(rel, ".md");
+  const tier = asModelTier(frontmatterString(fm, "tier"));
+  return {
+    id,
+    name: frontmatterString(fm, "name") || id,
+    path: rel,
+    role,
+    tier,
+    model: tier ? modelTiers[tier] : undefined,
+    abilities: frontmatterStringArray(fm, "abilities") ?? [],
+    optional,
+    gate: optional ? frontmatterString(fm, "enabledBy") : undefined,
+    delegation: parseDelegationMap(readText(join2(domainDir, rel)) ?? "")
+  };
+}
+function buildAgentSystem(manifest, domainDir, modelTiers) {
+  const hierarchies = [];
+  if (manifest.studioModes) {
+    for (const mode of STUDIO_MODES) {
+      const roster = manifest.studioModes[mode];
+      if (!roster)
+        continue;
+      hierarchies.push({
+        mode,
+        agents: (roster.agents ?? []).map((rel) => blueprintAgent(domainDir, rel, "agent", false, modelTiers)),
+        subagents: [
+          ...(roster.subagents ?? []).map((rel) => blueprintAgent(domainDir, rel, "subagent", false, modelTiers)),
+          ...optionalPaths(roster.optional).map((rel) => blueprintAgent(domainDir, rel, "subagent", true, modelTiers))
+        ]
+      });
+    }
+  } else {
+    hierarchies.push({
+      mode: "lean",
+      agents: (manifest.agents ?? []).map((rel) => blueprintAgent(domainDir, rel, "agent", false, modelTiers)),
+      subagents: (manifest.subagents ?? []).map((rel) => blueprintAgent(domainDir, rel, "subagent", false, modelTiers))
+    });
+  }
+  return {
+    domain: manifest.domain ?? "",
+    subdomain: manifest.subdomain ?? manifest.name ?? "",
+    displayName: manifest.displayName ?? manifest.name ?? "",
+    version: manifest.version ?? "",
+    modelTiers,
+    hierarchies
+  };
 }
 function entry(domainDir, relPath, id, consumes, layer, modelTiers) {
   const fm = readFrontmatter(join2(domainDir, relPath));
@@ -698,7 +794,7 @@ function readKindManifest(domainDir, context, kind) {
     const manifestPath = join2(full, kind, "manifest.json");
     const manifest = readJson(manifestPath);
     if (manifest)
-      return { baseDir: toPosix(join2(rel, kind)), manifest };
+      return { baseDir: toPosix2(join2(rel, kind)), manifest };
   }
   return null;
 }
@@ -718,12 +814,12 @@ function absentStudioConfig() {
     valid: true
   };
 }
-function buildStudioConfig(domainDir, opencodeDir) {
+function buildStudioConfig(domainDir, opencodeDir, studioConfigPath) {
   const opencodePath = opencodeDir ? join2(opencodeDir, "unity-studio.json") : null;
   const domainPath = join2(domainDir, "unity-studio.json");
   const catalogPath = findPatternCatalog({ domainDir, opencodeDir });
-  let resolved = resolveStudioConfigProject({ configPath: opencodePath ?? domainPath, catalogPath });
-  if (opencodePath && !resolved.present) {
+  let resolved = studioConfigPath ? resolveStudioConfigProject({ configPath: resolve(studioConfigPath), catalogPath }) : resolveStudioConfigProject({ configPath: opencodePath ?? domainPath, catalogPath });
+  if (!resolved.present && resolved.configPath !== domainPath) {
     resolved = resolveStudioConfigProject({ configPath: domainPath, catalogPath });
   }
   if (!resolved.present)
@@ -766,11 +862,11 @@ function recipeLinks(data) {
   }
   return { abilities: [...abilities], agents: [...agents] };
 }
-function buildRegistry(domainDir, generatedAt, opencodeDir) {
+function buildRegistry(domainDir, generatedAt, opencodeDir, studioConfigPath) {
   const manifest = readJson(join2(domainDir, "sb-domain.json")) ?? {};
   const projections = readJson(join2(domainDir, "context-projections.json")) ?? {};
   const consumers = projections.consumers ?? {};
-  const studioConfig = buildStudioConfig(domainDir, opencodeDir);
+  const studioConfig = buildStudioConfig(domainDir, opencodeDir, studioConfigPath);
   const mapEntries = (paths, layer, modelTiers) => (paths ?? []).map((rel) => entry(domainDir, rel, basename(rel, ".md"), consumedOutputs(rel, basename(rel, ".md"), consumers), layer, modelTiers));
   const gates = {
     tdd: studioConfig.toggles.tdd === true,
@@ -791,7 +887,7 @@ function buildRegistry(domainDir, generatedAt, opencodeDir) {
     })();
     return { id: ability, name: ability, path: rel, realisedAs: exists ? rel : undefined, layer: "ability" };
   });
-  const kindDirs = (manifest.context ?? []).filter((rel) => isDir(join2(domainDir, rel))).flatMap((rel) => [toPosix(join2(rel, "snippets")), toPosix(join2(rel, "templates"))]);
+  const kindDirs = (manifest.context ?? []).filter((rel) => isDir(join2(domainDir, rel))).flatMap((rel) => [toPosix2(join2(rel, "snippets")), toPosix2(join2(rel, "templates"))]);
   const isKindFile = (rel) => kindDirs.some((dir) => rel === dir || rel.startsWith(`${dir}/`));
   const contextFiles = (manifest.context ?? []).flatMap((rel) => {
     const full = join2(domainDir, rel);
@@ -802,8 +898,8 @@ function buildRegistry(domainDir, generatedAt, opencodeDir) {
   const snippetsManifest = readKindManifest(domainDir, manifest.context, "snippets");
   const templatesManifest = readKindManifest(domainDir, manifest.context, "templates");
   const defaultContextDir = (manifest.context ?? []).find((rel) => isDir(join2(domainDir, rel))) ?? `context/${manifest.subdomain ?? manifest.name ?? ""}`;
-  const snippetsBaseDir = snippetsManifest?.baseDir ?? toPosix(join2(defaultContextDir, "snippets"));
-  const templatesBaseDir = templatesManifest?.baseDir ?? toPosix(join2(defaultContextDir, "templates"));
+  const snippetsBaseDir = snippetsManifest?.baseDir ?? toPosix2(join2(defaultContextDir, "snippets"));
+  const templatesBaseDir = templatesManifest?.baseDir ?? toPosix2(join2(defaultContextDir, "templates"));
   const snippets = (snippetsManifest?.manifest.snippets ?? []).map((snippet) => ({
     id: snippet.id,
     name: snippet.id,
@@ -914,6 +1010,7 @@ function buildRegistry(domainDir, generatedAt, opencodeDir) {
     edges,
     warnings,
     studioConfig,
+    agentSystem: buildAgentSystem(manifest, domainDir, studioConfig.modelTiers),
     projections: { outputDir: projections.outputDir ?? null, outputs }
   };
 }
@@ -1057,6 +1154,141 @@ function renderRegistry(registry) {
   return lines.join(`
 `);
 }
+function hierarchyTitle(mode) {
+  return mode === "full" ? "Full Studio Hierarchy" : `${mode.charAt(0).toUpperCase()}${mode.slice(1)} Hierarchy`;
+}
+function blueprintAgentTable(agents) {
+  const lines = [];
+  lines.push("| Id | Name | Path | Tier | Model | Abilities | Gate |");
+  lines.push("|---|---|---|---|---|---|---|");
+  for (const agent of agents) {
+    lines.push(`| ${agent.id} | ${escapeCell2(agent.name)} | \`${agent.path}\` | ${agent.tier ?? ""} | ${agent.model ?? ""} | ${escapeCell2(agent.abilities.join(", "))} | ${agent.optional ? escapeCell2(agent.gate ?? "gated") : ""} |`);
+  }
+  return lines;
+}
+function delegationMapLines(agents) {
+  const lines = [];
+  const withMaps = agents.filter((agent) => Object.values(agent.delegation).some((value) => value));
+  if (withMaps.length === 0)
+    return lines;
+  lines.push("### Delegation Maps");
+  lines.push("");
+  for (const agent of withMaps) {
+    const parts = [];
+    if (agent.delegation.reportsTo)
+      parts.push(`Reports to: ${agent.delegation.reportsTo}`);
+    if (agent.delegation.implementsFrom)
+      parts.push(`Implements from: ${agent.delegation.implementsFrom}`);
+    if (agent.delegation.escalationTargets)
+      parts.push(`Escalation targets: ${agent.delegation.escalationTargets}`);
+    if (agent.delegation.siblings)
+      parts.push(`Siblings: ${agent.delegation.siblings}`);
+    lines.push(`- **${agent.id}** — ${parts.join("; ")}`);
+  }
+  lines.push("");
+  return lines;
+}
+function blueprintHierarchy(lines, hierarchy) {
+  lines.push(`## ${hierarchyTitle(hierarchy.mode)}`);
+  lines.push("");
+  lines.push(`Orchestrator: ${hierarchy.agents.map((agent) => `\`${agent.id}\``).join(", ") || "(none)"}; subagents: ${hierarchy.subagents.length}.`);
+  lines.push("");
+  if (hierarchy.agents.length > 0) {
+    lines.push("### Agents");
+    lines.push("");
+    lines.push(...blueprintAgentTable(hierarchy.agents));
+    lines.push("");
+  }
+  if (hierarchy.subagents.length > 0) {
+    lines.push("### SubAgents");
+    lines.push("");
+    lines.push(...blueprintAgentTable(hierarchy.subagents));
+    lines.push("");
+  }
+  lines.push(...delegationMapLines([...hierarchy.agents, ...hierarchy.subagents]));
+}
+function renderAgentSystemBlueprint(registry) {
+  const blueprint = registry.agentSystem;
+  const lines = [];
+  lines.push(`<!-- Context: ${blueprint.subdomain}/agent-system-blueprint | Priority: high | Version: 1.0 -->`);
+  lines.push("");
+  lines.push(`# ${blueprint.displayName} Agent System Blueprint`);
+  lines.push("");
+  lines.push("> Generated from `sb-domain.json`, agent frontmatter, and the studio config. Do not edit by hand; regenerate with `build-registry.mjs`.");
+  lines.push("");
+  lines.push(`- Domain: \`${blueprint.domain}\``);
+  lines.push(`- Sub-domain: \`${blueprint.subdomain}\``);
+  lines.push(`- Version: ${blueprint.version}`);
+  lines.push("");
+  lines.push("## Model Tiers");
+  lines.push("");
+  lines.push("| Tier | Model |");
+  lines.push("|---|---|");
+  for (const tier of ["router", "lead", "specialist"]) {
+    lines.push(`| ${tier} | ${blueprint.modelTiers[tier] ?? "(unset)"} |`);
+  }
+  lines.push("");
+  for (const hierarchy of blueprint.hierarchies)
+    blueprintHierarchy(lines, hierarchy);
+  return lines.join(`
+`);
+}
+function featureMark(enabled) {
+  return enabled === true ? "yes" : "no";
+}
+function renderVersionMatrixDoc(matrix, subdomain) {
+  const versions = matrix.versions ?? [];
+  const lines = [];
+  lines.push(`<!-- Context: ${subdomain}/version-matrix | Priority: high | Version: 1.0 -->`);
+  lines.push("");
+  lines.push(`# Unity Version Matrix (${subdomain})`);
+  lines.push("");
+  lines.push("> Generated from `xdomains/context/unity/version-matrix.json`. Do not edit by hand; regenerate with `build-registry.mjs`.");
+  lines.push("");
+  if (matrix.description) {
+    lines.push(matrix.description);
+    lines.push("");
+  }
+  lines.push(`- Versions: ${versions.map((version) => `\`${version}\``).join(", ")}`);
+  if (matrix.primaryVersion)
+    lines.push(`- Primary version: \`${matrix.primaryVersion}\``);
+  if (matrix.newerDispatchKey)
+    lines.push(`- Newer dispatch key: \`${matrix.newerDispatchKey}\``);
+  lines.push("");
+  lines.push("## Dispatch keys");
+  lines.push("");
+  lines.push("| Editor line | Dispatch key |");
+  lines.push("|---|---|");
+  for (const [editorLine, key] of Object.entries(matrix.dispatch ?? {})) {
+    lines.push(`| \`${editorLine}\` | \`${key}\` |`);
+  }
+  lines.push("");
+  lines.push("## Feature flags");
+  lines.push("");
+  lines.push(`| Feature | Since | Deprecated | Removed | ${versions.map((version) => `\`${version}\``).join(" | ")} |`);
+  lines.push(`|---|---|---|---|${versions.map(() => "---").join("|")}|`);
+  for (const feature of matrix.features ?? []) {
+    const flags = versions.map((version) => featureMark(feature.versions[version]));
+    lines.push(`| ${feature.id} | ${feature.since ?? "—"} | ${feature.deprecatedSince ?? "—"} | ${feature.removedSince ?? "—"} | ${flags.join(" | ")} |`);
+  }
+  lines.push("");
+  if (matrix.overlays && Object.keys(matrix.overlays).length > 0) {
+    lines.push("## Overlays");
+    lines.push("");
+    lines.push("| Dispatch key | Overlay |");
+    lines.push("|---|---|");
+    for (const [key, overlay] of Object.entries(matrix.overlays)) {
+      lines.push(`| \`${key}\` | \`${overlay}\` |`);
+    }
+    lines.push("");
+  }
+  if (matrix.verifyNote) {
+    lines.push(`> ${matrix.verifyNote}`);
+    lines.push("");
+  }
+  return lines.join(`
+`);
+}
 
 // tools/shared/registry/src/index.ts
 function parseArgs(argv) {
@@ -1087,34 +1319,68 @@ function parseArgs(argv) {
   return out;
 }
 function write(path, body) {
-  mkdirSync2(dirname(path), { recursive: true });
+  mkdirSync2(dirname2(path), { recursive: true });
   writeFileSync2(path, body);
+}
+function findVersionMatrix(domainDir, opencodeDir) {
+  const candidates = [
+    join3(opencodeDir, "xdomains", "context", "unity", "version-matrix.json"),
+    join3(domainDir, "..", "..", "context", "unity", "version-matrix.json"),
+    join3(opencodeDir, "..", "xdomains", "context", "unity", "version-matrix.json")
+  ];
+  return { path: candidates.find((candidate) => fileExists(candidate)) ?? null, searched: candidates };
 }
 function main() {
   const args = parseArgs(process.argv.slice(2));
   const domainDirArg = args["domain-dir"];
   if (!domainDirArg) {
-    process.stderr.write(`Usage: build-registry.mjs --domain-dir <dir> [--opencode-dir <dir>] [--out-json <file>] [--out-md <file>]
+    process.stderr.write(`Usage: build-registry.mjs --domain-dir <dir> [--opencode-dir <dir>] [--studio-config <file>] [--out-json <file>] [--out-md <file>] [--docs-only]
 `);
     process.exitCode = 2;
     return;
   }
-  const domainDir = resolve(String(domainDirArg));
-  const opencodeDir = resolve(String(args["opencode-dir"] || ".opencode"));
-  const registry = buildRegistry(domainDir, nowIso(), opencodeDir);
+  const domainDir = resolve2(String(domainDirArg));
+  const opencodeDir = resolve2(String(args["opencode-dir"] || ".opencode"));
+  const studioConfigPath = args["studio-config"] ? String(args["studio-config"]) : undefined;
+  const registry = buildRegistry(domainDir, nowIso(), opencodeDir, studioConfigPath);
   const subdomain = registry.subdomain || "unity";
-  const outJson = resolve(String(args["out-json"] || join3(opencodeDir, "registry.json")));
-  const outMd = resolve(String(args["out-md"] || join3(opencodeDir, "context", subdomain, "registry.md")));
-  write(outJson, JSON.stringify(registry, null, 2) + `
+  const docsDir = join3(opencodeDir, "context", subdomain);
+  const outJson = resolve2(String(args["out-json"] || join3(opencodeDir, "registry.json")));
+  const outMd = resolve2(String(args["out-md"] || join3(docsDir, "registry.md")));
+  const outBlueprint = join3(docsDir, "agent-system-blueprint.md");
+  const outVersionMatrix = join3(docsDir, "version-matrix.md");
+  const paths = { blueprint: outBlueprint };
+  write(outBlueprint, renderAgentSystemBlueprint(registry));
+  const warnings = [];
+  const { path: matrixPath, searched } = findVersionMatrix(domainDir, opencodeDir);
+  const matrix = matrixPath ? readJson(matrixPath) : null;
+  if (matrix) {
+    write(outVersionMatrix, renderVersionMatrixDoc(matrix, subdomain));
+    paths.versionMatrix = outVersionMatrix;
+  } else {
+    const message = `version-matrix.json not found; searched: ${searched.map(toPosix).join(", ")}`;
+    warnings.push(message);
+    process.stderr.write(`warning: ${message}
 `);
-  write(outMd, renderRegistry(registry));
+  }
+  if (!args["docs-only"]) {
+    write(outJson, JSON.stringify(registry, null, 2) + `
+`);
+    write(outMd, renderRegistry(registry));
+    paths.json = outJson;
+    paths.markdown = outMd;
+  }
   process.stdout.write(JSON.stringify({
     generatedAt: registry.generatedAt,
     domain: registry.domain,
     subdomain: registry.subdomain,
     counts: registry.counts,
-    paths: { json: outJson, markdown: outMd }
+    paths,
+    warnings
   }, null, 2) + `
 `);
 }
 main();
+export {
+  findVersionMatrix
+};

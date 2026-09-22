@@ -110,7 +110,8 @@ var SENSE_ABILITY_NAMES = [
   "offline-project-inspection",
   "unity-api-lookup",
   "platform-info",
-  "code-navigation"
+  "code-navigation",
+  "version-matrix"
 ];
 var SENSE_ABILITIES = [...SENSE_ABILITY_NAMES];
 
@@ -124,6 +125,7 @@ function resolveOptions(argv) {
   const ability = resolveAbility(requested, SENSE_ABILITIES, "project-status");
   const tableDir = firstString(args, ["table-dir", "tableDir"]);
   const assetFolder = firstString(args, ["asset-folder", "assetFolder"]);
+  const commandDir = firstString(args, ["command-dir", "commandDir"]);
   return {
     projectRoot,
     opencodeDir,
@@ -132,12 +134,15 @@ function resolveOptions(argv) {
     json: Boolean(args.json),
     list: Boolean(args.list),
     tableDir: tableDir ? resolve(tableDir) : undefined,
-    assetFolder: assetFolder ? resolve(assetFolder) : undefined
+    assetFolder: assetFolder ? resolve(assetFolder) : undefined,
+    commandDir: commandDir ? resolve(commandDir) : undefined
   };
 }
 
 // tools/unity/unity-sense/src/abilities.ts
-import { join as join6 } from "node:path";
+import { readdirSync as readdirSync3 } from "node:fs";
+import { dirname as dirname5, join as join7 } from "node:path";
+import { fileURLToPath as fileURLToPath2 } from "node:url";
 
 // tools/shared/io.ts
 import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
@@ -173,13 +178,374 @@ function toPosix(path) {
   return path.split(sep).join("/");
 }
 
+// tools/shared/toolchain.ts
+import { join as join2 } from "node:path";
+function editorVersionInfo(projectRoot) {
+  const text = readText(join2(projectRoot, "ProjectSettings", "ProjectVersion.txt"));
+  if (!text)
+    return { version: null, revision: null };
+  const version = text.match(/^\s*m_EditorVersion:\s*(\S+)\s*$/m)?.[1] ?? null;
+  const revision = text.match(/^\s*m_EditorVersionWithRevision:\s*\S+\s*\(([0-9a-fA-F]+)\)/m)?.[1] ?? null;
+  return { version, revision };
+}
+
+// tools/shared/registry/src/frontmatter.ts
+function stripQuotes(value) {
+  if (value.startsWith('"') && value.endsWith('"') || value.startsWith("'") && value.endsWith("'")) {
+    return value.slice(1, -1);
+  }
+  return value;
+}
+function tryParseJson(input) {
+  try {
+    return JSON.parse(input);
+  } catch {
+    return;
+  }
+}
+function normalizeQuotes(input) {
+  let out = "";
+  let inDouble = false;
+  for (let i = 0;i < input.length; i++) {
+    const ch = input[i];
+    if (ch === '"') {
+      inDouble = !inDouble;
+      out += ch;
+      continue;
+    }
+    if (ch === "'" && !inDouble) {
+      let j = i + 1;
+      let inner = "";
+      while (j < input.length && input[j] !== "'") {
+        inner += input[j];
+        j++;
+      }
+      out += '"' + inner.replace(/"/g, "\\\"") + '"';
+      i = j;
+      continue;
+    }
+    out += ch;
+  }
+  return out;
+}
+var JSON_LITERALS = new Set(["true", "false", "null"]);
+function quoteBareWords(input) {
+  return input.replace(/([{,]\s*)([A-Za-z_][A-Za-z0-9_-]*)(\s*:)/g, '$1"$2"$3').replace(/(:\s*)([A-Za-z_][A-Za-z0-9_-]*)(?=\s*[,}\]])/g, (match, prefix, word) => JSON_LITERALS.has(word) ? match : `${prefix}"${word}"`);
+}
+function splitTopLevel(input, delimiter) {
+  const parts = [];
+  let depth = 0;
+  let current = "";
+  let inSingle = false;
+  let inDouble = false;
+  for (let i = 0;i < input.length; i++) {
+    const ch = input[i];
+    if (inSingle) {
+      current += ch;
+      if (ch === "'")
+        inSingle = false;
+      continue;
+    }
+    if (inDouble) {
+      current += ch;
+      if (ch === '"')
+        inDouble = false;
+      continue;
+    }
+    if (ch === "'") {
+      inSingle = true;
+      current += ch;
+      continue;
+    }
+    if (ch === '"') {
+      inDouble = true;
+      current += ch;
+      continue;
+    }
+    if (ch === "[" || ch === "{" || ch === "(")
+      depth++;
+    if (ch === "]" || ch === "}" || ch === ")")
+      depth--;
+    if (ch === delimiter && depth === 0) {
+      parts.push(current);
+      current = "";
+      continue;
+    }
+    current += ch;
+  }
+  if (current.trim() !== "")
+    parts.push(current);
+  return parts;
+}
+function parseFlowArray(raw) {
+  const inner = raw.slice(1, -1).trim();
+  if (inner === "")
+    return [];
+  const json = tryParseJson(normalizeQuotes(raw));
+  if (Array.isArray(json))
+    return json;
+  return splitTopLevel(inner, ",").map((item) => parseInlineValue(item.trim()));
+}
+function parseFlowObject(raw) {
+  const normalized = normalizeQuotes(raw);
+  const direct = tryParseJson(normalized);
+  if (direct !== undefined && direct !== null && typeof direct === "object" && !Array.isArray(direct)) {
+    return direct;
+  }
+  const lenient = tryParseJson(quoteBareWords(normalized));
+  if (lenient !== undefined && lenient !== null && typeof lenient === "object" && !Array.isArray(lenient)) {
+    return lenient;
+  }
+  return raw;
+}
+function parseInlineValue(rest) {
+  const trimmed = rest.trim();
+  if (trimmed.startsWith("["))
+    return parseFlowArray(trimmed);
+  if (trimmed.startsWith("{"))
+    return parseFlowObject(trimmed);
+  const scalar = tryParseJson(trimmed);
+  if (scalar !== undefined && (typeof scalar !== "object" || scalar === null)) {
+    return scalar;
+  }
+  return stripQuotes(trimmed);
+}
+function readBlock(lines, start) {
+  const collected = [];
+  let i = start;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (line.trim() === "") {
+      let j = i + 1;
+      while (j < lines.length && lines[j].trim() === "")
+        j++;
+      if (j < lines.length && /^\s/.test(lines[j])) {
+        i++;
+        continue;
+      }
+      break;
+    }
+    if (!/^\s/.test(line))
+      break;
+    collected.push(line);
+    i++;
+  }
+  const trimmed = collected.map((line) => line.trim()).filter((line) => line !== "" && !line.startsWith("#"));
+  if (trimmed.length > 0 && trimmed.every((line) => line.startsWith("-"))) {
+    return { value: trimmed.map((line) => parseInlineValue(line.replace(/^-\s*/, ""))), nextIndex: i };
+  }
+  if (trimmed.length > 0 && trimmed.every((line) => /^[A-Za-z0-9_-]+:\s/.test(line) && !line.startsWith("-"))) {
+    const obj = {};
+    for (const line of trimmed) {
+      const m = /^([A-Za-z0-9_-]+):\s*(.*)$/.exec(line);
+      if (!m)
+        continue;
+      obj[m[1]] = m[2] === "" ? "" : parseInlineValue(m[2]);
+    }
+    return { value: obj, nextIndex: i };
+  }
+  return { value: trimmed, nextIndex: i };
+}
+function parseFrontmatter(content) {
+  const match = /^---\r?\n([\s\S]*?)\r?\n---/.exec(content);
+  if (!match)
+    return {};
+  const fm = {};
+  const lines = match[1].split(/\r?\n/);
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (line.trim() === "") {
+      i++;
+      continue;
+    }
+    const m = /^([A-Za-z0-9_-]+):\s*(.*)$/.exec(line);
+    if (!m) {
+      i++;
+      continue;
+    }
+    const key = m[1];
+    const rest = m[2];
+    if (rest !== "") {
+      fm[key] = parseInlineValue(rest);
+      i++;
+      continue;
+    }
+    const block = readBlock(lines, i + 1);
+    fm[key] = block.value;
+    i = block.nextIndex;
+  }
+  return fm;
+}
+
+// tools/shared/unity-version.ts
+var UNITY_DISPATCH_KEYS = ["6.0", "6.3", "6.5", "LTS+"];
+var FALLBACK_NEWER_DISPATCH_KEY = "LTS+";
+var VERSION_PATTERN = /^(\d+)\.(\d+)\.(\d+)([A-Za-z]\d*)?$/;
+function knownKeys(matrix) {
+  return matrix?.versions ?? UNITY_DISPATCH_KEYS;
+}
+function isKnownKey(key, matrix) {
+  return knownKeys(matrix).includes(key);
+}
+function dispatchLines(matrix) {
+  const lines = [];
+  for (const [editorLine, key] of Object.entries(matrix?.dispatch ?? {})) {
+    const [majorRaw, minorRaw] = editorLine.split(".");
+    const major = Number(majorRaw);
+    const minor = Number(minorRaw);
+    if (!Number.isInteger(major) || !Number.isInteger(minor) || !key)
+      continue;
+    lines.push({ major, minor, key });
+  }
+  lines.sort((a, b) => a.major - b.major || a.minor - b.minor);
+  return lines;
+}
+function dispatchKeyFor(major, minor, matrix) {
+  if (major === null || minor === null)
+    return null;
+  const lines = dispatchLines(matrix);
+  if (lines.length === 0)
+    return null;
+  const exact = lines.find((line) => line.major === major && line.minor === minor);
+  if (exact)
+    return isKnownKey(exact.key, matrix) ? exact.key : null;
+  const highest = lines[lines.length - 1];
+  if (major > highest.major || major === highest.major && minor > highest.minor) {
+    const newer = matrix?.newerDispatchKey ?? FALLBACK_NEWER_DISPATCH_KEY;
+    return isKnownKey(newer, matrix) ? newer : null;
+  }
+  let floor = null;
+  for (const line of lines) {
+    if (line.major < major || line.major === major && line.minor < minor)
+      floor = line;
+  }
+  return floor && isKnownKey(floor.key, matrix) ? floor.key : null;
+}
+function parseUnityVersion(raw, matrix) {
+  const trimmed = typeof raw === "string" ? raw.trim() : "";
+  if (trimmed === "") {
+    return {
+      raw: null,
+      valid: false,
+      major: null,
+      minor: null,
+      patch: null,
+      stream: null,
+      dispatchKey: null,
+      reason: "no Unity editor version detected"
+    };
+  }
+  const match = VERSION_PATTERN.exec(trimmed);
+  if (!match) {
+    return {
+      raw: trimmed,
+      valid: false,
+      major: null,
+      minor: null,
+      patch: null,
+      stream: null,
+      dispatchKey: null,
+      reason: `malformed Unity editor version "${trimmed}"`
+    };
+  }
+  const major = Number(match[1]);
+  const minor = Number(match[2]);
+  const patch = Number(match[3]);
+  const stream = match[4] ?? null;
+  const dispatchKey = dispatchKeyFor(major, minor, matrix);
+  return {
+    raw: trimmed,
+    valid: true,
+    major,
+    minor,
+    patch,
+    stream,
+    dispatchKey,
+    reason: dispatchKey ? `dispatch key ${dispatchKey}` : `no dispatch key for Unity ${major}.${minor}; older than the supported 6.0 overlays`
+  };
+}
+function featureFlagsFor(matrix, dispatchKey) {
+  if (!matrix || !dispatchKey)
+    return [];
+  if (!(matrix.versions ?? []).includes(dispatchKey))
+    return [];
+  return matrix.features.map((feature) => ({
+    id: feature.id,
+    label: feature.label,
+    enabled: feature.versions[dispatchKey] === true,
+    summary: feature.summary ?? null,
+    define: feature.define ?? null
+  }));
+}
+function declaredVersions(declared) {
+  if (declared === null || declared === undefined)
+    return [];
+  const list = Array.isArray(declared) ? declared : declared.unity;
+  if (!Array.isArray(list))
+    return [];
+  return list.filter((value) => typeof value === "string");
+}
+function resolveDetectedKey(detected, matrix) {
+  if (!detected)
+    return { key: null, reason: "no detected Unity editor version" };
+  if (knownKeys(matrix).includes(detected))
+    return { key: detected, reason: null };
+  const parsed = parseUnityVersion(detected, matrix);
+  if (!parsed.valid)
+    return { key: null, reason: parsed.reason };
+  return { key: parsed.dispatchKey, reason: parsed.dispatchKey ? null : parsed.reason };
+}
+function checkVersionCompatibility(declared, detected, matrix) {
+  const versions = declaredVersions(declared);
+  const { key, reason } = resolveDetectedKey(detected, matrix);
+  if (versions.length === 0) {
+    return {
+      status: "unknown",
+      reason: "capability declares no versionCompatibility",
+      declaredVersions: versions,
+      detectedKey: key
+    };
+  }
+  if (!key) {
+    return {
+      status: "unknown",
+      reason: reason ?? "no detected Unity editor version",
+      declaredVersions: versions,
+      detectedKey: null
+    };
+  }
+  if (versions.includes(key)) {
+    return {
+      status: "compatible",
+      reason: `declared compatibility includes ${key}`,
+      declaredVersions: versions,
+      detectedKey: key
+    };
+  }
+  if (key === (matrix?.newerDispatchKey ?? FALLBACK_NEWER_DISPATCH_KEY)) {
+    return {
+      status: "unknown",
+      reason: `detected ${key} is newer than the declared range (${versions.join(", ")}); forward-compatibility unverified`,
+      declaredVersions: versions,
+      detectedKey: key
+    };
+  }
+  return {
+    status: "incompatible",
+    reason: `declared ${versions.join(", ")} does not include the detected dispatch key ${key}`,
+    declaredVersions: versions,
+    detectedKey: key
+  };
+}
+
 // tools/unity/unity-sense/src/code-navigation.ts
 import { readdirSync as readdirSync2 } from "node:fs";
-import { dirname as dirname3, isAbsolute as isAbsolute2, join as join4, relative as relative2 } from "node:path";
+import { dirname as dirname3, isAbsolute as isAbsolute2, join as join5, relative as relative2 } from "node:path";
 
 // tools/unity/gather-unity-context/src/offline.ts
 import { readdirSync, statSync as statSync2 } from "node:fs";
-import { basename, dirname as dirname2, isAbsolute, join as join2, relative } from "node:path";
+import { basename, dirname as dirname2, isAbsolute, join as join3, relative } from "node:path";
 
 // tools/shared/tool-routing.ts
 function liveAvailable(channel) {
@@ -239,7 +605,7 @@ function walkFiles(root, match, maxDepth = 16) {
       return;
     }
     for (const entry of entries) {
-      const full = join2(dir, entry.name);
+      const full = join3(dir, entry.name);
       if (entry.isDirectory()) {
         if (WALK_EXCLUDES.has(entry.name.toLowerCase()))
           continue;
@@ -373,7 +739,7 @@ function stringArray2(obj, key) {
 }
 
 // tools/unity/unity-sense/src/shared.ts
-import { join as join3 } from "node:path";
+import { join as join4 } from "node:path";
 
 // tools/shared/result-envelope.ts
 function makeEnvelope(input) {
@@ -392,7 +758,7 @@ function makeEnvelope(input) {
 
 // tools/unity/unity-sense/src/shared.ts
 function projectDataDir(options) {
-  return join3(options.opencodeDir, "project-data");
+  return join4(options.opencodeDir, "project-data");
 }
 function makeResult(ability, status, summary, errors) {
   return makeEnvelope({ ability, family: "sense", mode: "offline", status, summary, errors });
@@ -426,7 +792,7 @@ function walkFiles2(root, match, maxDepth = 16) {
       return;
     }
     for (const entry of entries) {
-      const full = join4(dir, entry.name);
+      const full = join5(dir, entry.name);
       if (entry.isDirectory()) {
         if (WALK_EXCLUDES2.has(entry.name.toLowerCase()))
           continue;
@@ -455,18 +821,18 @@ var DECL_PATTERNS = [
 function resolveAssetFolder(options) {
   if (options.assetFolder)
     return { assetFolder: options.assetFolder, source: "option" };
-  const scan = asRecord(readJson(join4(projectDataDir(options), "scan-result.json")));
+  const scan = asRecord(readJson(join5(projectDataDir(options), "scan-result.json")));
   const folder = str(scan, "assetFolder");
   if (folder) {
-    return { assetFolder: isAbsolute2(folder) ? folder : join4(options.projectRoot, folder), source: "scan-result.json" };
+    return { assetFolder: isAbsolute2(folder) ? folder : join5(options.projectRoot, folder), source: "scan-result.json" };
   }
-  return { assetFolder: join4(options.projectRoot, "Assets"), source: "default" };
+  return { assetFolder: join5(options.projectRoot, "Assets"), source: "default" };
 }
 function codeNavigation(options) {
   const { assetFolder, source: assetFolderSource } = resolveAssetFolder(options);
   const asmdefMap = produceAsmdefMap({ projectRoot: options.projectRoot, assetFolder, opencodeDir: options.opencodeDir });
   const dirs = asmdefMap.assemblies.map((assembly) => {
-    const full = isAbsolute2(assembly.path) ? assembly.path : join4(options.projectRoot, assembly.path);
+    const full = isAbsolute2(assembly.path) ? assembly.path : join5(options.projectRoot, assembly.path);
     return { name: assembly.name, dir: toPosix(dirname3(full)) };
   });
   const ownerAssembly = (file) => {
@@ -538,7 +904,7 @@ function codeNavigation(options) {
 }
 
 // tools/unity/unity-sense/src/tables.ts
-import { dirname as dirname4, join as join5 } from "node:path";
+import { dirname as dirname4, join as join6 } from "node:path";
 import { fileURLToPath } from "node:url";
 function moduleDir() {
   return dirname4(fileURLToPath(import.meta.url));
@@ -546,8 +912,8 @@ function moduleDir() {
 function contextTableCandidates(file) {
   const here = moduleDir();
   return [
-    join5(here, "..", "..", "context", "unity", file),
-    join5(here, "..", "..", "..", "..", "xdomains", "context", "unity", file)
+    join6(here, "..", "..", "context", "unity", file),
+    join6(here, "..", "..", "..", "..", "xdomains", "context", "unity", file)
   ];
 }
 function loadContextTable(file, overridePath) {
@@ -565,10 +931,13 @@ function loadApiQuickref(overridePath) {
 function loadPlatformDefines(overridePath) {
   return loadContextTable("platform-defines.json", overridePath);
 }
+function loadVersionMatrix(overridePath) {
+  return loadContextTable("version-matrix.json", overridePath);
+}
 
 // tools/unity/unity-sense/src/abilities.ts
 function readData(dataDir, file) {
-  return asRecord(readJson(join6(dataDir, file)));
+  return asRecord(readJson(join7(dataDir, file)));
 }
 function present(entries) {
   return Object.fromEntries(Object.entries(entries).map(([key, value]) => [key, value !== null]));
@@ -788,6 +1157,107 @@ function platformInfo(options) {
     result.errors.push("platform-defines.json not found");
   return result;
 }
+function detectedEditorVersion(options) {
+  const fromProject = editorVersionInfo(options.projectRoot).version;
+  if (fromProject)
+    return fromProject;
+  const dataDir = projectDataDir(options);
+  const project = readData(dataDir, "unity-project.json");
+  const settings = readData(dataDir, "project-settings.json");
+  const scan = readData(dataDir, "scan-result.json");
+  return str(project, "unityVersion") ?? str(settings, "editorVersion") ?? str(scan, "unityVer");
+}
+function defaultCommandDir(options) {
+  if (options.commandDir)
+    return options.commandDir;
+  const here = dirname5(fileURLToPath2(import.meta.url));
+  const candidates = [
+    join7(options.opencodeDir, "command"),
+    join7(options.projectRoot, "xdomains", "game-dev", "unity-3d", "command"),
+    join7(here, "..", "..", "game-dev", "unity-3d", "command"),
+    join7(here, "..", "..", "..", "..", "xdomains", "game-dev", "unity-3d", "command")
+  ];
+  return candidates.find((candidate) => dirExists(candidate)) ?? null;
+}
+function declaredCapabilities(commandDir, detectedKey, matrix) {
+  if (!commandDir)
+    return { capabilities: [], checked: false };
+  let entries;
+  try {
+    entries = readdirSync3(commandDir);
+  } catch {
+    return { capabilities: [], checked: false };
+  }
+  const out = [];
+  for (const entry of entries.sort()) {
+    if (!entry.endsWith(".md"))
+      continue;
+    const text = readText(join7(commandDir, entry));
+    if (text === null)
+      continue;
+    const fm = parseFrontmatter(text);
+    if (fm.versionCompatibility === undefined || fm.versionCompatibility === null)
+      continue;
+    const id = typeof fm.id === "string" ? fm.id : entry.replace(/\.md$/, "");
+    const check = checkVersionCompatibility(fm.versionCompatibility, detectedKey, matrix);
+    out.push({ id, status: check.status, declaredVersions: check.declaredVersions, reason: check.reason });
+  }
+  return { capabilities: out, checked: true };
+}
+function versionMatrix(options) {
+  const load = loadVersionMatrix(options.tableDir);
+  const matrix = load.data;
+  const detectedRaw = detectedEditorVersion(options);
+  const parsed = parseUnityVersion(detectedRaw, matrix);
+  const features = featureFlagsFor(matrix, parsed.dispatchKey);
+  const commandDir = defaultCommandDir(options);
+  const { capabilities, checked } = declaredCapabilities(commandDir, parsed.dispatchKey, matrix);
+  const compatible = capabilities.filter((capability) => capability.status === "compatible").map((capability) => capability.id);
+  const incompatible = capabilities.filter((capability) => capability.status === "incompatible").map((capability) => capability.id);
+  const unknown = capabilities.filter((capability) => capability.status === "unknown").map((capability) => capability.id);
+  const notCheckedReason = checked ? null : commandDir ? `command directory could not be read: ${commandDir}; capability compatibility not checked` : "no command directory found; capability compatibility not checked";
+  const status = !matrix ? "unavailable" : !parsed.dispatchKey ? "unknown" : incompatible.length > 0 ? "warning" : notCheckedReason ? "available_but_unverified" : "observed_locally";
+  const result = {
+    ...makeResult("version-matrix", status, "Detected editor version, dispatch key, feature flags and capability compatibility", []),
+    detected: {
+      raw: parsed.raw,
+      valid: parsed.valid,
+      major: parsed.major,
+      minor: parsed.minor,
+      patch: parsed.patch,
+      stream: parsed.stream,
+      dispatchKey: parsed.dispatchKey,
+      reason: parsed.reason
+    },
+    matrix: {
+      source: load.source,
+      path: load.path,
+      versions: matrix?.versions ?? [],
+      primaryVersion: matrix?.primaryVersion ?? null,
+      featureCount: features.length,
+      features
+    },
+    compatibility: {
+      checked: capabilities.length,
+      commandDir,
+      notCheckedReason,
+      compatible,
+      incompatible,
+      unknown,
+      capabilities
+    },
+    sources: present({ matrix, commandDir, detectedVersion: parsed.raw })
+  };
+  if (load.source === "missing")
+    result.errors.push("version-matrix.json not found");
+  if (matrix) {
+    const compatibilityNote = notCheckedReason ? ` · compatibility not checked (${notCheckedReason})` : ` · ${incompatible.length} incompatible capability/ies`;
+    result.summary = `Unity ${parsed.raw ?? "unknown"} -> ${parsed.dispatchKey ?? "unmapped"} · ${features.length} feature flag(s)${compatibilityNote}`;
+  } else {
+    result.summary = "version-matrix.json not found";
+  }
+  return result;
+}
 function runSense(options) {
   switch (options.ability) {
     case "project-status":
@@ -802,6 +1272,8 @@ function runSense(options) {
       return platformInfo(options);
     case "code-navigation":
       return codeNavigation(options);
+    case "version-matrix":
+      return versionMatrix(options);
     default: {
       const exhaustive = options.ability;
       throw new Error(`unsupported Sense ability: ${String(exhaustive)}`);
