@@ -11,6 +11,10 @@
 import type { CommandResult } from '../../../shared/toolchain';
 import type { LiveEditorChannel, LiveTransport, Route } from '../../../shared/tool-routing';
 
+// `unity-change-loop` is deliberately the same string in three namespaces: this
+// Run ability, the recipe `xdomains/game-dev/unity-3d/recipes/unity-change-loop.json`,
+// and the lifecycle-catalog `change-loop` step command. Registry `workflow-*`
+// edges name the *recipe* id as `from`.
 const RUN_ABILITY_NAMES = [
   'unity-change-loop',
   'runtime-debugging',

@@ -149,6 +149,7 @@
         {
           "id": "change-loop",
           "name": "Change Loop",
+          "//": "`unity-change-loop` names the Run ability (tools/unity/unity-run/src/types.ts) and the recipe (xdomains/game-dev/unity-3d/recipes/unity-change-loop.json); this step's `command` is the ability.",
           "command": "unity-change-loop",
           "required": true,
           "description": "Run resolve -> inspect -> change -> compile -> logs -> tests -> observe and cite the evidence.",

@@ -1,4 +1,5 @@
 {
+  "//": "The id `unity-change-loop` is shared on purpose by the Run ability (tools/unity/unity-run/src/types.ts), this recipe, and the lifecycle-catalog `change-loop` step command (xdomains/context/workflow-catalog.json).",
   "schemaVersion": 1,
   "id": "unity-change-loop",
   "name": "Unity Change Loop",

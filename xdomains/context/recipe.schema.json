@@ -118,12 +118,12 @@
         },
         "pattern": {
           "type": "string",
-          "description": "Machine-evaluable regex that must appear in each counted matched file (requires `glob`)."
+          "description": "Machine-evaluable regex; a glob-matched file counts toward `minCount` only when its contents contain it (requires `glob`)."
         },
         "minCount": {
           "type": "integer",
           "minimum": 1,
-          "description": "Machine-evaluable minimum number of matched files (default 1; requires `glob`)."
+          "description": "Machine-evaluable minimum number of files satisfying the check: glob matches when `pattern` is absent, otherwise pattern-containing matches (default 1; requires `glob`)."
         },
         "note": {
           "type": "string",
