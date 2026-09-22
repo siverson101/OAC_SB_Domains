@@ -1,4 +1,4 @@
-// unity-sense — CLI entry for the six offline Sense abilities (Phase 2 Step 2.3).
+// unity-sense — CLI entry for the seven offline Sense abilities (Phase 2 Step 2.3).
 //
 // Usage:
 //   unity-sense --project-root . --opencode-dir .opencode --ability project-status [--json]

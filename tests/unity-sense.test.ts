@@ -328,7 +328,7 @@ describe('code-navigation', () => {
 describe('Sense command contracts', () => {
   const schema = JSON.parse(readFileSync(schemaPath, 'utf8'));
 
-  test('declares exactly the six abilities', () => {
+  test('declares exactly the seven abilities', () => {
     expect(SENSE_ABILITIES).toEqual([
       'project-status',
       'asset-intelligence',
@@ -336,6 +336,7 @@ describe('Sense command contracts', () => {
       'unity-api-lookup',
       'platform-info',
       'code-navigation',
+      'version-matrix',
     ]);
   });
 
@@ -353,7 +354,7 @@ describe('Sense command contracts', () => {
 });
 
 describe('unity-sense bundle', () => {
-  test('lists the six abilities', () => {
+  test('lists the seven abilities', () => {
     const res = spawnSync(process.execPath, [bundle, '--list'], { encoding: 'utf8' });
     expect(res.status).toBe(0);
     expect(res.stdout.trim().split(/\r?\n/)).toEqual(SENSE_ABILITIES);

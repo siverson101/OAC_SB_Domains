@@ -1,0 +1,141 @@
+{
+  "schemaVersion": 1,
+  "description": "Machine-readable per-version feature matrix for the Unity 6.x line. Single source of truth for the version-gated seams consumed by tools/shared/unity-version.ts and the version-matrix Sense ability.",
+  "updated": "2026-09-21",
+  "verifyNote": "Verify every version-gated flag against the Unity manual, the relevant upgrade guide, the package docs, and the project's Packages/manifest.json for the exact editor version. This matrix records OAC guidance, not a substitute for the primary docs.",
+  "versions": ["6.0", "6.3", "6.5", "LTS+"],
+  "primaryVersion": "6.3",
+  "newerDispatchKey": "LTS+",
+  "dispatch": {
+    "6000.0": "6.0",
+    "6000.3": "6.3",
+    "6000.5": "6.5"
+  },
+  "overlays": {
+    "6.0": "versions/unity-6.0.md",
+    "6.3": "versions/unity-6.3.md",
+    "6.5": "versions/unity-6.5.md",
+    "LTS+": "versions/unity-lts.md"
+  },
+  "features": [
+    {
+      "id": "urp-default-pipeline",
+      "label": "URP is the default render pipeline",
+      "summary": "Universal Render Pipeline is the default render pipeline in Unity 6.",
+      "define": "UNITY_6000_0_OR_NEWER",
+      "since": "6.0",
+      "deprecatedSince": null,
+      "removedSince": null,
+      "versions": { "6.0": true, "6.3": true, "6.5": true, "LTS+": true }
+    },
+    {
+      "id": "built-in-render-pipeline",
+      "label": "Built-in Render Pipeline available",
+      "summary": "Built-in is still supported in 6.0/6.3 but is deprecated in 6.5; new work should target URP or HDRP.",
+      "since": "6.0",
+      "deprecatedSince": "6.5",
+      "removedSince": null,
+      "versions": { "6.0": true, "6.3": true, "6.5": false, "LTS+": false }
+    },
+    {
+      "id": "hdrp-maintenance-mode",
+      "label": "HDRP in maintenance mode",
+      "summary": "High Definition Render Pipeline receives maintenance fixes only; prefer URP unless HDRP-only features are needed.",
+      "since": "6.3",
+      "deprecatedSince": null,
+      "removedSince": null,
+      "versions": { "6.0": false, "6.3": true, "6.5": true, "LTS+": true }
+    },
+    {
+      "id": "builtin-shader-cgprogram-deprecated",
+      "label": "Built-in CGPROGRAM shaders deprecated",
+      "summary": "New Built-in shaders must not use CGPROGRAM; use HLSLPROGRAM with URP/HDRP includes.",
+      "since": "6.5",
+      "deprecatedSince": "6.5",
+      "removedSince": null,
+      "versions": { "6.0": false, "6.3": false, "6.5": true, "LTS+": true }
+    },
+    {
+      "id": "awaitable-async-primitive",
+      "label": "Awaitable built-in async primitive",
+      "summary": "Awaitable is available as an allocation-light async primitive; preferred for new single-await code.",
+      "define": "UNITY_6000_0_OR_NEWER",
+      "since": "6.0",
+      "deprecatedSince": null,
+      "removedSince": null,
+      "versions": { "6.0": true, "6.3": true, "6.5": true, "LTS+": true }
+    },
+    {
+      "id": "ecs-dots-core-package",
+      "label": "Entities/DOTS is a core package",
+      "summary": "Entities 1.x ships as a core package rather than experimental.",
+      "since": "6.3",
+      "deprecatedSince": null,
+      "removedSince": null,
+      "versions": { "6.0": false, "6.3": true, "6.5": true, "LTS+": true }
+    },
+    {
+      "id": "ui-toolkit-runtime-stable",
+      "label": "UI Toolkit runtime is stable",
+      "summary": "UI Toolkit runtime APIs are stable; UGUI remains the fallback.",
+      "since": "6.0",
+      "deprecatedSince": null,
+      "removedSince": null,
+      "versions": { "6.0": true, "6.3": true, "6.5": true, "LTS+": true }
+    },
+    {
+      "id": "ui-toolkit-default-runtime-ui",
+      "label": "UI Toolkit default for new runtime UI",
+      "summary": "UI Toolkit is the default for new runtime UI; UGUI is supported for existing canvases.",
+      "since": "6.3",
+      "deprecatedSince": null,
+      "removedSince": null,
+      "versions": { "6.0": false, "6.3": true, "6.5": true, "LTS+": true }
+    },
+    {
+      "id": "find-object-of-type-obsolete",
+      "label": "FindObjectOfType family obsolete",
+      "summary": "FindObjectOfType/FindObjectsOfType are obsolete; use FindFirstObjectByType/FindObjectsByType.",
+      "since": "6.0",
+      "deprecatedSince": "6.0",
+      "removedSince": null,
+      "versions": { "6.0": true, "6.3": true, "6.5": true, "LTS+": true }
+    },
+    {
+      "id": "lighting-auto-generate",
+      "label": "Lighting Auto Generate setting",
+      "summary": "The Lighting window 'Auto Generate' setting was removed in Unity 6; lighting is generated on demand.",
+      "since": null,
+      "deprecatedSince": null,
+      "removedSince": "6.0",
+      "versions": { "6.0": false, "6.3": false, "6.5": false, "LTS+": false }
+    },
+    {
+      "id": "rigidbody-set-density",
+      "label": "Rigidbody.SetDensity/GetDensity",
+      "summary": "Rigidbody density setters are deprecated in the 6.1 cycle; set mass directly or use a collider-based approach.",
+      "since": "6.0",
+      "deprecatedSince": "6.1",
+      "removedSince": null,
+      "versions": { "6.0": true, "6.3": true, "6.5": true, "LTS+": true }
+    },
+    {
+      "id": "cluster-light-loop-keyword",
+      "label": "_CLUSTER_LIGHT_LOOP shader keyword",
+      "summary": "The _CLUSTER_LIGHT_LOOP shader keyword is deprecated in the 6.1 cycle.",
+      "since": "6.0",
+      "deprecatedSince": "6.1",
+      "removedSince": null,
+      "versions": { "6.0": true, "6.3": true, "6.5": true, "LTS+": true }
+    },
+    {
+      "id": "dx12-default-graphics-api",
+      "label": "DirectX 12 default graphics API",
+      "summary": "DirectX 12 became the default graphics API on Windows in the 6.1 cycle.",
+      "since": "6.3",
+      "deprecatedSince": null,
+      "removedSince": null,
+      "versions": { "6.0": false, "6.3": true, "6.5": true, "LTS+": true }
+    }
+  ]
+}

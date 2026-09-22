@@ -12,6 +12,7 @@ const SENSE_ABILITY_NAMES = [
   'unity-api-lookup',
   'platform-info',
   'code-navigation',
+  'version-matrix',
 ] as const;
 
 export type SenseAbility = (typeof SENSE_ABILITY_NAMES)[number];
@@ -41,6 +42,7 @@ export interface SenseOptions {
   list: boolean;
   tableDir?: string;
   assetFolder?: string;
+  commandDir?: string;
 }
 
 export type Json = Record<string, unknown>;
