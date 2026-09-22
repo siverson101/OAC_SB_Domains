@@ -299,6 +299,58 @@ describe('registry edge hygiene', () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  test('drops and warns on unknown recipe ability/agent link targets', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'oac-registry-recipe-edges-'));
+    try {
+      mkdirSync(join(dir, 'recipes'), { recursive: true });
+      writeFileSync(
+        join(dir, 'sb-domain.json'),
+        JSON.stringify({
+          name: 'test-domain',
+          domain: 'test',
+          subdomain: 'test',
+          abilities: ['unity-read-project'],
+          recipes: ['recipes/r1.json'],
+        })
+      );
+      writeFileSync(
+        join(dir, 'recipes', 'r1.json'),
+        JSON.stringify({
+          schemaVersion: 1,
+          id: 'r1',
+          name: 'R1',
+          description: 'x',
+          version: '1.0.0',
+          phases: [
+            {
+              id: 'p',
+              type: 'serial',
+              description: 'p',
+              steps: [
+                {
+                  id: 's',
+                  kind: 'ability',
+                  description: 's',
+                  abilities: ['unity-read-project', 'ghost-ability'],
+                  agents: ['ghost-agent'],
+                },
+              ],
+            },
+          ],
+        })
+      );
+
+      const registry = buildRegistry(dir, '2026-09-19T00:00:00.000Z');
+      expect(registry.edges.filter((edge) => edge.from === 'r1')).toEqual([
+        { type: 'workflow-ability', from: 'r1', to: 'unity-read-project' },
+      ]);
+      expect(registry.warnings).toContain('edge workflow-ability r1 -> ghost-ability: unknown ability');
+      expect(registry.warnings).toContain('edge workflow-agent r1 -> ghost-agent: unknown agent');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('command usedBy is for capability consumers', () => {

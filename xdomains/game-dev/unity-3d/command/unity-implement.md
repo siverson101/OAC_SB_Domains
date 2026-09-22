@@ -20,6 +20,11 @@ Implement a feature end-to-end. Routes to the Unity 3D Orchestrator to run the *
 the lifecycle catalog (ADR-0016) and the **feature-delivery** workflow. This command supersedes the
 former feature-delivery command.
 
+`unity-change-loop` is a **Run** ability (family `run`, read-only), not a Compose ability. This
+command *composes* it and therefore declares a stricter `safetyGate` than the ability itself: the
+command mutates assets and needs the Editor, while the ability only folds on-disk evidence. A command
+may declare a stricter gate than the abilities it composes; it must never declare a weaker one.
+
 ## Usage
 
 ```

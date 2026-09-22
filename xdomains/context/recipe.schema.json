@@ -110,7 +110,7 @@
     "artifact": {
       "type": "object",
       "additionalProperties": false,
-      "description": "Completion check. Machine-evaluable when `glob` is present: at least `minCount` (default 1) matched files, and if `pattern` is given each counted file must contain the regex. `note` is the human fallback used only when completion cannot be auto-detected.",
+      "description": "Completion check. Machine-evaluable when `glob` is present: `minCount` (default 1) files must satisfy the check — the glob matches when `pattern` is absent, and matched files whose contents contain the regex when `pattern` is given (so `minCount` counts pattern-satisfying files, not all glob matches). `note` is the human fallback used only when completion cannot be auto-detected; it is mutually exclusive with `glob`.",
       "properties": {
         "glob": {
           "type": "string",
@@ -127,10 +127,10 @@
         },
         "note": {
           "type": "string",
-          "description": "Human fallback when completion cannot be auto-detected (used when `glob` is absent)."
+          "description": "Human fallback when completion cannot be auto-detected (used only when `glob` is absent)."
         }
       },
-      "anyOf": [{ "required": ["glob"] }, { "required": ["note"] }]
+      "oneOf": [{ "required": ["glob"] }, { "required": ["note"] }]
     }
   }
 }

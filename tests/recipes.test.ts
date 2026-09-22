@@ -52,7 +52,7 @@ function validRecipe(): Recipe {
             description: 'Edit the file.',
             agents: ['unity-3d-implementer'],
             gates: ['compile-clean'],
-            artifact: { glob: 'Assets/**/*.cs', minCount: 1, note: 'review the diff' },
+            artifact: { glob: 'Assets/**/*.cs', minCount: 1 },
           },
         ],
       },
@@ -133,6 +133,17 @@ describe('validateRecipe', () => {
     expect(joined).toContain('artifact.pattern/minCount require artifact.glob');
   });
 
+  test('rejects an artifact that combines glob and note', () => {
+    const recipe = validRecipe();
+    (recipe.phases[1].steps[0] as unknown as { artifact: unknown }).artifact = {
+      glob: 'Assets/**/*.cs',
+      note: 'review the diff',
+    };
+    const result = validateRecipe(recipe);
+    expect(result.ok).toBe(false);
+    expect(result.errors.join('\n')).toContain('must not combine "glob" (machine-evaluable) with "note" (fallback)');
+  });
+
   test('rejects a non-object recipe', () => {
     expect(validateRecipe(null).ok).toBe(false);
     expect(validateRecipe('nope').errors[0]).toBe('recipe must be a JSON object');
@@ -168,7 +179,7 @@ describe('recipe schema agrees with the TS contract', () => {
     required: string[];
     $defs: {
       step: { additionalProperties: boolean; properties: { kind: { enum: string[] } } & Record<string, unknown> };
-      artifact: { additionalProperties: boolean; properties: Record<string, unknown> };
+      artifact: { additionalProperties: boolean; properties: Record<string, unknown>; oneOf?: unknown[]; anyOf?: unknown[] };
     };
     properties: {
       id: { pattern: string };
@@ -208,6 +219,11 @@ describe('recipe schema agrees with the TS contract', () => {
     expect(schema.$defs.step.additionalProperties).toBe(false);
     expect(schema.$defs.artifact.additionalProperties).toBe(false);
   });
+
+  test('the artifact requires glob XOR note (oneOf), matching the validator', () => {
+    expect(schema.$defs.artifact.oneOf).toBeDefined();
+    expect(schema.$defs.artifact.anyOf).toBeUndefined();
+  });
 });
 
 describe('evaluateArtifactCheck', () => {
@@ -233,6 +249,13 @@ describe('evaluateArtifactCheck', () => {
     expect(evaluateArtifactCheck(check, context({}, ['a', 'b', 'c']))).toBe('met');
   });
 
+  test('pattern + minCount counts only content-matching files', () => {
+    const files = { 'a.md': 'Engine: Unity', 'b.md': 'Engine: Unity', 'c.md': 'Engine: Unreal' };
+    const matches = ['a.md', 'b.md', 'c.md'];
+    expect(evaluateArtifactCheck({ glob: '*.md', pattern: 'Engine: Unity', minCount: 3 }, context(files, matches))).toBe('unmet');
+    expect(evaluateArtifactCheck({ glob: '*.md', pattern: 'Engine: Unity', minCount: 2 }, context(files, matches))).toBe('met');
+  });
+
   test('pattern is checked against file contents', () => {
     const check = { glob: 'technical-preferences.md', pattern: 'Engine: [^[]' };
     expect(evaluateArtifactCheck(check, context({ 'technical-preferences.md': 'Engine: Unity 6' }, ['technical-preferences.md']))).toBe('met');
@@ -247,6 +270,21 @@ describe('evaluateArtifactCheck', () => {
       expect(evaluateArtifactCheck({ glob: 'design/*.md', pattern: 'Engine: Unity' }, { projectRoot: root })).toBe('met');
       expect(evaluateArtifactCheck({ glob: 'design/*.md', pattern: 'Engine: Unreal' }, { projectRoot: root })).toBe('unmet');
       expect(evaluateArtifactCheck({ glob: 'missing/*.md' }, { projectRoot: root })).toBe('unmet');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('a "[" in a pattern is a literal, not a character class', () => {
+    const root = mkdtempSync(join(tmpdir(), 'oac-recipe-bracket-'));
+    try {
+      mkdirSync(join(root, 'foo[bar]'), { recursive: true });
+      writeFileSync(join(root, 'foo[bar]', 'x.md'), 'hi');
+      mkdirSync(join(root, 'foob'), { recursive: true });
+      writeFileSync(join(root, 'foob', 'x.md'), 'hi');
+      expect(evaluateArtifactCheck({ glob: 'foo[bar]/x.md' }, { projectRoot: root })).toBe('met');
+      // `[bar]` is not a character class, so it never matches the single `b` in `foob`.
+      expect(evaluateArtifactCheck({ glob: 'foo[bar]/x.md', minCount: 2 }, { projectRoot: root })).toBe('unmet');
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

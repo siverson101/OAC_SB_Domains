@@ -143,6 +143,12 @@ export function validateArtifact(value: unknown, label: string, errors: string[]
   if (artifact.glob === undefined && artifact.note === undefined) {
     errors.push(`${label} artifact must declare "glob" (machine-evaluable) or "note" (fallback)`);
   }
+  // `note` is the human fallback for a step that cannot be auto-detected; it is
+  // meaningless next to a machine check, and `evaluateArtifactCheck` would
+  // silently ignore it. Reject the combination rather than ship a decorative key.
+  if (artifact.glob !== undefined && artifact.note !== undefined) {
+    errors.push(`${label} artifact must not combine "glob" (machine-evaluable) with "note" (fallback)`);
+  }
   if (artifact.glob !== undefined && (typeof artifact.glob !== 'string' || artifact.glob.trim() === '')) {
     errors.push(`${label} artifact.glob must be a non-empty string`);
   }
@@ -288,7 +294,9 @@ function globToRegExp(pattern: string): RegExp {
 // The literal directory a glob can match under, so evaluation only walks the
 // subtree it could ever match (e.g. `.opencode/project-data/*.json` -> that dir).
 function literalBase(pattern: string): string {
-  const firstWildcard = pattern.search(/[*?[\]]/);
+  // `globToRegExp` has no `[...]` character-class support (it escapes the
+  // brackets as literals), so `[`/`]` must not be treated as wildcards here.
+  const firstWildcard = pattern.search(/[*?]/);
   const prefix = firstWildcard === -1 ? pattern : pattern.slice(0, firstWildcard);
   const slash = prefix.lastIndexOf('/');
   return slash === -1 ? '' : prefix.slice(0, slash);
@@ -334,6 +342,12 @@ export function makeProjectGlob(projectRoot: string): RecipeGlob {
   };
 }
 
+// Evaluate a step's artifact check. `minCount` (default 1) is the number of
+// files that must satisfy the check: when `pattern` is absent, the number of
+// glob matches; when `pattern` is present, the number of matched files whose
+// contents contain the regex. So with three matched files, two of which contain
+// the pattern, `minCount: 2` is `met` and `minCount: 3` is `unmet` — `minCount`
+// counts pattern-satisfying files, not all glob matches.
 export function evaluateArtifactCheck(check: RecipeArtifact, context: ArtifactCheckContext): ArtifactCheckOutcome {
   if (!check || typeof check.glob !== 'string' || check.glob.trim() === '') return 'undetectable';
 

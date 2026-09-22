@@ -67,7 +67,9 @@ export interface RunSafetyGate {
 // declares `true`; the other runtime abilities never require approval. The
 // runtime envelope reports the gate of the *invoked* operation, which is
 // therefore always within (a subset of) this declaration — pinned by
-// tests/unity-run.test.ts.
+// tests/unity-run.test.ts. `unity-change-loop` is a Run ability too; a command
+// that composes it (e.g. `unity-implement`) may declare a *stricter* gate, but
+// never a weaker one — also pinned by tests/unity-run.test.ts.
 export interface DeclaredRunSafetyGate {
   requiresEditor: boolean;
   requiresApproval: boolean;

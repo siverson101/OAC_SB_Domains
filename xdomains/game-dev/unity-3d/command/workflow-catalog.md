@@ -34,6 +34,10 @@ node .opencode/xdomains/scripts/unity/unity-compose.mjs \
 - `--recipes-dir <dir>` — where the recipe JSON files live; defaults to
   `xdomains/game-dev/unity-3d/recipes`.
 
+Both defaults resolve the installed layout first (`<opencode-dir>/xdomains/...`)
+and fall back to the source layout (`<project-root>/xdomains/...`). A caller
+with any other layout must pass `--catalog` and `--recipes-dir` explicitly.
+
 ## Behaviour
 
 - Validates the catalog (required fields, unique ids, a known `nextPhase` chain)

@@ -25,7 +25,7 @@ import {
   type RuntimeChannel,
 } from '../tools/unity/unity-run/src/types';
 import type { TestCounts } from '../tools/unity/gather-unity-context/src/gate';
-import { parseFrontmatter } from '../tools/shared/registry/src/frontmatter';
+import { frontmatterStringArray, parseFrontmatter } from '../tools/shared/registry/src/frontmatter';
 import { validateContract } from '../tools/shared/registry/src/contract';
 import { SAFETY_GATE_KEYS } from '../tools/shared/safety-gate';
 
@@ -356,6 +356,32 @@ describe('runtime safetyGate matches the declared contract', () => {
         if (result.safetyGate.requiresApproval) expect(declared.requiresApproval, `${ability}/${operation} requiresApproval`).toBe(true);
       }
     }
+  });
+});
+
+describe('Run ability ownership and composed command gates', () => {
+  test('unity-change-loop is a Run ability, not a Compose command', () => {
+    const fm = parseFrontmatter(readFileSync(join(commandDir, 'unity-change-loop.md'), 'utf8'));
+    expect(fm.family).toBe('run');
+    expect(RUN_ABILITIES).toContain('unity-change-loop');
+  });
+
+  test('a command may declare a stricter gate than the abilities it composes', () => {
+    const fm = parseFrontmatter(readFileSync(join(commandDir, 'unity-implement.md'), 'utf8'));
+    expect(frontmatterStringArray(fm, 'uses') ?? []).toContain('unity-change-loop');
+    const commandGate = fm.safetyGate as Record<string, unknown>;
+    const abilityGate = RUN_SAFETY_GATES['unity-change-loop'];
+    // Superset rule: every flag the composed ability requires, the composing
+    // command must also require. The reverse is allowed — a command may be
+    // stricter than the abilities it composes, never weaker.
+    for (const key of ['requiresEditor', 'requiresApproval'] as const) {
+      if (abilityGate[key]) expect(commandGate[key], `unity-implement.${key}`).toBe(true);
+    }
+    // The deliberate mismatch: the read-only ability needs neither, while the
+    // implementing command edits assets and drives the Editor.
+    expect(abilityGate).toEqual({ requiresEditor: false, requiresApproval: false });
+    expect(commandGate.requiresEditor).toBe(true);
+    expect(commandGate.requiresApproval).toBe(true);
   });
 });
 
