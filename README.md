@@ -68,6 +68,12 @@ xdomains/
 - Language / LUA Dev, Python AI Dev
 - Data Analytics, Hobby Robot Dev, Side Hustle Art Design
 
+## Contributing
+
+Agent notes and the check chain live in [`AGENTS.md`](AGENTS.md); the review standards live in
+[`CODING_STANDARDS.md`](CODING_STANDARDS.md). CI (`.github/workflows/ci.yml`) runs the same checks on
+every push and PR.
+
 ## Authoring a sub-domain
 
 1. Create `xdomains/<domain>/<sub-domain>/`.
