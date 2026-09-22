@@ -1,0 +1,232 @@
+{
+  "schemaVersion": 1,
+  "id": "unity-lifecycle",
+  "name": "Unity Lifecycle Catalog",
+  "description": "The seven lifecycle phases (Concept -> Systems Design -> Technical Setup -> Pre-Production -> Production -> Polish -> Release). Each step names the command that realises it and, where progression is machine-checkable, an artifact check (glob + required pattern). Steps whose completion cannot be auto-detected carry a human `note` fallback; optional steps are marked `required: false`.",
+  "phases": [
+    {
+      "id": "concept",
+      "label": "Concept",
+      "description": "Develop the game idea into a documented concept and establish the project baseline.",
+      "nextPhase": "systems-design",
+      "steps": [
+        {
+          "id": "project-scan",
+          "name": "Project Baseline",
+          "command": "gather-unity-context",
+          "required": true,
+          "description": "Scan the Unity project and record its structure so later phases read evidence, not guesses.",
+          "artifact": { "glob": ".opencode/project-data/project-structure.json" }
+        },
+        {
+          "id": "architecture-baseline",
+          "name": "Architecture Baseline",
+          "command": "unity-architecture",
+          "required": true,
+          "description": "Author the architecture baseline from the scanned structure and package set.",
+          "artifact": { "glob": ".opencode/project-data/project-structure.json", "pattern": "counts" }
+        },
+        {
+          "id": "concept-plan",
+          "name": "Concept Plan",
+          "command": "plan-feature",
+          "required": false,
+          "description": "Optional: capture the concept as a feature plan before systems design.",
+          "artifact": { "glob": ".opencode/plans/*.md" }
+        }
+      ]
+    },
+    {
+      "id": "systems-design",
+      "label": "Systems Design",
+      "description": "Decompose the concept into systems and choose the composition patterns.",
+      "nextPhase": "technical-setup",
+      "steps": [
+        {
+          "id": "systems-map",
+          "name": "Systems Map",
+          "command": "primitive-composition",
+          "required": true,
+          "description": "Map the systems and primitives, and check the composition graph for cycles and unresolved references.",
+          "artifact": { "note": "Review the composition graph for cycles and unresolved primitives." }
+        },
+        {
+          "id": "contract-design",
+          "name": "Contract Design",
+          "command": "contract-aware-design",
+          "required": true,
+          "description": "Validate every capability contract so the design and the registry agree.",
+          "artifact": { "note": "Every capability contract validates with no errors." }
+        },
+        {
+          "id": "pattern-selection",
+          "name": "Pattern Selection",
+          "command": "pattern-library",
+          "required": false,
+          "description": "Optional: select the enabled programming patterns and resolve conflicts.",
+          "artifact": { "note": "Pattern conflicts are surfaced, never silently chosen." }
+        }
+      ]
+    },
+    {
+      "id": "technical-setup",
+      "label": "Technical Setup",
+      "description": "Compile clean, establish a log baseline, and index the code before production.",
+      "nextPhase": "pre-production",
+      "steps": [
+        {
+          "id": "compile-baseline",
+          "name": "Compile Baseline",
+          "command": "compile-and-verify-project",
+          "required": true,
+          "description": "Compile the project and confirm fresh assemblies, not a silent no-op.",
+          "artifact": { "glob": ".opencode/project-data/compile-state.json" }
+        },
+        {
+          "id": "log-baseline",
+          "name": "Log Baseline",
+          "command": "gather-unity-context",
+          "required": true,
+          "description": "Record the Editor log digest so new errors can be distinguished from pre-existing ones.",
+          "artifact": { "glob": ".opencode/project-data/log-digest.json" }
+        },
+        {
+          "id": "code-index",
+          "name": "Code Index",
+          "command": "code-navigation",
+          "required": false,
+          "description": "Optional: index symbols/declarations for offline navigation.",
+          "artifact": { "note": "Symbol lookup returns file:line with the Editor closed." }
+        }
+      ]
+    },
+    {
+      "id": "pre-production",
+      "label": "Pre-Production",
+      "description": "Plan the work and its tests before implementing.",
+      "nextPhase": "production",
+      "steps": [
+        {
+          "id": "feature-plan",
+          "name": "Feature Plan",
+          "command": "plan-feature",
+          "required": true,
+          "description": "Author the feature plan (context, design, test cases, testing decisions).",
+          "artifact": { "glob": ".opencode/plans/*.md" }
+        },
+        {
+          "id": "test-plan",
+          "name": "Test Plan",
+          "command": "test-plan",
+          "required": true,
+          "description": "Assemble the per-feature test plan from the capability contracts.",
+          "artifact": { "glob": ".opencode/test-plans/*.md" }
+        },
+        {
+          "id": "scene-scaffold",
+          "name": "Scene Scaffold",
+          "command": "unity-scene",
+          "required": false,
+          "description": "Optional: scaffold or restructure the scene/prefab for the feature.",
+          "artifact": { "note": "Targeted edits only; no broken GUID references." }
+        }
+      ]
+    },
+    {
+      "id": "production",
+      "label": "Production",
+      "description": "Implement features through the change loop with cited evidence.",
+      "nextPhase": "polish",
+      "steps": [
+        {
+          "id": "implement",
+          "name": "Implement Feature",
+          "command": "unity-feature",
+          "required": true,
+          "description": "Implement the scoped feature and wire it into the scene/prefab.",
+          "artifact": { "note": "Feature diff reviewed against the plan and acceptance criteria." }
+        },
+        {
+          "id": "change-loop",
+          "name": "Change Loop",
+          "command": "unity-change-loop",
+          "required": true,
+          "description": "Run resolve -> inspect -> change -> compile -> logs -> tests -> observe and cite the evidence.",
+          "artifact": { "glob": ".opencode/project-data/unity-verification-report.json" }
+        },
+        {
+          "id": "coordinate",
+          "name": "Coordinate",
+          "command": "coordination-board",
+          "required": false,
+          "description": "Optional: claim resources and the Editor hold for multi-agent work.",
+          "artifact": { "glob": ".opencode/coordination/board.json" }
+        }
+      ]
+    },
+    {
+      "id": "polish",
+      "label": "Polish",
+      "description": "Run the suite, remove redundant tests, and profile.",
+      "nextPhase": "release",
+      "steps": [
+        {
+          "id": "test-suite",
+          "name": "Test Suite",
+          "command": "unity-test",
+          "required": true,
+          "description": "Run the full EditMode/PlayMode suite and record the verification report.",
+          "artifact": { "glob": ".opencode/project-data/unity-verification-report.json" }
+        },
+        {
+          "id": "deduplicate",
+          "name": "Deduplicate Tests",
+          "command": "test-deduplication",
+          "required": false,
+          "description": "Optional: merge/remove redundant tests without trading coverage for tidiness.",
+          "artifact": { "note": "Every removal recorded; same condition + same assertion only." }
+        },
+        {
+          "id": "performance",
+          "name": "Performance Pass",
+          "command": "performance-diagnostics",
+          "required": false,
+          "description": "Optional: profile CPU/GPU/memory bottlenecks.",
+          "artifact": { "note": "Bottlenecks profiled against the performance budget." }
+        }
+      ]
+    },
+    {
+      "id": "release",
+      "label": "Release",
+      "description": "Gate, build, and record the release baseline.",
+      "nextPhase": null,
+      "steps": [
+        {
+          "id": "gate",
+          "name": "Verification Gate",
+          "command": "gate-review",
+          "required": true,
+          "description": "Run the verification gate and record the gate state.",
+          "artifact": { "glob": ".opencode/project-data/gate-state.json" }
+        },
+        {
+          "id": "build",
+          "name": "Build",
+          "command": "unity-build",
+          "required": true,
+          "description": "Build the project and record the verification report.",
+          "artifact": { "glob": ".opencode/project-data/unity-verification-report.json" }
+        },
+        {
+          "id": "ci-baseline",
+          "name": "CI Baseline",
+          "command": "ci-status-baseline",
+          "required": false,
+          "description": "Optional: record the CI status baseline for the release.",
+          "artifact": { "glob": ".opencode/project-data/ci-status-baseline.json" }
+        }
+      ]
+    }
+  ]
+}

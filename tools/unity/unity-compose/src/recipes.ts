@@ -60,7 +60,7 @@ const RECIPE_REQUIRED_FIELDS = ['schemaVersion', 'id', 'name', 'description', 'v
 const PHASE_REQUIRED_FIELDS = ['id', 'type', 'description', 'steps'] as const;
 const STEP_REQUIRED_FIELDS = ['id', 'kind', 'description'] as const;
 
-function isMissing(value: unknown): boolean {
+export function isMissing(value: unknown): boolean {
   if (value === undefined || value === null) return true;
   if (typeof value === 'string' && value.trim() === '') return true;
   if (Array.isArray(value) && value.length === 0) return true;
@@ -71,7 +71,7 @@ function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === 'string');
 }
 
-function validateArtifact(value: unknown, label: string, errors: string[]): void {
+export function validateArtifact(value: unknown, label: string, errors: string[]): void {
   if (value === undefined) return;
   const artifact = asRecord(value);
   if (!artifact) {

@@ -113,8 +113,13 @@
     "ci-status-baseline",
     "plan-feature",
     "test-plan",
-    "test-deduplication"
+    "test-deduplication",
+    "workflow-catalog"
   ],
+    "recipes": [
+      "recipes/unity-change-loop.json",
+      "recipes/unity-prefab-scene.json"
+    ],
     "skills": [],
     "tools": [
       "unity-cli-wrapper"

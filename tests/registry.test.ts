@@ -19,8 +19,9 @@ describe('registry build', () => {
     expect(registry.subdomain).toBe('unity-3d');
     expect(registry.counts.agents).toBe(1);
     expect(registry.counts.subagents).toBe(7);
-    expect(registry.counts.abilities).toBe(34);
+    expect(registry.counts.abilities).toBe(35);
     expect(registry.counts.workflows).toBe(3);
+    expect(registry.counts.recipes).toBe(2);
   });
 
   test('includes a gated specialist only when its gate holds', () => {
@@ -135,6 +136,23 @@ describe('registry build', () => {
     expect(md).toContain('### workflow-ability');
     expect(md).toContain('### workflow-agent');
     expect(md).toContain('`unity-3d-orchestrator` → `gather-unity-context`');
+  });
+
+  test('enumerates the declared recipes', () => {
+    expect(registry.recipes.map((entry) => entry.id)).toEqual(['unity-change-loop', 'unity-prefab-scene']);
+    expect(registry.recipes.find((entry) => entry.id === 'unity-change-loop')?.path).toBe('recipes/unity-change-loop.json');
+    const md = renderRegistry(registry);
+    expect(md).toContain('## Recipes');
+  });
+
+  test('records workflow edges from recipe step abilities/agents', () => {
+    expect(registry.edges).toContainEqual({ type: 'workflow-ability', from: 'unity-change-loop', to: 'code-navigation' });
+    expect(registry.edges).toContainEqual({ type: 'workflow-ability', from: 'unity-change-loop', to: 'unity-run-tests' });
+    expect(registry.edges).toContainEqual({ type: 'workflow-ability', from: 'unity-change-loop', to: 'runtime-ui-validation' });
+    expect(registry.edges).toContainEqual({ type: 'workflow-agent', from: 'unity-change-loop', to: 'implementer' });
+    expect(registry.edges).toContainEqual({ type: 'workflow-ability', from: 'unity-prefab-scene', to: 'prefab-automation' });
+    expect(registry.edges).toContainEqual({ type: 'workflow-ability', from: 'unity-prefab-scene', to: 'scene-editing' });
+    expect(registry.edges).toContainEqual({ type: 'workflow-agent', from: 'unity-prefab-scene', to: 'scene' });
   });
 });
 

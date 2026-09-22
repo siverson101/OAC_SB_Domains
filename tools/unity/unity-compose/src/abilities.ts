@@ -5,6 +5,7 @@ import { runCoordinationBoard, type CoordinationBoardResult } from './coordinati
 import { runPlanFeature, type PlanFeatureResult } from './plan-feature';
 import { runPrimitiveComposition, type PrimitiveCompositionResult } from './primitive-composition';
 import { runTestPlan, type TestPlanResult } from './test-plan';
+import { runWorkflowCatalog, type WorkflowCatalogResult } from './workflow-catalog';
 import type { ComposeOptions } from './types';
 
 export type ComposeResult =
@@ -13,7 +14,8 @@ export type ComposeResult =
   | ContractAwareResult
   | CiStatusBaselineResult
   | PlanFeatureResult
-  | TestPlanResult;
+  | TestPlanResult
+  | WorkflowCatalogResult;
 
 // async because the coordination board queues on --wait-seconds.
 export async function runCompose(options: ComposeOptions): Promise<ComposeResult> {
@@ -30,6 +32,8 @@ export async function runCompose(options: ComposeOptions): Promise<ComposeResult
       return runPlanFeature(options);
     case 'test-plan':
       return runTestPlan(options);
+    case 'workflow-catalog':
+      return runWorkflowCatalog(options);
     default: {
       const exhaustive: never = options.ability;
       throw new Error(`unsupported Compose ability: ${String(exhaustive)}`);

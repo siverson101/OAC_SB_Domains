@@ -73,6 +73,7 @@ export interface Registry {
   abilities: RegistryEntry[];
   context: RegistryEntry[];
   workflows: RegistryEntry[];
+  recipes: RegistryEntry[];
   snippets: RegistryEntry[];
   templates: RegistryEntry[];
   tools: RegistryEntry[];
@@ -101,6 +102,7 @@ interface Manifest {
   commands?: string[];
   context?: string[];
   abilities?: string[];
+  recipes?: string[];
   tools?: string[];
   scripts?: string[];
 }
@@ -322,6 +324,33 @@ function buildStudioConfig(domainDir: string, opencodeDir?: string): RegistryStu
   };
 }
 
+function stringList(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+}
+
+function asObject(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+}
+
+// Recipe step `abilities`/`agents` arrays are the source of the workflow↔ability
+// and workflow↔agent edges (ADR-0016), the JSON analogue of the workflow
+// frontmatter allowlists.
+function recipeLinks(data: unknown): { abilities: string[]; agents: string[] } {
+  const abilities = new Set<string>();
+  const agents = new Set<string>();
+  const phases = asObject(data)?.phases;
+  for (const phaseRaw of Array.isArray(phases) ? phases : []) {
+    const steps = asObject(phaseRaw)?.steps;
+    for (const stepRaw of Array.isArray(steps) ? steps : []) {
+      const step = asObject(stepRaw);
+      if (!step) continue;
+      for (const ability of stringList(step.abilities)) abilities.add(ability);
+      for (const agent of stringList(step.agents)) agents.add(agent);
+    }
+  }
+  return { abilities: [...abilities], agents: [...agents] };
+}
+
 export function buildRegistry(domainDir: string, generatedAt: string, opencodeDir?: string): Registry {
   const manifest = readJson<Manifest>(join(domainDir, 'sb-domain.json')) ?? {};
   const projections = readJson<Projections>(join(domainDir, 'context-projections.json')) ?? {};
@@ -418,6 +447,17 @@ export function buildRegistry(domainDir: string, generatedAt: string, opencodeDi
   const knownAgents = new Set(allStudioAgents(manifest).map((rel) => basename(rel, '.md')));
 
   const warnings: string[] = [];
+  const recipeEntries: RegistryEntry[] = (manifest.recipes ?? []).map((rel) => {
+    const data = readJson<Record<string, unknown>>(join(domainDir, rel));
+    if (data === null) warnings.push(`declared recipe not found: ${rel}`);
+    const id = data && typeof data.id === 'string' ? data.id : basename(rel, '.json');
+    return {
+      id,
+      name: data && typeof data.name === 'string' ? data.name : id,
+      path: rel,
+      description: data && typeof data.description === 'string' ? data.description : undefined,
+    };
+  });
   const edges: RegistryEdge[] = [];
   const seenEdges = new Set<string>();
   const addEdges = (type: RegistryEdgeType, from: string, tos: string[]): void => {
@@ -448,6 +488,12 @@ export function buildRegistry(domainDir: string, generatedAt: string, opencodeDi
     addEdges('workflow-agent', workflow.id, frontmatterStringArray(fm, 'agents') ?? []);
   }
 
+  for (const recipe of recipeEntries) {
+    const links = recipeLinks(readJson(join(domainDir, recipe.path)));
+    addEdges('workflow-ability', recipe.id, links.abilities);
+    addEdges('workflow-agent', recipe.id, links.agents);
+  }
+
   // Deterministic order (type, from, to) so reordering `sb-domain.json` or a
   // frontmatter list does not churn the rendered registry.md.
   edges.sort((a, b) => {
@@ -464,6 +510,7 @@ export function buildRegistry(domainDir: string, generatedAt: string, opencodeDi
     abilities: abilities.length,
     context: context.length,
     workflows: workflows.length,
+    recipes: recipeEntries.length,
     snippets: snippets.length,
     templates: templates.length,
     tools: tools.length,
@@ -487,6 +534,7 @@ export function buildRegistry(domainDir: string, generatedAt: string, opencodeDi
     abilities,
     context,
     workflows,
+    recipes: recipeEntries,
     snippets,
     templates,
     tools,
