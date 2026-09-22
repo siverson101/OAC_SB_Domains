@@ -8,6 +8,7 @@
 //   - the runtime abilities (debugging, UI validation, profiling, UI Toolkit)
 //     speak to the live Editor through the Unity CLI channel and fail soft to
 //     `unavailable` when no channel/Editor is present.
+import type { CommandResult } from '../../../shared/toolchain';
 import type { LiveEditorChannel, LiveTransport, Route } from '../../../shared/tool-routing';
 
 const RUN_ABILITY_NAMES = [
@@ -72,8 +73,8 @@ export interface RunBase {
   safetyGate: RunSafetyGate;
 }
 
-// A single live invocation against the running Editor/Player. The concrete
-// `cli`/`mcp` transports land later; this is the seam they implement.
+// A single live invocation against the running Editor/Player. The `cli`
+// transport implements this seam; the stdio-MCP transport may land later.
 export interface RuntimeRequest {
   operation: string;
   args: string[];
@@ -92,6 +93,14 @@ export interface RuntimeChannel extends LiveEditorChannel {
   invoke?: (request: RuntimeRequest) => RuntimeResponse | Promise<RuntimeResponse>;
 }
 
+// The CLI transport shells out to the Unity CLI; the runner is injected so the
+// transport is unit-testable without a live Editor or Player.
+export type CliRunner = (
+  command: string,
+  args: string[],
+  options?: { cwd?: string; timeout?: number }
+) => CommandResult;
+
 export interface RunOptions {
   projectRoot: string;
   opencodeDir: string;
@@ -105,6 +114,7 @@ export interface RunOptions {
   approveCodeExecution: boolean;
   live?: RuntimeChannel | null;
   cliCommand: string;
+  cliRunner?: CliRunner;
 }
 
 export interface ApprovalDecision {
