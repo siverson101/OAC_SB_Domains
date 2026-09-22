@@ -160,7 +160,7 @@
     "subagents/unity/shadervfx": ["packages.md"],
     "subagents/unity/artasset": ["packages.md", "files.md", "structure.md"],
     "subagents/unity/qa": ["testing.md", "project-state.md", "preferences.md", "gate.md", "commands.md", "log-digest.md", "test-inventory.md", "deprecation-scan.md"],
-    "command/unity-feature": ["project-state.md"],
+    "command/unity-implement": ["project-state.md"],
     "command/unity-test": ["testing.md", "commands.md", "test-inventory.md", "log-digest.md"],
     "command/unity-build": ["testing.md", "native.md", "gate.md", "commands.md", "compile-state.md", "project-settings.md"],
     "command/unity-architecture": ["project-state.md", "packages.md", "structure.md", "asmdef-map.md", "deprecation-scan.md"]

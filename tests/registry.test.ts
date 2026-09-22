@@ -1,15 +1,32 @@
 import { describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import { buildRegistry } from '../tools/shared/registry/src/build';
+import { validateContract } from '../tools/shared/registry/src/contract';
 import { frontmatterStringArray, parseFrontmatter } from '../tools/shared/registry/src/frontmatter';
 import { renderRegistry } from '../tools/shared/registry/src/render';
 
 const repoRoot = resolve(import.meta.dir, '..');
 const unity3dDir = join(repoRoot, 'xdomains', 'game-dev', 'unity-3d');
 const bundle = join(repoRoot, 'xdomains', 'scripts', 'shared', 'build-registry.mjs');
+const schemaPath = join(repoRoot, 'xdomains', 'context', 'capability-contract.schema.json');
+
+const LIFECYCLE_COMMANDS = [
+  'unity-setup',
+  'unity-brainstorm',
+  'unity-plan',
+  'unity-implement',
+  'unity-debug',
+  'unity-polish',
+  'unity-review',
+  'unity-runtime-target',
+  'unity-prefab-sweep',
+  'unity-performance',
+];
+
+const RUNTIME_LOOP_COMMANDS = ['unity-runtime-target', 'unity-prefab-sweep', 'unity-performance'];
 
 describe('registry build', () => {
   const registry = buildRegistry(unity3dDir, '2026-09-19T00:00:00.000Z');
@@ -153,6 +170,75 @@ describe('registry build', () => {
     expect(registry.edges).toContainEqual({ type: 'workflow-ability', from: 'unity-prefab-scene', to: 'prefab-automation' });
     expect(registry.edges).toContainEqual({ type: 'workflow-ability', from: 'unity-prefab-scene', to: 'scene-editing' });
     expect(registry.edges).toContainEqual({ type: 'workflow-agent', from: 'unity-prefab-scene', to: 'scene' });
+  });
+});
+
+describe('lifecycle command contracts', () => {
+  const schema = JSON.parse(readFileSync(schemaPath, 'utf8'));
+
+  test('declares the ten lifecycle and runtime-loop commands', () => {
+    const manifest = JSON.parse(readFileSync(join(unity3dDir, 'sb-domain.json'), 'utf8')) as { commands?: string[] };
+    for (const id of LIFECYCLE_COMMANDS) {
+      expect(manifest.commands, id).toContain(`command/${id}.md`);
+    }
+  });
+
+  for (const id of LIFECYCLE_COMMANDS) {
+    test(`${id} has a valid capability contract`, () => {
+      const path = join(unity3dDir, 'command', `${id}.md`);
+      expect(existsSync(path)).toBe(true);
+      const fm = parseFrontmatter(readFileSync(path, 'utf8'));
+      expect(fm.id).toBe(id);
+      expect(typeof fm.summary).toBe('string');
+      expect(typeof fm.family).toBe('string');
+      expect(typeof fm.mode).toBe('string');
+      expect(typeof fm.inputs).toBe('object');
+      expect(typeof fm.outputs).toBe('object');
+      expect(typeof fm.safetyGate).toBe('object');
+      expect(validateContract(fm as Record<string, unknown>, schema).errors).toEqual([]);
+    });
+  }
+
+  test('the runtime loops are gated by editor/bridge availability', () => {
+    for (const id of RUNTIME_LOOP_COMMANDS) {
+      const fm = parseFrontmatter(readFileSync(join(unity3dDir, 'command', `${id}.md`), 'utf8'));
+      expect(['live', 'both'], id).toContain(fm.mode as string);
+      expect((fm.safetyGate as Record<string, unknown>).requiresEditor, id).toBe(true);
+    }
+    // The live-only loops carry mode `live`; the prefab sweep keeps an offline dry run (`both`).
+    for (const id of ['unity-runtime-target', 'unity-performance']) {
+      const fm = parseFrontmatter(readFileSync(join(unity3dDir, 'command', `${id}.md`), 'utf8'));
+      expect(fm.mode, id).toBe('live');
+    }
+  });
+});
+
+describe('lifecycle navigation', () => {
+  const navigation = readFileSync(join(unity3dDir, 'context', 'unity-3d', 'navigation.md'), 'utf8');
+
+  test('lists every lifecycle and runtime-loop command route', () => {
+    for (const id of LIFECYCLE_COMMANDS) {
+      expect(navigation, id).toContain(`/${id}`);
+    }
+  });
+
+  test('no longer routes to the removed feature command', () => {
+    expect(navigation).not.toContain('unity-feature');
+  });
+});
+
+describe('no dangling unity-feature reference', () => {
+  test('the unity-3d domain contains no unity-feature reference', () => {
+    const hits: string[] = [];
+    const walk = (dir: string): void => {
+      for (const entry of readdirSync(dir)) {
+        const full = join(dir, entry);
+        if (statSync(full).isDirectory()) walk(full);
+        else if (readFileSync(full, 'utf8').includes('unity-feature')) hits.push(full);
+      }
+    };
+    walk(unity3dDir);
+    expect(hits).toEqual([]);
   });
 });
 

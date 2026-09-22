@@ -70,7 +70,7 @@ describe('collectAssets', () => {
         const rels = assets.map((a) => a.rel);
 
         expect(rels).toContain('agent/unity-3d-orchestrator.md');
-        expect(rels).toContain('command/unity-feature.md');
+        expect(rels).toContain('command/unity-implement.md');
         expect(rels).toContain('context/unity-3d/navigation.md');
         expect(rels).toContain('context/domain/unity-common.md');
         expect(rels).toContain('unity-studio.json');
@@ -97,7 +97,7 @@ describe('collectAssets', () => {
         expect(rels).toContain('agent/full-studio/full-studio-orchestrator.md');
         expect(rels).toContain('agent/full-studio/creative-director.md');
         expect(rels.some((rel) => rel.startsWith('agent/subagents/unity/'))).toBe(false);
-        expect(rels).toContain('command/unity-feature.md');
+        expect(rels).toContain('command/unity-implement.md');
         expect(rels).toContain('context/unity-3d/navigation.md');
         expect(rels).toContain('unity-studio.json');
     });

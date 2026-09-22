@@ -46,7 +46,7 @@ node "$MERGE_N" --domain-dir "$DOMAIN_N" --opencode-dir "$OC_N" --mode extend > 
 
 [ -f "$WORK/oc/agent/unity-3d-orchestrator.md" ] || fail "orchestrator not copied"
 [ -f "$WORK/oc/agent/subagents/unity/implementer.md" ] || fail "subagent not copied"
-[ -f "$WORK/oc/command/unity-feature.md" ] || fail "command not copied"
+[ -f "$WORK/oc/command/unity-implement.md" ] || fail "command not copied"
 [ -f "$WORK/oc/context/unity-3d/navigation.md" ] || fail "context not copied"
 
 grep -q '"unity-3d-orchestrator"' "$WORK/oc/config/agent-metadata.json" || fail "agent metadata not registered"

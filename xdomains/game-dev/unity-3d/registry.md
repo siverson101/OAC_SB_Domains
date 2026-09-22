@@ -67,7 +67,13 @@ Commands
 --------
 | Item | Path | Source | Uses | Used by |
 |------|------|--------|------|---------|
-| `/unity-feature` | `command/unity-feature.md` | oac-build | navigation, feature-delivery, UnityImplementer, UnityQA, UnityScene | User |
+| `/unity-setup` | `command/unity-setup.md` | oac-build | navigation, project-layout, validation-rules, gather-unity-context | User |
+| `/unity-brainstorm` | `command/unity-brainstorm.md` | oac-build | navigation, unity-3d-core, plan-feature | User |
+| `/unity-plan` | `command/unity-plan.md` | oac-build | navigation, feature-delivery, csharp-conventions, validation-rules, plan-feature, test-plan | User |
+| `/unity-implement` | `command/unity-implement.md` | oac-build | navigation, feature-delivery, feature-pipeline, csharp-conventions, validation-rules, unity-change-loop, UnityImplementer, UnityQA, UnityScene | User |
+| `/unity-debug` | `command/unity-debug.md` | oac-build | navigation, common-unity-issues, validation-rules, runtime-debugging, unity-change-loop | User |
+| `/unity-polish` | `command/unity-polish.md` | oac-build | navigation, quality-gate, performance-budgets, validation-rules, test-deduplication, gate-review | User |
+| `/unity-review` | `command/unity-review.md` | oac-build | navigation, validation-rules, gate-review | User |
 | `/unity-scene` | `command/unity-scene.md` | oac-build | scene-prefab-safety, project-layout, UnityScene | User |
 | `/unity-test` | `command/unity-test.md` | oac-build | validation-rules, build-cli, UnityQA | User |
 | `/unity-build` | `command/unity-build.md` | oac-build | build-cli, validation-rules, UnityQA | User |
@@ -76,6 +82,9 @@ Commands
 | `/unity-vfx` | `command/unity-vfx.md` | oac-build | performance-budgets, UnityShaderVFX | User |
 | `/unity-ase` | `command/unity-ase.md` | oac-build | performance-budgets, UnityShaderVFX | User |
 | `/uitk` | `command/uitk.md` | oac-build | navigation, UnityUITK | User |
+| `/unity-runtime-target` | `command/unity-runtime-target.md` | oac-build | navigation, common-unity-issues, runtime-debugging, runtime-ui-validation | User |
+| `/unity-prefab-sweep` | `command/unity-prefab-sweep.md` | oac-build | navigation, scene-assembly, scene-prefab-safety, prefab-automation, scene-editing, UnityScene | User |
+| `/unity-performance` | `command/unity-performance.md` | oac-build | navigation, performance-budgets, quality-gate, performance-diagnostics | User |
 
 Context (knowledge)
 -------------------
@@ -100,7 +109,7 @@ Workflows
 ---------
 | Item | Path | Source | Uses | Trigger |
 |------|------|--------|------|---------|
-| Feature delivery | `context/unity-3d/workflows/feature-delivery.md` | oac-build | Implementer, QA, Scene | `/unity-feature` |
+| Feature delivery | `context/unity-3d/workflows/feature-delivery.md` | oac-build | Implementer, QA, Scene | `/unity-implement` |
 | Quality gate | `context/unity-3d/workflows/quality-gate.md` | oac-build | QA, build-cli, validation-rules | `/unity-test`, `/unity-build`, final gate |
 | Scene assembly | `context/unity-3d/workflows/scene-assembly.md` | oac-build | Scene, ArtAsset, ShaderVFX | `/unity-scene` |
 

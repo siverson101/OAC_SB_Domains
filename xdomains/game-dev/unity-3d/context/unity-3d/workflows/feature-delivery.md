@@ -9,7 +9,7 @@ agents: [implementer, qa, scene]
 # Workflow: Unity Feature Delivery
 
 **Purpose**: Implement a Unity 3D gameplay feature end-to-end: implement → test → validate.
-**Trigger**: `/unity-feature {desc}` or orchestrator routing.
+**Trigger**: `/unity-implement {desc}` or orchestrator routing.
 **Complexity**: Moderate.
 
 ## Context Dependencies

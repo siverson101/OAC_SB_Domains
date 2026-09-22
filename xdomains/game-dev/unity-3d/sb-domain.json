@@ -65,7 +65,13 @@
       }
     },
     "commands": [
-      "command/unity-feature.md",
+      "command/unity-setup.md",
+      "command/unity-brainstorm.md",
+      "command/unity-plan.md",
+      "command/unity-implement.md",
+      "command/unity-debug.md",
+      "command/unity-polish.md",
+      "command/unity-review.md",
       "command/unity-scene.md",
       "command/unity-test.md",
       "command/unity-build.md",
@@ -73,7 +79,10 @@
       "command/unity-animator.md",
       "command/unity-vfx.md",
       "command/unity-ase.md",
-      "command/uitk.md"
+      "command/uitk.md",
+      "command/unity-runtime-target.md",
+      "command/unity-prefab-sweep.md",
+      "command/unity-performance.md"
     ],
     "context": [
       "context/domain/unity-3d.md",
@@ -132,5 +141,5 @@
       "opencode_min_version": "1.0.0",
       "unity_versions": ["6.0", "6.3", "6.5", "LTS+"]
     },
-    "description": "Unity 3D sub-domain of the game-dev domain. Ships shared Unity common context plus a Unity 3D system: orchestrator, 7 specialist subagents, 9 commands, and a function-based context library (concepts, guides, lookup, examples, errors, workflows)."
+    "description": "Unity 3D sub-domain of the game-dev domain. Ships shared Unity common context plus a Unity 3D system: orchestrator, 7 specialist subagents, 18 commands (lifecycle, domain and runtime loops), and a function-based context library (concepts, guides, lookup, examples, errors, workflows)."
   }

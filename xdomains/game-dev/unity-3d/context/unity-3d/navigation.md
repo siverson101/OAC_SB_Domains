@@ -29,7 +29,7 @@ unity-3d/
 |------|------|
 | **Core Unity 3D concepts** | `concepts/unity-3d-core.md` |
 | **Project layout** | `concepts/project-layout.md` |
-| **Implement a feature** | `workflows/feature-delivery.md` + `guides/feature-pipeline.md` |
+| **Implement a feature** | `/unity-implement` → `workflows/feature-delivery.md` + `guides/feature-pipeline.md` |
 | **Scene/prefab changes** | `workflows/scene-assembly.md` + `guides/scene-prefab-safety.md` |
 | **QA & validation** | `workflows/quality-gate.md` |
 | **Build via CLI** | `guides/build-cli.md` |
@@ -37,6 +37,41 @@ unity-3d/
 | **Validation rules** | `lookup/validation-rules.md` |
 | **Performance budgets** | `lookup/performance-budgets.md` |
 | **Troubleshooting** | `errors/common-unity-issues.md` |
+
+---
+
+## Command Routes
+
+Lifecycle commands route to the Unity 3D Orchestrator and run the lifecycle catalog (ADR-0016).
+
+| Command | Purpose | Loads |
+|---------|---------|-------|
+| `/unity-setup` | Bootstrap: project scan, architecture/version/compile/log baselines | `concepts/project-layout.md`, `lookup/validation-rules.md` |
+| `/unity-brainstorm` | Turn an idea into a concept and systems map | `concepts/unity-3d-core.md`, `concepts/project-layout.md` |
+| `/unity-plan` | Plan artifact + test plan before implementing | `workflows/feature-delivery.md`, `lookup/csharp-conventions.md`, `lookup/validation-rules.md` |
+| `/unity-implement` | Implement a feature end-to-end through the change loop (supersedes the former feature command) | `workflows/feature-delivery.md`, `guides/feature-pipeline.md`, `lookup/csharp-conventions.md`, `lookup/validation-rules.md` |
+| `/unity-debug` | Diagnose and fix a runtime/compile failure | `errors/common-unity-issues.md`, `lookup/validation-rules.md` |
+| `/unity-polish` | Full test suite, deduplicate, profile, fold the gate | `workflows/quality-gate.md`, `lookup/performance-budgets.md`, `lookup/validation-rules.md` |
+| `/unity-review` | Fold verification gates and review the change | `lookup/validation-rules.md` |
+| `/unity-scene` | Create or restructure a scene/prefab safely | `workflows/scene-assembly.md`, `guides/scene-prefab-safety.md` |
+| `/unity-test` | Run EditMode/PlayMode tests | `workflows/quality-gate.md`, `lookup/validation-rules.md` |
+| `/unity-build` | Batch-mode build for a target platform | `guides/build-cli.md`, `lookup/validation-rules.md` |
+| `/unity-architecture` | Review/design architecture and budgets | `concepts/project-layout.md`, `lookup/performance-budgets.md` |
+| `/unity-animator` | Animator controllers, clips, retargeting | `concepts/unity-3d-core.md` |
+| `/unity-vfx` | Shaders / VFX Graph / materials | `lookup/performance-budgets.md` |
+| `/unity-ase` | Amplify Shader Editor node graphs | `lookup/performance-budgets.md` |
+| `/uitk` | UI Toolkit screens (UXML/USS/C#) | `concepts/project-layout.md` |
+
+## Runtime Loops
+
+Runtime loops are **gated by runtime/bridge availability** and fail soft: with no Unity CLI live
+channel they report `unavailable`, never throw.
+
+| Command | Purpose | Loads |
+|---------|---------|-------|
+| `/unity-runtime-target` | Read runtime logs, snapshot/find/click/key the live UI | `errors/common-unity-issues.md` |
+| `/unity-prefab-sweep` | Inspector → prefab patch `--dryRun` → YAML escalation | `workflows/scene-assembly.md`, `guides/scene-prefab-safety.md` |
+| `/unity-performance` | Profiler counters/snapshots against the budget | `lookup/performance-budgets.md`, `workflows/quality-gate.md` |
 
 ---
 
