@@ -92,6 +92,13 @@ var RUN_MODES = {
   "performance-diagnostics": "live",
   "uitk-interaction": "live"
 };
+var RUN_SAFETY_GATES = {
+  "unity-change-loop": { requiresEditor: false, requiresApproval: false },
+  "runtime-debugging": { requiresEditor: true, requiresApproval: true },
+  "runtime-ui-validation": { requiresEditor: true, requiresApproval: false },
+  "performance-diagnostics": { requiresEditor: true, requiresApproval: false },
+  "uitk-interaction": { requiresEditor: true, requiresApproval: false }
+};
 // tools/shared/json-helpers.ts
 function asRecord(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? value : null;
@@ -529,10 +536,10 @@ function envelopeErrors(envelope) {
   const errors = Array.isArray(envelope.errors) ? envelope.errors : [];
   return errors.map((entry) => entry && typeof entry.message === "string" ? entry.message : "unity CLI error");
 }
-function createCliChannel(cliCommand, runner = run) {
+function createCliChannel(cliCommand, runner = run, options = {}) {
   return {
     transport: "cli",
-    available: () => true,
+    available: options.available ?? (() => findExecutable(cliCommand) !== null),
     invoke: async (request) => {
       let result;
       try {
@@ -566,7 +573,7 @@ function resolveRuntimeChannel(options) {
   const instance = findLiveInstance(options.projectRoot, options.cliCommand);
   if (!instance)
     return null;
-  return createCliChannel(options.cliCommand, options.cliRunner ?? run);
+  return createCliChannel(options.cliCommand, options.cliRunner ?? run, { available: () => instance !== null });
 }
 function errorMessage(err) {
   return err instanceof Error ? err.message : String(err);
@@ -576,7 +583,7 @@ async function runRuntimeAbility(options) {
   const { spec, errors } = resolveOperation(ability, options.operation);
   const base = makeResult(ability, "unavailable", `${spec.operation} unavailable`, [], {
     route: "offline",
-    requiresEditor: true,
+    requiresEditor: RUN_SAFETY_GATES[ability].requiresEditor,
     requiresApproval: spec.codeExecution,
     approved: spec.codeExecution && options.approveCodeExecution
   });
@@ -647,13 +654,13 @@ async function runRuntimeAbility(options) {
       const reason = `${spec.operation} failed on the live ${transport ?? "runtime"} channel`;
       return {
         ...base,
-        status: "unavailable",
+        status: "failed",
         summary: reason,
         errors: [...errors, ...response.errors],
         route: "live",
         operation: spec.operation,
         transport,
-        data: null,
+        data: response.data ?? null,
         approval
       };
     }
@@ -673,7 +680,7 @@ async function runRuntimeAbility(options) {
     const reason = `live channel threw for ${spec.operation}: ${errorMessage(err)}`;
     return {
       ...base,
-      status: "unavailable",
+      status: "failed",
       summary: reason,
       errors: [...errors, reason],
       route: "live",

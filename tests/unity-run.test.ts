@@ -9,11 +9,17 @@ import {
   evaluateChangeLoop,
   type ChangeLoopEvidence,
 } from '../tools/unity/unity-run/src/change-loop';
-import { createCliChannel, resolveRuntimeChannel, runRuntimeAbility } from '../tools/unity/unity-run/src/runtime';
+import {
+  ABILITY_OPERATIONS,
+  createCliChannel,
+  resolveRuntimeChannel,
+  runRuntimeAbility,
+} from '../tools/unity/unity-run/src/runtime';
 import { runRun } from '../tools/unity/unity-run/src/abilities';
 import {
   RUN_ABILITIES,
   RUN_MODES,
+  RUN_SAFETY_GATES,
   RUNTIME_ABILITIES,
   type RunOptions,
   type RuntimeChannel,
@@ -240,12 +246,17 @@ describe('runtime CLI transport', () => {
     expect(resolveRuntimeChannel({ ...base, live: null })).toBeNull();
   });
 
+  test('available reflects CLI presence by default, not a hard-coded true', () => {
+    expect(createCliChannel('definitely-not-a-real-cli-xyz').available()).toBe(false);
+    expect(createCliChannel('definitely-not-a-real-cli-xyz', undefined, { available: () => true }).available()).toBe(true);
+  });
+
   test('selects the cli transport and parses a unity command round-trip', async () => {
     const calls: string[][] = [];
     const live = createCliChannel('unity', (command, args) => {
       calls.push([command, ...args]);
       return { ok: true, stdout: JSON.stringify({ success: true, data: { logs: [{ message: 'boom' }] } }), stderr: '', status: 0 };
-    });
+    }, { available: () => true });
     const result = await runRuntimeAbility({ ...base, live, ability: 'runtime-debugging', operation: 'get_logs' });
     expect(result.status).toBe('observed_locally');
     expect(result.transport).toBe('cli');
@@ -261,7 +272,7 @@ describe('runtime CLI transport', () => {
     const live = createCliChannel('unity', (_command, args) => {
       calls.push(args);
       return { ok: true, stdout: JSON.stringify({ success: true, data: { result: 2 } }), stderr: '', status: 0 };
-    });
+    }, { available: () => true });
     const result = await runRuntimeAbility({
       ...base,
       live,
@@ -274,32 +285,77 @@ describe('runtime CLI transport', () => {
     expect(calls[0]).not.toContain('command');
   });
 
-  test('malformed CLI output fails soft to unavailable', async () => {
-    const live = createCliChannel('unity', () => ({ ok: true, stdout: 'not json at all', stderr: '', status: 0 }));
+  test('malformed CLI output fails soft to failed (not unavailable)', async () => {
+    const live = createCliChannel('unity', () => ({ ok: true, stdout: 'not json at all', stderr: '', status: 0 }), {
+      available: () => true,
+    });
     const result = await runRuntimeAbility({ ...base, live, operation: 'get_logs' });
-    expect(result.status).toBe('unavailable');
+    expect(result.status).toBe('failed');
+    expect(result.route).toBe('live');
     expect(result.errors.join(' ')).toContain('malformed');
   });
 
-  test('a non-zero CLI exit fails soft to unavailable', async () => {
-    const live = createCliChannel('unity', () => ({
-      ok: false,
-      stdout: JSON.stringify({ success: false, errors: [{ message: 'no live player' }] }),
-      stderr: '',
-      status: 1,
-    }));
+  test('a non-zero CLI exit fails soft to failed and preserves the partial payload', async () => {
+    const live = createCliChannel(
+      'unity',
+      () => ({
+        ok: false,
+        stdout: JSON.stringify({ success: false, data: { logs: [{ message: 'partial' }] }, errors: [{ message: 'no live player' }] }),
+        stderr: '',
+        status: 1,
+      }),
+      { available: () => true }
+    );
     const result = await runRuntimeAbility({ ...base, live, operation: 'get_logs' });
-    expect(result.status).toBe('unavailable');
+    expect(result.status).toBe('failed');
     expect(result.errors.join(' ')).toContain('no live player');
+    expect(result.data).toEqual({ logs: [{ message: 'partial' }] });
   });
 
-  test('a throwing CLI runner fails soft to unavailable', async () => {
-    const live = createCliChannel('unity', () => {
-      throw new Error('spawn failed');
-    });
+  test('a throwing CLI runner fails soft to failed (not unavailable)', async () => {
+    const live = createCliChannel(
+      'unity',
+      () => {
+        throw new Error('spawn failed');
+      },
+      { available: () => true }
+    );
     const result = await runRuntimeAbility({ ...base, live, operation: 'get_logs' });
-    expect(result.status).toBe('unavailable');
+    expect(result.status).toBe('failed');
     expect(result.errors.join(' ')).toContain('spawn failed');
+  });
+});
+
+describe('runtime safetyGate matches the declared contract', () => {
+  const live: RuntimeChannel = {
+    transport: 'cli',
+    available: () => true,
+    invoke: () => ({ ok: true, data: { logs: [] }, errors: [] }),
+  };
+
+  test('RUN_SAFETY_GATES mirrors the declared frontmatter for each Run ability', () => {
+    for (const ability of RUN_ABILITIES) {
+      const fm = parseFrontmatter(readFileSync(join(commandDir, `${ability}.md`), 'utf8'));
+      const declared = fm.safetyGate as Record<string, unknown>;
+      const runtime = RUN_SAFETY_GATES[ability];
+      for (const key of ['requiresEditor', 'requiresApproval'] as const) {
+        if (typeof declared[key] === 'boolean') expect(runtime[key], `${ability}.${key}`).toBe(declared[key]);
+      }
+    }
+  });
+
+  test('every emitted runtime gate is within the declared ability gate', async () => {
+    for (const ability of RUNTIME_ABILITIES) {
+      const declared = RUN_SAFETY_GATES[ability];
+      for (const operation of ABILITY_OPERATIONS[ability]) {
+        const result = await runRuntimeAbility({ ...base, ability, operation, live });
+        for (const key of Object.keys(result.safetyGate)) {
+          expect(SAFETY_GATE_KEYS as readonly string[]).toContain(key);
+        }
+        if (result.safetyGate.requiresEditor) expect(declared.requiresEditor, `${ability}/${operation} requiresEditor`).toBe(true);
+        if (result.safetyGate.requiresApproval) expect(declared.requiresApproval, `${ability}/${operation} requiresApproval`).toBe(true);
+      }
+    }
   });
 });
 

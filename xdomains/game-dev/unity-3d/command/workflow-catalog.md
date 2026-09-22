@@ -40,11 +40,12 @@ node .opencode/xdomains/scripts/unity/unity-compose.mjs \
   and every recipe with the recipe contract validator. A malformed recipe is
   reported invalid, never a crash.
 - Evaluates each step's artifact check with the same `evaluateArtifactCheck`
-  seam the recipe contract uses. A phase is complete when none of its required
-  steps is `unmet`; a `note`-only step is `undetectable` (not machine-checkable)
-  and never blocks progression.
-- Surfaces `currentPhase`, `nextStepId` and `nextCommand` for the first required
-  step whose artifact check is `unmet`.
+  seam the recipe contract uses. A phase is complete only when every required
+  step is `met`; a required step that is `unmet` or `undetectable` (a `note`
+  fallback, which cannot prove completion) blocks the phase. A `required: false`
+  step never blocks.
+- Surfaces `currentPhase`, `nextStepId` and `nextCommand` for the first blocking
+  required step.
 
 Offline, read-only and fail-soft: a missing catalog reports `unavailable`; a
 missing recipes directory reports no recipes.

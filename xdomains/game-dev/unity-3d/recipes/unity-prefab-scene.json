@@ -13,7 +13,6 @@
         {
           "id": "inspector-read",
           "kind": "agent",
-          "role": "scene",
           "description": "Read the target structure via the inspector / SerializedProperty API.",
           "agents": ["scene"],
           "abilities": ["scene-editing"],

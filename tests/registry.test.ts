@@ -137,12 +137,14 @@ describe('registry build', () => {
     expect(registry.edges).toContainEqual({ type: 'agent-ability', from: 'qa', to: 'unity-build' });
   });
 
-  test('records workflow edges from frontmatter declarations', () => {
-    expect(registry.edges).toContainEqual({ type: 'workflow-ability', from: 'feature-delivery', to: 'gather-unity-context' });
-    expect(registry.edges).toContainEqual({ type: 'workflow-ability', from: 'feature-delivery', to: 'unity-run-tests' });
-    expect(registry.edges).toContainEqual({ type: 'workflow-agent', from: 'feature-delivery', to: 'implementer' });
-    expect(registry.edges).toContainEqual({ type: 'workflow-agent', from: 'feature-delivery', to: 'qa' });
-    expect(registry.edges).toContainEqual({ type: 'workflow-agent', from: 'feature-delivery', to: 'scene' });
+  test('does not derive workflow edges from prose-workflow frontmatter (recipes are canonical)', () => {
+    const proseWorkflows = ['feature-delivery', 'quality-gate', 'scene-assembly'];
+    const fromProse = registry.edges.filter(
+      (edge) => (edge.type === 'workflow-ability' || edge.type === 'workflow-agent') && proseWorkflows.includes(edge.from)
+    );
+    expect(fromProse).toEqual([]);
+    // The prose workflows are still shipped as context; only their edges are gone.
+    expect(registry.workflows.map((entry) => entry.id).sort()).toEqual([...proseWorkflows].sort());
   });
 
   test('counts edges and renders an Edges section', () => {
@@ -170,6 +172,31 @@ describe('registry build', () => {
     expect(registry.edges).toContainEqual({ type: 'workflow-ability', from: 'unity-prefab-scene', to: 'prefab-automation' });
     expect(registry.edges).toContainEqual({ type: 'workflow-ability', from: 'unity-prefab-scene', to: 'scene-editing' });
     expect(registry.edges).toContainEqual({ type: 'workflow-agent', from: 'unity-prefab-scene', to: 'scene' });
+  });
+});
+
+describe('ability commands are declared', () => {
+  const manifest = JSON.parse(readFileSync(join(unity3dDir, 'sb-domain.json'), 'utf8')) as {
+    commands?: string[];
+    abilities?: string[];
+  };
+
+  test('every command file is declared in commands[] or realised from a declared ability', () => {
+    const declared = new Set(manifest.commands ?? []);
+    const abilities = new Set(manifest.abilities ?? []);
+    for (const entry of readdirSync(join(unity3dDir, 'command'))) {
+      if (!entry.endsWith('.md')) continue;
+      const id = basename(entry, '.md');
+      // merge-domains installs both `commands[]` files and every declared
+      // ability's `command/<ability>.md`, so either declaration is installable.
+      // An undeclared command file would be silently orphaned.
+      expect(declared.has(`command/${entry}`) || abilities.has(id), `command/${entry}`).toBe(true);
+    }
+  });
+
+  test('the workflow-catalog ability is also a declared command', () => {
+    expect(manifest.abilities).toContain('workflow-catalog');
+    expect(manifest.commands).toContain('command/workflow-catalog.md');
   });
 });
 

@@ -15,8 +15,8 @@ import {
 import { runRuntimeAbility } from '../tools/unity/unity-run/src/runtime';
 import type { RunOptions } from '../tools/unity/unity-run/src/types';
 
-const enabled = process.env.OAC_UNITY_E2E === '1';
-const project = process.env.OAC_UNITY_PROJECT;
+const project = process.env.OAC_UNITY_PROJECT ?? '';
+const enabled = process.env.OAC_UNITY_E2E === '1' && project !== '';
 const cliCommand = process.env.OAC_UNITY_CLI ?? 'unity';
 
 function options(projectRoot: string): RunOptions {
@@ -33,14 +33,9 @@ function options(projectRoot: string): RunOptions {
 }
 
 describe('runtime CLI handshake (opt-in)', () => {
-  test(
+  test.skipIf(!enabled)(
     'reaches the live Editor through unity command and observes get_logs',
     async () => {
-      if (!enabled || !project) {
-        expect(true).toBe(true);
-        return;
-      }
-
       let started = false;
       let instance: EditorInstance | null = findLiveInstance(project, cliCommand);
       if (!instance) {

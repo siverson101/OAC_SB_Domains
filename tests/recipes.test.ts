@@ -1,8 +1,13 @@
 import { describe, expect, test } from 'bun:test';
-import { readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import {
+  RECIPE_ARTIFACT_KEYS,
+  RECIPE_ID_PATTERN,
+  RECIPE_PHASE_KEYS,
   RECIPE_PHASE_TYPES,
+  RECIPE_STEP_KEYS,
   RECIPE_STEP_KINDS,
   evaluateArtifactCheck,
   validateRecipe,
@@ -44,7 +49,6 @@ function validRecipe(): Recipe {
           {
             id: 'apply',
             kind: 'agent',
-            role: 'implementer',
             description: 'Edit the file.',
             agents: ['unity-3d-implementer'],
             gates: ['compile-clean'],
@@ -133,12 +137,48 @@ describe('validateRecipe', () => {
     expect(validateRecipe(null).ok).toBe(false);
     expect(validateRecipe('nope').errors[0]).toBe('recipe must be a JSON object');
   });
+
+  test('rejects an unknown step key (e.g. the removed role field)', () => {
+    const recipe = validRecipe();
+    (recipe.phases[0].steps[0] as unknown as Record<string, unknown>).role = 'implementer';
+    const result = validateRecipe(recipe);
+    expect(result.ok).toBe(false);
+    expect(result.errors.join('\n')).toContain('has unknown key "role"');
+  });
+
+  test('rejects an unknown phase key', () => {
+    const recipe = validRecipe();
+    (recipe.phases[0] as unknown as Record<string, unknown>).next = 'change';
+    const result = validateRecipe(recipe);
+    expect(result.ok).toBe(false);
+    expect(result.errors.join('\n')).toContain('has unknown key "next"');
+  });
+
+  test('rejects a recipe id that is not kebab-case', () => {
+    const recipe = validRecipe();
+    (recipe as { id: string }).id = 'Unity_Change_Loop';
+    const result = validateRecipe(recipe);
+    expect(result.ok).toBe(false);
+    expect(result.errors.join('\n')).toContain('invalid id');
+  });
 });
 
 describe('recipe schema agrees with the TS contract', () => {
   const schema = JSON.parse(readFileSync(schemaPath, 'utf8')) as {
-    $defs: { step: { properties: { kind: { enum: string[] } } }; artifact: { properties: Record<string, unknown> } };
-    properties: { phases: { items: { properties: { type: { enum: string[] } } } } };
+    required: string[];
+    $defs: {
+      step: { additionalProperties: boolean; properties: { kind: { enum: string[] } } & Record<string, unknown> };
+      artifact: { additionalProperties: boolean; properties: Record<string, unknown> };
+    };
+    properties: {
+      id: { pattern: string };
+      phases: {
+        items: {
+          additionalProperties: boolean;
+          properties: { type: { enum: string[] } } & Record<string, unknown>;
+        };
+      };
+    };
   };
 
   test('phase type enum matches RECIPE_PHASE_TYPES', () => {
@@ -151,6 +191,22 @@ describe('recipe schema agrees with the TS contract', () => {
 
   test('artifact declares glob, pattern, minCount and note', () => {
     expect(Object.keys(schema.$defs.artifact.properties).sort()).toEqual(['glob', 'minCount', 'note', 'pattern']);
+  });
+
+  test('recipe id pattern matches RECIPE_ID_PATTERN', () => {
+    expect(schema.properties.id.pattern).toBe(RECIPE_ID_PATTERN);
+  });
+
+  test('the schema key sets match the TS allowlists', () => {
+    expect(Object.keys(schema.$defs.step.properties).sort()).toEqual([...RECIPE_STEP_KEYS].sort());
+    expect(Object.keys(schema.properties.phases.items.properties).sort()).toEqual([...RECIPE_PHASE_KEYS].sort());
+    expect(Object.keys(schema.$defs.artifact.properties).sort()).toEqual([...RECIPE_ARTIFACT_KEYS].sort());
+  });
+
+  test('the schema closes the phase/step/artifact objects the validator rejects unknown keys on', () => {
+    expect(schema.properties.phases.items.additionalProperties).toBe(false);
+    expect(schema.$defs.step.additionalProperties).toBe(false);
+    expect(schema.$defs.artifact.additionalProperties).toBe(false);
   });
 });
 
@@ -183,12 +239,17 @@ describe('evaluateArtifactCheck', () => {
     expect(evaluateArtifactCheck(check, context({ 'technical-preferences.md': 'Engine: [none]' }, ['technical-preferences.md']))).toBe('unmet');
   });
 
-  test('pattern requires a readFile seam', () => {
-    const result = evaluateArtifactCheck(
-      { glob: 'a.md', pattern: 'x' },
-      { projectRoot: '/project', glob: () => ['a.md'] }
-    );
-    expect(result).toBe('undetectable');
+  test('defaults to a node-backed glob and readFile from projectRoot alone', () => {
+    const root = mkdtempSync(join(tmpdir(), 'oac-recipe-glob-'));
+    try {
+      mkdirSync(join(root, 'design'), { recursive: true });
+      writeFileSync(join(root, 'design', 'spec.md'), 'Engine: Unity 6');
+      expect(evaluateArtifactCheck({ glob: 'design/*.md', pattern: 'Engine: Unity' }, { projectRoot: root })).toBe('met');
+      expect(evaluateArtifactCheck({ glob: 'design/*.md', pattern: 'Engine: Unreal' }, { projectRoot: root })).toBe('unmet');
+      expect(evaluateArtifactCheck({ glob: 'missing/*.md' }, { projectRoot: root })).toBe('unmet');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   test('note-only checks are undetectable', () => {
