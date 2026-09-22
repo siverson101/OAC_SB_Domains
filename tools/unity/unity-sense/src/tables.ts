@@ -8,6 +8,7 @@
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readJson, toPosix } from '../../../shared/io';
+import type { VersionMatrix } from '../../../shared/unity-version';
 
 export interface ApiEntry {
   symbol: string;
@@ -80,4 +81,8 @@ export function loadApiQuickref(overridePath?: string): TableLoad<ApiQuickrefTab
 
 export function loadPlatformDefines(overridePath?: string): TableLoad<PlatformDefinesTable> {
   return loadContextTable<PlatformDefinesTable>('platform-defines.json', overridePath);
+}
+
+export function loadVersionMatrix(overridePath?: string): TableLoad<VersionMatrix> {
+  return loadContextTable<VersionMatrix>('version-matrix.json', overridePath);
 }

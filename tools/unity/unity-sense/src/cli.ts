@@ -11,6 +11,7 @@ export function resolveOptions(argv: string[]): SenseOptions {
   const ability = resolveAbility(requested, SENSE_ABILITIES, 'project-status');
   const tableDir = firstString(args, ['table-dir', 'tableDir']);
   const assetFolder = firstString(args, ['asset-folder', 'assetFolder']);
+  const commandDir = firstString(args, ['command-dir', 'commandDir']);
 
   return {
     projectRoot,
@@ -21,5 +22,6 @@ export function resolveOptions(argv: string[]): SenseOptions {
     list: Boolean(args.list),
     tableDir: tableDir ? resolve(tableDir) : undefined,
     assetFolder: assetFolder ? resolve(assetFolder) : undefined,
+    commandDir: commandDir ? resolve(commandDir) : undefined,
   };
 }

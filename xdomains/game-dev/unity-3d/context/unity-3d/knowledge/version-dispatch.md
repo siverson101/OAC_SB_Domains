@@ -34,6 +34,7 @@ rather than duplicating values:
 
 | Concern | Table |
 |---------|-------|
+| Version matrix (dispatch + feature flags) | `xdomains/context/unity/version-matrix.json` |
 | API quick reference | `xdomains/context/unity/unity-api-quickref.json` |
 | Deprecation map | `xdomains/context/unity/deprecated-patterns.json` |
 | Platform defines | `xdomains/context/unity/platform-defines.json` |

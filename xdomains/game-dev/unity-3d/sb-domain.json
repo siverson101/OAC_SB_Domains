@@ -124,7 +124,8 @@
     "plan-feature",
     "test-plan",
     "test-deduplication",
-    "workflow-catalog"
+    "workflow-catalog",
+    "version-matrix"
   ],
     "recipes": [
       "recipes/unity-change-loop.json",
