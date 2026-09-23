@@ -265,7 +265,9 @@ gitignore assertion; installer consent/license-verification/gitignore tests.
   `unity-skills` §Agent ↔ Unity skill map). Each such agent becomes a template with the
   `unity_skills` axis; `sk` variants add the attribution comment, `<skill_references>`, and the
   `unity_skill_path` fallback rule; `nsk` variants add none. Variants keep the base frontmatter
-  (the skill *supplements*; it never narrows).
+  (the skill *supplements*; it never narrows). The agents evaluated with no Unity-skill overlap —
+  `UnityScene`, `UnityAnimator`, `UnityTddSpecialist`, `UnityNativePlugin` — are recorded as
+  *evaluated, no overlap* and ship no template.
 - **Completion:** every mapped agent has a template + manifest + `sk`/`nsk` variants; the registry
   resolves the default variant.
 

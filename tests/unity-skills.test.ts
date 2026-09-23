@@ -166,16 +166,18 @@ describe('templating resolver', () => {
 
 describe('agent evaluation verdict', () => {
   const noOverlap = ['UnityScene', 'UnityAnimator', 'UnityTddSpecialist', 'UnityNativePlugin'];
-  const spec = readFileSync(resolve(repoRoot, '..', '.scratch', 'unity-skills', 'spec.md'), 'utf8');
+  // Read an in-repo doc (never a workspace scratch file) so the test is
+  // self-contained and passes in CI.
+  const plan = readFileSync(join(repoRoot, 'docs', 'Plan.md'), 'utf8');
 
   test('agents with no Unity-skill overlap have no template', () => {
     const bases = TEMPLATES.map((t) => t.manifest.base);
     for (const base of noOverlap) expect(bases, base).not.toContain(base);
   });
 
-  test('the spec records the no-overlap verdict', () => {
-    for (const base of noOverlap) expect(spec, base).toContain(base);
-    expect(spec).toContain('evaluated, no overlap');
+  test('the plan records the no-overlap verdict', () => {
+    for (const base of noOverlap) expect(plan, base).toContain(base);
+    expect(plan).toContain('evaluated, no overlap');
   });
 });
 
