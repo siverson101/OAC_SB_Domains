@@ -455,8 +455,8 @@ describe('run dispatcher', () => {
     expect(loop.family).toBe('run');
     expect(loop.mode).toBe('offline');
 
-    const runtime = await runRun({ ...base, ability: 'uitk-interaction' });
-    expect(runtime.ability).toBe('uitk-interaction');
+    const runtime = await runRun({ ...base, ability: 'ui-interaction' });
+    expect(runtime.ability).toBe('ui-interaction');
     expect(runtime.status).toBe('unavailable');
   });
 });
@@ -470,7 +470,7 @@ describe('Run command contracts', () => {
       'runtime-debugging',
       'runtime-ui-validation',
       'performance-diagnostics',
-      'uitk-interaction',
+      'ui-interaction',
     ]);
   });
 

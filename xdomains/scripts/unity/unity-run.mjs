@@ -76,28 +76,28 @@ var RUN_ABILITY_NAMES = [
   "runtime-debugging",
   "runtime-ui-validation",
   "performance-diagnostics",
-  "uitk-interaction"
+  "ui-interaction"
 ];
 var RUN_ABILITIES = [...RUN_ABILITY_NAMES];
 var RUNTIME_ABILITIES = [
   "runtime-debugging",
   "runtime-ui-validation",
   "performance-diagnostics",
-  "uitk-interaction"
+  "ui-interaction"
 ];
 var RUN_MODES = {
   "unity-change-loop": "offline",
   "runtime-debugging": "live",
   "runtime-ui-validation": "live",
   "performance-diagnostics": "live",
-  "uitk-interaction": "live"
+  "ui-interaction": "live"
 };
 var RUN_SAFETY_GATES = {
   "unity-change-loop": { requiresEditor: false, requiresApproval: false },
   "runtime-debugging": { requiresEditor: true, requiresApproval: true },
   "runtime-ui-validation": { requiresEditor: true, requiresApproval: false },
   "performance-diagnostics": { requiresEditor: true, requiresApproval: false },
-  "uitk-interaction": { requiresEditor: true, requiresApproval: false }
+  "ui-interaction": { requiresEditor: true, requiresApproval: false }
 };
 // tools/shared/json-helpers.ts
 function asRecord(value) {
@@ -477,13 +477,13 @@ var ABILITY_OPERATIONS = {
   "runtime-debugging": ["get_logs", "execute-code"],
   "runtime-ui-validation": ["ui_snapshot", "ui_find", "ui_click", "ui_key"],
   "performance-diagnostics": ["profiler_counters", "profiler_snapshot"],
-  "uitk-interaction": ["uitk_tree", "uitk_click"]
+  "ui-interaction": ["uitk_tree", "uitk_click"]
 };
 var DEFAULT_OPERATION = {
   "runtime-debugging": "get_logs",
   "runtime-ui-validation": "ui_snapshot",
   "performance-diagnostics": "profiler_counters",
-  "uitk-interaction": "uitk_tree"
+  "ui-interaction": "uitk_tree"
 };
 function isRuntimeAbility(ability) {
   return RUNTIME_ABILITIES.includes(ability);

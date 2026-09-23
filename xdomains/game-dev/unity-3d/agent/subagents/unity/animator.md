@@ -43,7 +43,7 @@ permission:
 - **Reports to**: `Unity3DOrchestrator`
 - **Implements from**: `/unity-animator` specs and orchestrator task briefs
 - **Escalation targets**: `Unity3DOrchestrator` for scope changes, blocked work, or approval; `UnityArtAsset` for import/rig settings
-- **Siblings**: `UnityImplementer`, `UnityScene`, `UnityUITK`, `UnityShaderVFX`, `UnityArtAsset`, `UnityQA`, `UnityTddSpecialist`, `UnityNativePlugin`
+- **Siblings**: `UnityImplementer`, `UnityScene`, `UnityUI`, `UnityShaderVFX`, `UnityArtAsset`, `UnityQA`, `UnityTddSpecialist`, `UnityNativePlugin`
 
 <workflow>
   <stage id="1" name="Scope">Identify characters/objects, required states (idle/walk/run/jump), and source clips.</stage>

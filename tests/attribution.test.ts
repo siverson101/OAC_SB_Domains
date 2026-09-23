@@ -134,6 +134,17 @@ describe('attribution file', () => {
     }
   });
 
+  test('records the optional Unity unity-skills install (ADR-0019)', () => {
+    expect(attribution).toContain('Unity-Technologies/skills');
+    expect(attribution).toContain('LicenseRef-Unity-Companion');
+    expect(attribution).toContain('## Optional installs');
+    // The full Unity Companion License text is present, and the exception is
+    // stated separately from the permissive set.
+    expect(attribution).toContain('Unity Companion License');
+    expect(attribution).toContain('Unity Technologies SF');
+    expect(attribution.toLowerCase()).toContain('optional-install exception');
+  });
+
   test('every imported primitive lists a holder, license and use', () => {
     const section = markdownSection(attribution, '## Imported primitives');
     const rows = tableRows(section).filter((cells) => cells[0] !== 'Primitive id');

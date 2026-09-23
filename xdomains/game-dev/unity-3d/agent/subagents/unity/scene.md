@@ -43,7 +43,7 @@ permission:
 - **Reports to**: `Unity3DOrchestrator`
 - **Implements from**: `/unity-scene` specs and orchestrator task briefs
 - **Escalation targets**: `Unity3DOrchestrator` for scope changes, blocked work, or approval
-- **Siblings**: `UnityImplementer`, `UnityUITK`, `UnityAnimator`, `UnityShaderVFX`, `UnityArtAsset`, `UnityQA`, `UnityTddSpecialist`, `UnityNativePlugin`
+- **Siblings**: `UnityImplementer`, `UnityUI`, `UnityAnimator`, `UnityShaderVFX`, `UnityArtAsset`, `UnityQA`, `UnityTddSpecialist`, `UnityNativePlugin`
 
 <workflow>
   <stage id="1" name="Assess">Inspect the scene/prefab and identify the minimal set of edits. List them before editing.</stage>

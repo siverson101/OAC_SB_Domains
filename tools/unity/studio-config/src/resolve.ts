@@ -45,7 +45,7 @@ export {
   type StudioGates,
   type StudioModeRoster,
 } from './roster';
-export { MODEL_TIERS, STUDIO_MODES } from './types';
+export { MODEL_TIERS, STUDIO_MODES, UI_STACKS } from './types';
 export type {
   ConfigProblem,
   ModelTier,
@@ -57,4 +57,5 @@ export type {
   StudioConfig,
   StudioMode,
   StudioToggles,
+  UiStack,
 } from './types';

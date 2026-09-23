@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "templates": [
+    "full-studio/AudioSpecialist.md",
+    "full-studio/GameplayProgrammer.md",
+    "full-studio/LevelDesigner.md",
+    "full-studio/ShaderSpecialist.md",
+    "full-studio/TechnicalArtist.md",
+    "full-studio/TechnicalDirector.md",
+    "full-studio/UiProgrammer.md",
+    "subagents/unity/UnityArtAsset.md",
+    "subagents/unity/UnityImplementer.md",
+    "subagents/unity/UnityQA.md",
+    "subagents/unity/UnityShaderVFX.md",
+    "subagents/unity/UnityUI.md"
+  ]
+}

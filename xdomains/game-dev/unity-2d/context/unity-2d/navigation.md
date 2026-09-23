@@ -72,7 +72,7 @@ The full sub-domain registry (agents, sub-agents, commands, abilities, context, 
 | Entry & coordination | Unity 2D Orchestrator | `agent/unity-2d-orchestrator.md` |
 | Gameplay C# code | unity-implementer | `subagents/unity/implementer.md` |
 | Scenes & prefabs | unity-scene | `subagents/unity/scene.md` |
-| UI Toolkit | unity-uitk | `subagents/unity/uitk.md` |
+| UI (UI Toolkit / UGUI / Mixed) | unity-ui | `subagents/unity/ui.md` |
 | Animation | unity-animator | `subagents/unity/animator.md` |
 | Shaders & VFX | unity-shadervfx | `subagents/unity/shadervfx.md` |
 | Art & asset import | unity-artasset | `subagents/unity/artasset.md` |

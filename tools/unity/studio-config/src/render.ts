@@ -4,11 +4,12 @@
 // these lines, so the mode/toggles/patterns/conflicts/problems formatting lives
 // in exactly one place.
 
-import type { ConfigProblem, PatternConflict, ReviewIntensity, StudioMode, StudioToggles } from './types';
+import type { ConfigProblem, PatternConflict, ReviewIntensity, StudioMode, StudioToggles, UiStack } from './types';
 
 export interface StudioConfigView {
   studioMode: StudioMode;
   reviewIntensity: ReviewIntensity;
+  uiStack?: UiStack;
   toggles: StudioToggles;
   patterns: string[];
   packages: string[];
@@ -28,7 +29,8 @@ export function renderStudioConfigLines(view: StudioConfigView): string[] {
   const lines: string[] = [];
   lines.push(`- Studio mode: ${view.studioMode}`);
   lines.push(`- Review intensity: ${view.reviewIntensity}`);
-  lines.push(`- Toggles: tdd=${view.toggles.tdd}, ftf=${view.toggles.ftf}`);
+  if (view.uiStack) lines.push(`- UI stack: ${view.uiStack}`);
+  lines.push(`- Toggles: tdd=${view.toggles.tdd}, ftf=${view.toggles.ftf}, unitySkills=${view.toggles.unitySkills}`);
   lines.push(`- Enabled patterns: ${formatIds(view.patterns)}`);
   lines.push(`- Enabled packages: ${formatIds(view.packages)}`);
   if (view.conflicts.length > 0) {

@@ -64,6 +64,137 @@ function findPatternCatalog(search) {
   return patternCatalogCandidates(search).find((candidate) => fileExists(candidate)) ?? null;
 }
 
+// tools/shared/json-helpers.ts
+function asRecord(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? value : null;
+}
+
+// tools/shared/templating/src/types.ts
+class TemplateError extends Error {
+}
+
+// tools/shared/templating/src/resolve.ts
+var TEMPLATE_SCHEMA_VERSION = 1;
+function parseManifest(value) {
+  const record = asRecord(value);
+  if (!record)
+    throw new TemplateError("manifest must be a JSON object");
+  if (record.schemaVersion !== undefined && record.schemaVersion !== TEMPLATE_SCHEMA_VERSION) {
+    throw new TemplateError(`unsupported manifest schemaVersion ${JSON.stringify(record.schemaVersion)}, expected ${TEMPLATE_SCHEMA_VERSION}`);
+  }
+  const base = record.base;
+  if (typeof base !== "string" || base.trim() === "")
+    throw new TemplateError("manifest.base must be a non-empty string");
+  const installAs = record.installAs;
+  if (typeof installAs !== "string" || installAs.trim() === "") {
+    throw new TemplateError("manifest.installAs must be a non-empty string");
+  }
+  if (!Array.isArray(record.axes) || record.axes.length === 0) {
+    throw new TemplateError("manifest.axes must be a non-empty array");
+  }
+  const axes = record.axes.map((entry, index) => {
+    const axis = asRecord(entry);
+    if (!axis || typeof axis.id !== "string" || axis.id.trim() === "") {
+      throw new TemplateError(`manifest.axes[${index}].id must be a non-empty string`);
+    }
+    const values = asRecord(axis.values);
+    if (!values || Object.keys(values).length === 0) {
+      throw new TemplateError(`manifest.axes[${index}].values must be a non-empty object`);
+    }
+    let fallback;
+    if (axis.default !== undefined) {
+      if (typeof axis.default !== "string" || !Object.prototype.hasOwnProperty.call(values, axis.default)) {
+        throw new TemplateError(`manifest.axes[${index}].default must be one of ${Object.keys(values).join("|")}`);
+      }
+      fallback = axis.default;
+    }
+    return { id: axis.id.trim(), values, default: fallback };
+  });
+  if (typeof record.output !== "string" || record.output.trim() === "") {
+    throw new TemplateError("manifest.output must be a non-empty string");
+  }
+  const rawSubs = asRecord(record.substitutions);
+  if (!rawSubs)
+    throw new TemplateError("manifest.substitutions must be an object");
+  const substitutions = {};
+  for (const [key, value] of Object.entries(rawSubs)) {
+    if (typeof value === "string") {
+      substitutions[key] = value;
+    } else {
+      const map = asRecord(value);
+      if (!map || !Object.values(map).every((v) => typeof v === "string")) {
+        throw new TemplateError(`manifest.substitutions.${key} must be a string or a map of strings`);
+      }
+      substitutions[key] = map;
+    }
+  }
+  const conditionals = asRecord(record.conditionals);
+  return {
+    schemaVersion: typeof record.schemaVersion === "number" ? record.schemaVersion : TEMPLATE_SCHEMA_VERSION,
+    base,
+    installAs,
+    axes,
+    output: record.output,
+    substitutions,
+    conditionals: conditionals ? conditionals : undefined
+  };
+}
+function defaultSelection(manifest) {
+  const selection = {};
+  for (const axis of manifest.axes) {
+    selection[axis.id] = axis.default ?? Object.keys(axis.values)[0];
+  }
+  return selection;
+}
+function validateSelection(manifest, selection) {
+  for (const axis of manifest.axes) {
+    const value = selection[axis.id];
+    if (value === undefined)
+      throw new TemplateError(`missing value for axis "${axis.id}"`);
+    if (!Object.prototype.hasOwnProperty.call(axis.values, value)) {
+      throw new TemplateError(`unknown value "${value}" for axis "${axis.id}" (expected ${Object.keys(axis.values).join("|")})`);
+    }
+  }
+}
+function installStem(installAs) {
+  const base = installAs.split("/").pop() ?? installAs;
+  return base.replace(/\.md$/, "");
+}
+function placeholderValue(name, manifest, selection) {
+  if (Object.prototype.hasOwnProperty.call(manifest.substitutions, name)) {
+    const sub = manifest.substitutions[name];
+    if (typeof sub === "string")
+      return sub;
+    for (const value of Object.values(selection)) {
+      if (Object.prototype.hasOwnProperty.call(sub, value))
+        return sub[value];
+    }
+    throw new TemplateError(`no substitution value for {{${name}}} with selection ${JSON.stringify(selection)}`);
+  }
+  if (name === "BASE_NAME")
+    return manifest.base;
+  if (name === "INSTALL_NAME")
+    return installStem(manifest.installAs);
+  if (Object.prototype.hasOwnProperty.call(selection, name))
+    return selection[name];
+  throw new TemplateError(`unknown placeholder {{${name}}}`);
+}
+var PLACEHOLDER = /\{\{([A-Za-z0-9_]+)\}\}/g;
+function substitute(text, manifest, selection) {
+  const out = text.replace(PLACEHOLDER, (_match, name) => placeholderValue(name, manifest, selection));
+  if (out.includes("{{") || out.includes("}}")) {
+    const leftover = out.match(/\{\{[^}]*\}\}|\}\}|\{\{/);
+    throw new TemplateError(`unresolved placeholder remains after substitution: ${leftover?.[0] ?? "{{"}`);
+  }
+  return out;
+}
+function resolveTemplate(template, manifest, selection) {
+  validateSelection(manifest, selection);
+  const content = substitute(template, manifest, selection);
+  const filename = substitute(manifest.output, manifest, selection);
+  return { content, filename, installAs: manifest.installAs, axes: { ...selection } };
+}
+
 // tools/unity/studio-config/src/catalog.ts
 function loadPatternCatalog(path) {
   const catalog = readJson(path);
@@ -72,21 +203,18 @@ function loadPatternCatalog(path) {
   return catalog;
 }
 
-// tools/shared/json-helpers.ts
-function asRecord(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value) ? value : null;
-}
-
 // tools/unity/studio-config/src/types.ts
 var STUDIO_MODES = ["lean", "full"];
 var REVIEW_INTENSITIES = ["full", "lean", "solo"];
 var MODEL_TIERS = ["router", "lead", "specialist"];
+var UI_STACKS = ["uitk", "ugui", "mixed"];
 var STUDIO_CONFIG_SCHEMA_VERSION = 1;
 var DEFAULT_STUDIO_CONFIG = {
   schemaVersion: STUDIO_CONFIG_SCHEMA_VERSION,
   studioMode: "lean",
   reviewIntensity: "full",
-  toggles: { tdd: false, ftf: false },
+  uiStack: "uitk",
+  toggles: { tdd: false, ftf: false, unitySkills: false },
   patterns: [],
   packages: [],
   modelTiers: {}
@@ -98,12 +226,13 @@ var KNOWN_KEYS = new Set([
   "schemaVersion",
   "studioMode",
   "reviewIntensity",
+  "uiStack",
   "toggles",
   "patterns",
   "packages",
   "modelTiers"
 ]);
-var KNOWN_TOGGLE_KEYS = new Set(["tdd", "ftf"]);
+var KNOWN_TOGGLE_KEYS = new Set(["tdd", "ftf", "unitySkills"]);
 function defaultStudioConfig() {
   return {
     ...DEFAULT_STUDIO_CONFIG,
@@ -153,13 +282,22 @@ function parseIntensity(value, problems) {
   });
   return DEFAULT_STUDIO_CONFIG.reviewIntensity;
 }
+function parseUiStack(value, problems) {
+  if (value === undefined)
+    return DEFAULT_STUDIO_CONFIG.uiStack;
+  if (typeof value === "string" && UI_STACKS.includes(value)) {
+    return value;
+  }
+  problems.push({ field: "uiStack", message: `expected one of ${UI_STACKS.join("|")}, got ${JSON.stringify(value)}` });
+  return DEFAULT_STUDIO_CONFIG.uiStack;
+}
 function parseToggles(value, problems) {
   const toggles = { ...DEFAULT_STUDIO_CONFIG.toggles };
   if (value === undefined)
     return toggles;
   const record = asRecord(value);
   if (!record) {
-    problems.push({ field: "toggles", message: "expected an object with boolean tdd/ftf flags" });
+    problems.push({ field: "toggles", message: "expected an object with boolean tdd/ftf/unitySkills flags" });
     return toggles;
   }
   for (const key of Object.keys(record)) {
@@ -234,6 +372,7 @@ function parseStudioConfig(value) {
     schemaVersion,
     studioMode: parseMode(record.studioMode, problems),
     reviewIntensity: parseIntensity(record.reviewIntensity, problems),
+    uiStack: parseUiStack(record.uiStack, problems),
     toggles: parseToggles(record.toggles, problems),
     patterns: parseStringArray(record.patterns, "patterns", problems),
     packages: parseStringArray(record.packages, "packages", problems),
@@ -347,7 +486,9 @@ function renderStudioConfigLines(view) {
   const lines = [];
   lines.push(`- Studio mode: ${view.studioMode}`);
   lines.push(`- Review intensity: ${view.reviewIntensity}`);
-  lines.push(`- Toggles: tdd=${view.toggles.tdd}, ftf=${view.toggles.ftf}`);
+  if (view.uiStack)
+    lines.push(`- UI stack: ${view.uiStack}`);
+  lines.push(`- Toggles: tdd=${view.toggles.tdd}, ftf=${view.toggles.ftf}, unitySkills=${view.toggles.unitySkills}`);
   lines.push(`- Enabled patterns: ${formatIds(view.patterns)}`);
   lines.push(`- Enabled packages: ${formatIds(view.packages)}`);
   if (view.conflicts.length > 0) {
@@ -707,13 +848,37 @@ function parseDelegationMap(content) {
     siblings: fields["siblings"]
   };
 }
-function blueprintAgent(domainDir, rel, role, optional, modelTiers) {
-  const fm = readFrontmatter(join2(domainDir, rel));
+function buildTemplateOverlay(domainDir, manifest) {
+  const overlay = new Map;
+  for (const entry of manifest.templates ?? []) {
+    if (!entry?.installAs || !entry.template || !entry.manifest)
+      continue;
+    const manifestText = readText(join2(domainDir, entry.manifest));
+    const body = readText(join2(domainDir, entry.template));
+    if (!manifestText || !body)
+      continue;
+    try {
+      const parsed = parseManifest(JSON.parse(manifestText));
+      const resolved = resolveTemplate(body, parsed, defaultSelection(parsed));
+      overlay.set(entry.installAs, { name: parsed.base, content: resolved.content });
+    } catch {}
+  }
+  return overlay;
+}
+function readAgentSource(domainDir, rel, overlay) {
+  const templated = overlay.get(rel);
+  if (templated)
+    return { content: templated.content, name: templated.name };
+  return { content: readText(join2(domainDir, rel)) ?? "" };
+}
+function blueprintAgent(domainDir, rel, role, optional, modelTiers, overlay) {
+  const source = readAgentSource(domainDir, rel, overlay);
+  const fm = parseFrontmatter(source.content);
   const id = basename(rel, ".md");
   const tier = asModelTier(frontmatterString(fm, "tier"));
   return {
     id,
-    name: frontmatterString(fm, "name") || id,
+    name: source.name || frontmatterString(fm, "name") || id,
     path: rel,
     role,
     tier,
@@ -721,10 +886,10 @@ function blueprintAgent(domainDir, rel, role, optional, modelTiers) {
     abilities: frontmatterStringArray(fm, "abilities") ?? [],
     optional,
     gate: optional ? frontmatterString(fm, "enabledBy") : undefined,
-    delegation: parseDelegationMap(readText(join2(domainDir, rel)) ?? "")
+    delegation: parseDelegationMap(source.content)
   };
 }
-function buildAgentSystem(manifest, domainDir, modelTiers) {
+function buildAgentSystem(manifest, domainDir, modelTiers, overlay) {
   const hierarchies = [];
   if (manifest.studioModes) {
     for (const mode of STUDIO_MODES) {
@@ -733,18 +898,18 @@ function buildAgentSystem(manifest, domainDir, modelTiers) {
         continue;
       hierarchies.push({
         mode,
-        agents: (roster.agents ?? []).map((rel) => blueprintAgent(domainDir, rel, "agent", false, modelTiers)),
+        agents: (roster.agents ?? []).map((rel) => blueprintAgent(domainDir, rel, "agent", false, modelTiers, overlay)),
         subagents: [
-          ...(roster.subagents ?? []).map((rel) => blueprintAgent(domainDir, rel, "subagent", false, modelTiers)),
-          ...optionalPaths(roster.optional).map((rel) => blueprintAgent(domainDir, rel, "subagent", true, modelTiers))
+          ...(roster.subagents ?? []).map((rel) => blueprintAgent(domainDir, rel, "subagent", false, modelTiers, overlay)),
+          ...optionalPaths(roster.optional).map((rel) => blueprintAgent(domainDir, rel, "subagent", true, modelTiers, overlay))
         ]
       });
     }
   } else {
     hierarchies.push({
       mode: "lean",
-      agents: (manifest.agents ?? []).map((rel) => blueprintAgent(domainDir, rel, "agent", false, modelTiers)),
-      subagents: (manifest.subagents ?? []).map((rel) => blueprintAgent(domainDir, rel, "subagent", false, modelTiers))
+      agents: (manifest.agents ?? []).map((rel) => blueprintAgent(domainDir, rel, "agent", false, modelTiers, overlay)),
+      subagents: (manifest.subagents ?? []).map((rel) => blueprintAgent(domainDir, rel, "subagent", false, modelTiers, overlay))
     });
   }
   return {
@@ -756,8 +921,8 @@ function buildAgentSystem(manifest, domainDir, modelTiers) {
     hierarchies
   };
 }
-function entry(domainDir, relPath, id, consumes, layer, modelTiers) {
-  const fm = readFrontmatter(join2(domainDir, relPath));
+function entry(domainDir, relPath, id, consumes, layer, modelTiers, overlay) {
+  const fm = overlay ? parseFrontmatter(readAgentSource(domainDir, relPath, overlay).content) : readFrontmatter(join2(domainDir, relPath));
   const tier = modelTiers ? asModelTier(frontmatterString(fm, "tier")) : undefined;
   return {
     id,
@@ -805,6 +970,7 @@ function absentStudioConfig() {
     path: null,
     studioMode: defaults.studioMode,
     reviewIntensity: defaults.reviewIntensity,
+    uiStack: defaults.uiStack,
     toggles: { ...defaults.toggles },
     patterns: [],
     packages: [],
@@ -829,6 +995,7 @@ function buildStudioConfig(domainDir, opencodeDir, studioConfigPath) {
     path: resolved.configPath,
     studioMode: resolved.resolution.config.studioMode,
     reviewIntensity: resolved.resolution.config.reviewIntensity,
+    uiStack: resolved.resolution.config.uiStack,
     toggles: resolved.resolution.config.toggles,
     patterns: resolved.resolution.enabledPatterns,
     packages: resolved.resolution.enabledPackages,
@@ -867,14 +1034,15 @@ function buildRegistry(domainDir, generatedAt, opencodeDir, studioConfigPath) {
   const projections = readJson(join2(domainDir, "context-projections.json")) ?? {};
   const consumers = projections.consumers ?? {};
   const studioConfig = buildStudioConfig(domainDir, opencodeDir, studioConfigPath);
-  const mapEntries = (paths, layer, modelTiers) => (paths ?? []).map((rel) => entry(domainDir, rel, basename(rel, ".md"), consumedOutputs(rel, basename(rel, ".md"), consumers), layer, modelTiers));
+  const overlay = buildTemplateOverlay(domainDir, manifest);
+  const mapEntries = (paths, layer, modelTiers, withOverlay) => (paths ?? []).map((rel) => entry(domainDir, rel, basename(rel, ".md"), consumedOutputs(rel, basename(rel, ".md"), consumers), layer, modelTiers, withOverlay));
   const gates = {
     tdd: studioConfig.toggles.tdd === true,
     "native-subproject": nativeSubprojectPresent(opencodeDir)
   };
   const roster = selectStudioRoster(manifest, studioConfig.studioMode, gates, domainDir);
-  const agents = mapEntries(roster.agents, undefined, studioConfig.modelTiers);
-  const subagents = mapEntries(roster.subagents, undefined, studioConfig.modelTiers);
+  const agents = mapEntries(roster.agents, undefined, studioConfig.modelTiers, overlay);
+  const subagents = mapEntries(roster.subagents, undefined, studioConfig.modelTiers, overlay);
   const commands = mapEntries(manifest.commands, "command");
   const abilities = (manifest.abilities ?? []).map((ability) => {
     const rel = `command/${ability}.md`;
@@ -955,7 +1123,7 @@ function buildRegistry(domainDir, generatedAt, opencodeDir, studioConfigPath) {
     }
   };
   for (const rel of [...roster.agents, ...roster.subagents]) {
-    const fm = readFrontmatter(join2(domainDir, rel));
+    const fm = parseFrontmatter(readAgentSource(domainDir, rel, overlay).content);
     addEdges("agent-ability", basename(rel, ".md"), frontmatterStringArray(fm, "abilities") ?? []);
   }
   for (const recipe of recipeEntries) {
@@ -1010,7 +1178,7 @@ function buildRegistry(domainDir, generatedAt, opencodeDir, studioConfigPath) {
     edges,
     warnings,
     studioConfig,
-    agentSystem: buildAgentSystem(manifest, domainDir, studioConfig.modelTiers),
+    agentSystem: buildAgentSystem(manifest, domainDir, studioConfig.modelTiers, overlay),
     projections: { outputDir: projections.outputDir ?? null, outputs }
   };
 }

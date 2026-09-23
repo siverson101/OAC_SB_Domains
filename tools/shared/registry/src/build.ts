@@ -2,6 +2,7 @@ import { readdirSync, statSync } from 'node:fs';
 import { basename, join, relative, resolve, sep } from 'node:path';
 import { findPatternCatalog } from '../../../shared/context-files';
 import { readJson, readText } from '../../../shared/io';
+import { defaultSelection, parseManifest, resolveTemplate } from '../../templating/src/resolve';
 import {
   defaultStudioConfig,
   MODEL_TIERS,
@@ -17,8 +18,9 @@ import {
   type StudioGates,
   type StudioMode,
   type StudioToggles,
+  type UiStack,
 } from '../../../unity/studio-config/src/resolve';
-import { frontmatterString, frontmatterStringArray, readFrontmatter } from './frontmatter';
+import { frontmatterString, frontmatterStringArray, parseFrontmatter, readFrontmatter } from './frontmatter';
 
 export interface RegistryEntry {
   id: string;
@@ -51,6 +53,7 @@ export interface RegistryStudioConfig {
   path: string | null;
   studioMode: StudioMode;
   reviewIntensity: ReviewIntensity;
+  uiStack: UiStack;
   toggles: StudioToggles;
   patterns: string[];
   packages: string[];
@@ -132,6 +135,12 @@ interface StudioModeRoster {
   optional?: (string | { path?: string })[];
 }
 
+interface AgentTemplateEntry {
+  installAs?: string;
+  template?: string;
+  manifest?: string;
+}
+
 interface Manifest {
   name?: string;
   displayName?: string;
@@ -141,6 +150,7 @@ interface Manifest {
   agents?: string[];
   subagents?: string[];
   studioModes?: Record<string, StudioModeRoster>;
+  templates?: AgentTemplateEntry[];
   commands?: string[];
   context?: string[];
   abilities?: string[];
@@ -305,19 +315,58 @@ export function parseDelegationMap(content: string): AgentDelegationMap {
   };
 }
 
+// Multi-axis templated agents (ADR-0020) are declared by their installed name
+// (`installAs`) but live as a template + manifest. The registry resolves the
+// domain-default variant so it can read the agent's real frontmatter/delegation
+// without an install. A broken template is ignored (fail-soft).
+export interface TemplateOverlay {
+  name: string;
+  content: string;
+}
+
+export function buildTemplateOverlay(domainDir: string, manifest: Manifest): Map<string, TemplateOverlay> {
+  const overlay = new Map<string, TemplateOverlay>();
+  for (const entry of manifest.templates ?? []) {
+    if (!entry?.installAs || !entry.template || !entry.manifest) continue;
+    const manifestText = readText(join(domainDir, entry.manifest));
+    const body = readText(join(domainDir, entry.template));
+    if (!manifestText || !body) continue;
+    try {
+      const parsed = parseManifest(JSON.parse(manifestText));
+      const resolved = resolveTemplate(body, parsed, defaultSelection(parsed));
+      overlay.set(entry.installAs, { name: parsed.base, content: resolved.content });
+    } catch {
+      // ignore; the agent is reported as a normal missing file downstream
+    }
+  }
+  return overlay;
+}
+
+export function readAgentSource(
+  domainDir: string,
+  rel: string,
+  overlay: Map<string, TemplateOverlay>
+): { content: string; name?: string } {
+  const templated = overlay.get(rel);
+  if (templated) return { content: templated.content, name: templated.name };
+  return { content: readText(join(domainDir, rel)) ?? '' };
+}
+
 function blueprintAgent(
   domainDir: string,
   rel: string,
   role: BlueprintAgent['role'],
   optional: boolean,
-  modelTiers: ModelTiers
+  modelTiers: ModelTiers,
+  overlay: Map<string, TemplateOverlay>
 ): BlueprintAgent {
-  const fm = readFrontmatter(join(domainDir, rel));
+  const source = readAgentSource(domainDir, rel, overlay);
+  const fm = parseFrontmatter(source.content);
   const id = basename(rel, '.md');
   const tier = asModelTier(frontmatterString(fm, 'tier'));
   return {
     id,
-    name: frontmatterString(fm, 'name') || id,
+    name: source.name || frontmatterString(fm, 'name') || id,
     path: rel,
     role,
     tier,
@@ -325,11 +374,16 @@ function blueprintAgent(
     abilities: frontmatterStringArray(fm, 'abilities') ?? [],
     optional,
     gate: optional ? frontmatterString(fm, 'enabledBy') : undefined,
-    delegation: parseDelegationMap(readText(join(domainDir, rel)) ?? ''),
+    delegation: parseDelegationMap(source.content),
   };
 }
 
-function buildAgentSystem(manifest: Manifest, domainDir: string, modelTiers: ModelTiers): AgentSystemBlueprint {
+function buildAgentSystem(
+  manifest: Manifest,
+  domainDir: string,
+  modelTiers: ModelTiers,
+  overlay: Map<string, TemplateOverlay>
+): AgentSystemBlueprint {
   const hierarchies: BlueprintHierarchy[] = [];
   if (manifest.studioModes) {
     for (const mode of STUDIO_MODES) {
@@ -337,18 +391,18 @@ function buildAgentSystem(manifest: Manifest, domainDir: string, modelTiers: Mod
       if (!roster) continue;
       hierarchies.push({
         mode,
-        agents: (roster.agents ?? []).map((rel) => blueprintAgent(domainDir, rel, 'agent', false, modelTiers)),
+        agents: (roster.agents ?? []).map((rel) => blueprintAgent(domainDir, rel, 'agent', false, modelTiers, overlay)),
         subagents: [
-          ...(roster.subagents ?? []).map((rel) => blueprintAgent(domainDir, rel, 'subagent', false, modelTiers)),
-          ...optionalPaths(roster.optional).map((rel) => blueprintAgent(domainDir, rel, 'subagent', true, modelTiers)),
+          ...(roster.subagents ?? []).map((rel) => blueprintAgent(domainDir, rel, 'subagent', false, modelTiers, overlay)),
+          ...optionalPaths(roster.optional).map((rel) => blueprintAgent(domainDir, rel, 'subagent', true, modelTiers, overlay)),
         ],
       });
     }
   } else {
     hierarchies.push({
       mode: 'lean',
-      agents: (manifest.agents ?? []).map((rel) => blueprintAgent(domainDir, rel, 'agent', false, modelTiers)),
-      subagents: (manifest.subagents ?? []).map((rel) => blueprintAgent(domainDir, rel, 'subagent', false, modelTiers)),
+      agents: (manifest.agents ?? []).map((rel) => blueprintAgent(domainDir, rel, 'agent', false, modelTiers, overlay)),
+      subagents: (manifest.subagents ?? []).map((rel) => blueprintAgent(domainDir, rel, 'subagent', false, modelTiers, overlay)),
     });
   }
   return {
@@ -367,9 +421,12 @@ function entry(
   id: string,
   consumes: string[],
   layer?: RegistryEntry['layer'],
-  modelTiers?: ModelTiers
+  modelTiers?: ModelTiers,
+  overlay?: Map<string, TemplateOverlay>
 ): RegistryEntry {
-  const fm = readFrontmatter(join(domainDir, relPath));
+  const fm = overlay
+    ? parseFrontmatter(readAgentSource(domainDir, relPath, overlay).content)
+    : readFrontmatter(join(domainDir, relPath));
   // `modelTiers` is passed for agents/subagents (which carry a `tier`) and
   // omitted for every other entry kind, so tier resolution is intentionally
   // conditional. Do not resolve a tier for entries that have no such concept.
@@ -424,6 +481,7 @@ function absentStudioConfig(): RegistryStudioConfig {
     path: null,
     studioMode: defaults.studioMode,
     reviewIntensity: defaults.reviewIntensity,
+    uiStack: defaults.uiStack,
     toggles: { ...defaults.toggles },
     patterns: [],
     packages: [],
@@ -461,6 +519,7 @@ function buildStudioConfig(
     path: resolved.configPath,
     studioMode: resolved.resolution.config.studioMode,
     reviewIntensity: resolved.resolution.config.reviewIntensity,
+    uiStack: resolved.resolution.config.uiStack,
     toggles: resolved.resolution.config.toggles,
     patterns: resolved.resolution.enabledPatterns,
     packages: resolved.resolution.enabledPackages,
@@ -509,13 +568,16 @@ export function buildRegistry(
   const consumers = projections.consumers ?? {};
   const studioConfig = buildStudioConfig(domainDir, opencodeDir, studioConfigPath);
 
+  const overlay = buildTemplateOverlay(domainDir, manifest);
+
   const mapEntries = (
     paths: string[] | undefined,
     layer?: RegistryEntry['layer'],
-    modelTiers?: ModelTiers
+    modelTiers?: ModelTiers,
+    withOverlay?: Map<string, TemplateOverlay>
   ): RegistryEntry[] =>
     (paths ?? []).map((rel) =>
-      entry(domainDir, rel, basename(rel, '.md'), consumedOutputs(rel, basename(rel, '.md'), consumers), layer, modelTiers)
+      entry(domainDir, rel, basename(rel, '.md'), consumedOutputs(rel, basename(rel, '.md'), consumers), layer, modelTiers, withOverlay)
     );
 
   const gates: StudioGates = {
@@ -523,8 +585,8 @@ export function buildRegistry(
     'native-subproject': nativeSubprojectPresent(opencodeDir),
   };
   const roster = selectStudioRoster(manifest, studioConfig.studioMode, gates, domainDir);
-  const agents = mapEntries(roster.agents, undefined, studioConfig.modelTiers);
-  const subagents = mapEntries(roster.subagents, undefined, studioConfig.modelTiers);
+  const agents = mapEntries(roster.agents, undefined, studioConfig.modelTiers, overlay);
+  const subagents = mapEntries(roster.subagents, undefined, studioConfig.modelTiers, overlay);
   const commands = mapEntries(manifest.commands, 'command');
 
   const abilities: RegistryEntry[] = (manifest.abilities ?? []).map((ability) => {
@@ -630,7 +692,7 @@ export function buildRegistry(
   };
 
   for (const rel of [...roster.agents, ...roster.subagents]) {
-    const fm = readFrontmatter(join(domainDir, rel));
+    const fm = parseFrontmatter(readAgentSource(domainDir, rel, overlay).content);
     addEdges('agent-ability', basename(rel, '.md'), frontmatterStringArray(fm, 'abilities') ?? []);
   }
 
@@ -695,7 +757,7 @@ export function buildRegistry(
     edges,
     warnings,
     studioConfig,
-    agentSystem: buildAgentSystem(manifest, domainDir, studioConfig.modelTiers),
+    agentSystem: buildAgentSystem(manifest, domainDir, studioConfig.modelTiers, overlay),
     projections: { outputDir: projections.outputDir ?? null, outputs },
   };
 }

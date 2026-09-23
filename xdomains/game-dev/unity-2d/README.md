@@ -10,8 +10,8 @@ Unity 2D sub-domain of the `game-dev` domain. Ships an orchestrator, 7 specialis
 - Shared context: `context/domain/unity-common.md` (declared in `sharedContext`)
 - Starter context: `context/domain/unity-2d.md`
 - Agent: `agent/unity-2d-orchestrator.md`
-- Subagents: `agent/subagents/unity/{implementer,scene,uitk,animator,shadervfx,artasset,qa}.md`
-- Commands: `command/{unity-feature,unity-scene,unity-test,unity-build,unity-architecture,unity-animator,unity-vfx,unity-ase,uitk}.md`
+- Subagents: `agent/subagents/unity/{implementer,scene,ui,animator,shadervfx,artasset,qa}.md` (templated: `UnityUI.md`, `UnityImplementer.md`, ...)
+- Commands: `command/{unity-feature,unity-scene,unity-test,unity-build,unity-architecture,unity-animator,unity-vfx,unity-ase,ui,ugui,uitk,unity-skills}.md`
 - Context library: `context/unity-2d/{navigation.md,concepts,guides,lookup,examples,errors,workflows}`
 - Hooks: `hooks/instead/stage-{3,4,5,7}-*.md`
 - Projection: `context-projections.json` + `scripts/build-project-context.js`

@@ -28,7 +28,7 @@ Subagents
 |------|------|------|--------|------|---------|
 | UnityImplementer | subagent | `agent/subagents/unity/implementer.md` | oac-build | csharp-conventions, navigation | Orchestrator; feature-delivery workflow |
 | UnityScene | subagent | `agent/subagents/unity/scene.md` | oac-build | scene-prefab-safety, project-layout | Orchestrator; scene-assembly workflow |
-| UnityUITK | subagent | `agent/subagents/unity/uitk.md` | oac-build | navigation | Orchestrator; `/uitk` |
+| UnityUI | subagent | `agent/subagents/unity/ui.md` | oac-build (template `UnityUI.md`) | navigation | Orchestrator; `/ui`, `/ugui`, `/uitk` |
 | UnityAnimator | subagent | `agent/subagents/unity/animator.md` | oac-build | navigation | Orchestrator; `/unity-animator` |
 | UnityShaderVFX | subagent | `agent/subagents/unity/shadervfx.md` | oac-build | performance-budgets, navigation | Orchestrator; `/unity-vfx`, `/unity-ase` |
 | UnityArtAsset | subagent | `agent/subagents/unity/artasset.md` | oac-build | project-layout, performance-budgets | Orchestrator; scene/art tasks |
@@ -54,7 +54,7 @@ primary` entry; every other row is a subagent.
 | QaLead | subagent | `agent/full-studio/qa-lead.md` | claude-unity-game-studio (MIT) | run-edit-mode-tests, run-play-mode-tests | FullStudioOrchestrator |
 | ArtLead | subagent | `agent/full-studio/art-lead.md` | claude-unity-game-studio (MIT) | asset-intelligence, shader-helper | FullStudioOrchestrator |
 | GameplayProgrammer | subagent | `agent/full-studio/gameplay-programmer.md` | claude-unity-game-studio (MIT) | input-automation, script-scaffolding | LeadProgrammer |
-| UiProgrammer | subagent | `agent/full-studio/ui-programmer.md` | claude-unity-game-studio (MIT) | uitk-interaction, runtime-ui-validation | LeadProgrammer |
+| UiProgrammer | subagent | `agent/full-studio/ui-programmer.md` | claude-unity-game-studio (MIT) | ui-interaction, runtime-ui-validation | LeadProgrammer |
 | PerformanceAnalyst | subagent | `agent/full-studio/performance-analyst.md` | claude-unity-game-studio (MIT) | performance-diagnostics, runtime-debugging | TechnicalDirector |
 | ShaderSpecialist | subagent | `agent/full-studio/shader-specialist.md` | claude-unity-game-studio (MIT) | shader-helper, performance-diagnostics | ArtLead |
 | AudioSpecialist | subagent | `agent/full-studio/audio-specialist.md` | claude-unity-game-studio (MIT) | asset-intelligence, script-scaffolding | ArtLead |
@@ -81,7 +81,10 @@ Commands
 | `/unity-animator` | `command/unity-animator.md` | oac-build | navigation, UnityAnimator | User |
 | `/unity-vfx` | `command/unity-vfx.md` | oac-build | performance-budgets, UnityShaderVFX | User |
 | `/unity-ase` | `command/unity-ase.md` | oac-build | performance-budgets, UnityShaderVFX | User |
-| `/uitk` | `command/uitk.md` | oac-build | navigation, UnityUITK | User |
+| `/ui` | `command/ui.md` | oac-build | navigation, UnityUI, ui-interaction | User |
+| `/ugui` | `command/ugui.md` | oac-build | navigation, UnityUI (UGUI hint) | User |
+| `/uitk` | `command/uitk.md` | oac-build | navigation, UnityUI (UI Toolkit hint) | User |
+| `/unity-skills` | `command/unity-skills.md` | oac-build (Phase 3.5) | unity-skills ability | User |
 | `/unity-runtime-target` | `command/unity-runtime-target.md` | oac-build | navigation, common-unity-issues, runtime-debugging, runtime-ui-validation | User |
 | `/unity-prefab-sweep` | `command/unity-prefab-sweep.md` | oac-build | navigation, scene-assembly, scene-prefab-safety, prefab-automation, scene-editing, UnityScene | User |
 | `/unity-performance` | `command/unity-performance.md` | oac-build | navigation, performance-budgets, quality-gate, performance-diagnostics | User |

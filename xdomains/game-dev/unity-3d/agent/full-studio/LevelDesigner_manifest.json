@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "base": "LevelDesigner",
+  "installAs": "agent/full-studio/level-designer.md",
+  "axes": [
+    {
+      "id": "unity_skills",
+      "values": {
+        "sk": true,
+        "nsk": false
+      },
+      "default": "nsk"
+    }
+  ],
+  "output": "{{BASE_NAME}}.{{unity_skills}}.md",
+  "conditionals": {
+    "ATTRIBUTION_COMMENT": "unity_skills == sk",
+    "SKILL_REFERENCES_BLOCK": "unity_skills == sk",
+    "UNITY_SKILL_RULE": "unity_skills == sk"
+  },
+  "substitutions": {
+    "ATTRIBUTION_COMMENT": {
+      "sk": "<!--\nAttribution: This agent optionally loads the Unity \"tilemap-palette-create\", \"tilemap-ruletile-createempty\", \"tilemap-ruletile-createfromsegment\", \"sprite-editor\" skill(s) from\nUnity-Technologies/skills (https://github.com/Unity-Technologies/skills).\nOriginal Work Copyright © Unity Technologies.\nLicensed under the Unity Companion License for Unity-dependent projects:\nhttps://unity3d.com/legal/licenses/unity_companion_license\n\nThis OAC agent file is original content authored for this repository. It references the Unity\nWork by path and does not incorporate Unity text, so no derivative-work assignment is triggered.\nSee Attribution.md for the full license text and repository-level provenance.\n-->\n",
+      "nsk": ""
+    },
+    "SKILL_REFERENCES_BLOCK": {
+      "sk": "<skill_references>\n  <skill id=\"tilemap-palette-create\" source=\".opencode/xdomains/vendor/unity-skills/skills/tilemap-palette-create/SKILL.md\" optional=\"true\">\n    Unity `tilemap-palette-create` skill. Load only if the install path exists. Also read the skill's\n    `references/*.md` files on demand.\n  </skill>\n  <skill id=\"tilemap-ruletile-createempty\" source=\".opencode/xdomains/vendor/unity-skills/skills/tilemap-ruletile-createempty/SKILL.md\" optional=\"true\">\n    Unity `tilemap-ruletile-createempty` skill. Load only if the install path exists. Also read the skill's\n    `references/*.md` files on demand.\n  </skill>\n  <skill id=\"tilemap-ruletile-createfromsegment\" source=\".opencode/xdomains/vendor/unity-skills/skills/tilemap-ruletile-createfromsegment/SKILL.md\" optional=\"true\">\n    Unity `tilemap-ruletile-createfromsegment` skill. Load only if the install path exists. Also read the skill's\n    `references/*.md` files on demand.\n  </skill>\n  <skill id=\"sprite-editor\" source=\".opencode/xdomains/vendor/unity-skills/skills/sprite-editor/SKILL.md\" optional=\"true\">\n    Unity `sprite-editor` skill. Load only if the install path exists. Also read the skill's\n    `references/*.md` files on demand.\n  </skill>\n</skill_references>\n",
+      "nsk": ""
+    },
+    "UNITY_SKILL_RULE": {
+      "sk": "  <rule id=\"unity_skill_path\">\n    Before starting work, check whether `.opencode/xdomains/vendor/unity-skills/` exists. If it\n    does, read the `tilemap-palette-create`/`tilemap-ruletile-createempty`/`tilemap-ruletile-createfromsegment`/`sprite-editor` SKILL.md and follow its instructions. If it does not, proceed using\n    only this agent's base instructions and inform the user the optional Unity skill is not\n    installed. Never copy Unity skill text into this file; reference it by path only.\n  </rule>\n",
+      "nsk": ""
+    }
+  }
+}

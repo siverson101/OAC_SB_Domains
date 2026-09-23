@@ -242,12 +242,227 @@ function resolveOptions(argv) {
 }
 
 // tools/unity/unity-version-drift/src/abilities.ts
-import { mkdirSync as mkdirSync2, readdirSync, writeFileSync as writeFileSync2 } from "node:fs";
-import { basename, dirname as dirname2, join as join4, relative } from "node:path";
+import { existsSync as existsSync3, mkdirSync as mkdirSync2, readdirSync, writeFileSync as writeFileSync2 } from "node:fs";
+import { basename, dirname as dirname2, join as join5, relative } from "node:path";
+
+// tools/shared/optional-unity-skills.ts
+import { existsSync as existsSync2 } from "node:fs";
+import { join as join3 } from "node:path";
+var VENDOR_REL = "xdomains/vendor/unity-skills";
+var INSTALL_MARKER = ".oac-unity-skills.json";
+function vendorPath(opencodeDir) {
+  return join3(opencodeDir, VENDOR_REL);
+}
+function installMarkerPath(vendorDir) {
+  return join3(vendorDir, INSTALL_MARKER);
+}
+function readInstalledCommit(vendorDir) {
+  const marker = installMarkerPath(vendorDir);
+  if (!existsSync2(marker))
+    return null;
+  const commit = asRecord(readJson(marker))?.commit;
+  return typeof commit === "string" && commit ? commit : null;
+}
+
+// tools/unity/studio-config/src/types.ts
+var STUDIO_MODES = ["lean", "full"];
+var REVIEW_INTENSITIES = ["full", "lean", "solo"];
+var MODEL_TIERS = ["router", "lead", "specialist"];
+var UI_STACKS = ["uitk", "ugui", "mixed"];
+var STUDIO_CONFIG_SCHEMA_VERSION = 1;
+var DEFAULT_STUDIO_CONFIG = {
+  schemaVersion: STUDIO_CONFIG_SCHEMA_VERSION,
+  studioMode: "lean",
+  reviewIntensity: "full",
+  uiStack: "uitk",
+  toggles: { tdd: false, ftf: false, unitySkills: false },
+  patterns: [],
+  packages: [],
+  modelTiers: {}
+};
+
+// tools/unity/studio-config/src/config.ts
+var KNOWN_KEYS = new Set([
+  "$schema",
+  "schemaVersion",
+  "studioMode",
+  "reviewIntensity",
+  "uiStack",
+  "toggles",
+  "patterns",
+  "packages",
+  "modelTiers"
+]);
+var KNOWN_TOGGLE_KEYS = new Set(["tdd", "ftf", "unitySkills"]);
+function defaultStudioConfig() {
+  return {
+    ...DEFAULT_STUDIO_CONFIG,
+    toggles: { ...DEFAULT_STUDIO_CONFIG.toggles },
+    patterns: [],
+    packages: [],
+    modelTiers: { ...DEFAULT_STUDIO_CONFIG.modelTiers }
+  };
+}
+function parseStringArray(value, field, problems) {
+  if (value === undefined)
+    return [];
+  if (!Array.isArray(value)) {
+    problems.push({ field, message: "expected an array of strings" });
+    return [];
+  }
+  const out = [];
+  for (const item of value) {
+    if (typeof item === "string" && item.trim() !== "") {
+      const id = item.trim();
+      if (!out.includes(id))
+        out.push(id);
+    } else {
+      problems.push({ field, message: `ignored non-string entry ${JSON.stringify(item)}` });
+    }
+  }
+  return out;
+}
+function parseMode(value, problems) {
+  if (value === undefined)
+    return DEFAULT_STUDIO_CONFIG.studioMode;
+  if (typeof value === "string" && STUDIO_MODES.includes(value)) {
+    return value;
+  }
+  problems.push({ field: "studioMode", message: `expected one of ${STUDIO_MODES.join("|")}, got ${JSON.stringify(value)}` });
+  return DEFAULT_STUDIO_CONFIG.studioMode;
+}
+function parseIntensity(value, problems) {
+  if (value === undefined)
+    return DEFAULT_STUDIO_CONFIG.reviewIntensity;
+  if (typeof value === "string" && REVIEW_INTENSITIES.includes(value)) {
+    return value;
+  }
+  problems.push({
+    field: "reviewIntensity",
+    message: `expected one of ${REVIEW_INTENSITIES.join("|")}, got ${JSON.stringify(value)}`
+  });
+  return DEFAULT_STUDIO_CONFIG.reviewIntensity;
+}
+function parseUiStack(value, problems) {
+  if (value === undefined)
+    return DEFAULT_STUDIO_CONFIG.uiStack;
+  if (typeof value === "string" && UI_STACKS.includes(value)) {
+    return value;
+  }
+  problems.push({ field: "uiStack", message: `expected one of ${UI_STACKS.join("|")}, got ${JSON.stringify(value)}` });
+  return DEFAULT_STUDIO_CONFIG.uiStack;
+}
+function parseToggles(value, problems) {
+  const toggles = { ...DEFAULT_STUDIO_CONFIG.toggles };
+  if (value === undefined)
+    return toggles;
+  const record = asRecord(value);
+  if (!record) {
+    problems.push({ field: "toggles", message: "expected an object with boolean tdd/ftf/unitySkills flags" });
+    return toggles;
+  }
+  for (const key of Object.keys(record)) {
+    if (!KNOWN_TOGGLE_KEYS.has(key))
+      problems.push({ field: `toggles.${key}`, message: "unknown toggle" });
+  }
+  for (const key of KNOWN_TOGGLE_KEYS) {
+    const flag = record[key];
+    if (flag === undefined)
+      continue;
+    if (typeof flag === "boolean")
+      toggles[key] = flag;
+    else
+      problems.push({ field: `toggles.${key}`, message: `expected a boolean, got ${JSON.stringify(flag)}` });
+  }
+  return toggles;
+}
+function parseModelTiers(value, problems) {
+  const tiers = {};
+  if (value === undefined)
+    return tiers;
+  const record = asRecord(value);
+  if (!record) {
+    problems.push({
+      field: "modelTiers",
+      message: `expected an object mapping ${MODEL_TIERS.join("|")} to a model id`
+    });
+    return tiers;
+  }
+  for (const key of Object.keys(record)) {
+    if (!MODEL_TIERS.includes(key)) {
+      problems.push({ field: `modelTiers.${key}`, message: `unknown tier; expected one of ${MODEL_TIERS.join("|")}` });
+      continue;
+    }
+    const model = record[key];
+    if (typeof model !== "string" || model.trim() === "") {
+      problems.push({
+        field: `modelTiers.${key}`,
+        message: `expected a non-empty model id string, got ${JSON.stringify(model)}`
+      });
+      continue;
+    }
+    tiers[key] = model.trim();
+  }
+  return tiers;
+}
+function parseStudioConfig(value) {
+  const problems = [];
+  const record = asRecord(value);
+  if (!record) {
+    problems.push({ field: "$", message: "config must be a JSON object" });
+    return { config: defaultStudioConfig(), problems };
+  }
+  for (const key of Object.keys(record)) {
+    if (!KNOWN_KEYS.has(key))
+      problems.push({ field: key, message: "unknown property" });
+  }
+  let schemaVersion = DEFAULT_STUDIO_CONFIG.schemaVersion;
+  if (record.schemaVersion !== undefined) {
+    if (typeof record.schemaVersion !== "number" || !Number.isFinite(record.schemaVersion)) {
+      problems.push({ field: "schemaVersion", message: `expected a number, got ${JSON.stringify(record.schemaVersion)}` });
+    } else if (record.schemaVersion !== STUDIO_CONFIG_SCHEMA_VERSION) {
+      problems.push({
+        field: "schemaVersion",
+        message: `unsupported schema version ${JSON.stringify(record.schemaVersion)}, expected ${STUDIO_CONFIG_SCHEMA_VERSION}`
+      });
+    } else {
+      schemaVersion = record.schemaVersion;
+    }
+  }
+  const config = {
+    schemaVersion,
+    studioMode: parseMode(record.studioMode, problems),
+    reviewIntensity: parseIntensity(record.reviewIntensity, problems),
+    uiStack: parseUiStack(record.uiStack, problems),
+    toggles: parseToggles(record.toggles, problems),
+    patterns: parseStringArray(record.patterns, "patterns", problems),
+    packages: parseStringArray(record.packages, "packages", problems),
+    modelTiers: parseModelTiers(record.modelTiers, problems)
+  };
+  return { config, problems };
+}
+function loadStudioConfig(path) {
+  const text = readText(path);
+  if (text === null)
+    return { present: false, path, config: defaultStudioConfig(), problems: [] };
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch (error) {
+    return {
+      present: true,
+      path,
+      config: defaultStudioConfig(),
+      problems: [{ field: "$", message: `invalid JSON: ${error instanceof Error ? error.message : String(error)}` }]
+    };
+  }
+  const { config, problems } = parseStudioConfig(parsed);
+  return { present: true, path, config, problems };
+}
 
 // tools/shared/toolchain.ts
 import { spawnSync } from "node:child_process";
-import { join as join3 } from "node:path";
+import { join as join4 } from "node:path";
 function run(cmd, args, opts = {}) {
   const res = spawnSync(cmd, args, {
     cwd: opts.cwd,
@@ -273,7 +488,7 @@ function stripAnsi(text) {
   return text.replace(/\u001b\[[0-9;]*m/g, "");
 }
 function editorVersionInfo(projectRoot) {
-  const text = readText(join3(projectRoot, "ProjectSettings", "ProjectVersion.txt"));
+  const text = readText(join4(projectRoot, "ProjectSettings", "ProjectVersion.txt"));
   if (!text)
     return { version: null, revision: null };
   const version = text.match(/^\s*m_EditorVersion:\s*(\S+)\s*$/m)?.[1] ?? null;
@@ -392,7 +607,7 @@ function readCommandsBaseline(path) {
   return { present: true, commands: arr.filter((item) => typeof item === "string") };
 }
 function writeCommandsBaseline(options, commands, cliVersion) {
-  writeJson(join4(baselineDir(options), CLI_COMMANDS_BASELINE), {
+  writeJson(join5(baselineDir(options), CLI_COMMANDS_BASELINE), {
     schemaVersion: 1,
     generatedAt: options.now,
     cliVersion,
@@ -432,7 +647,7 @@ function detectEditor(options, errors) {
   section.current = info.version;
   section.revision = info.revision;
   if (!info.version) {
-    if (fileExists(join4(options.projectRoot, "ProjectSettings", "ProjectVersion.txt"))) {
+    if (fileExists(join5(options.projectRoot, "ProjectSettings", "ProjectVersion.txt"))) {
       section.status = "unknown";
       errors.push("ProjectSettings/ProjectVersion.txt is present but has no m_EditorVersion line");
     } else {
@@ -440,7 +655,7 @@ function detectEditor(options, errors) {
     }
     return section;
   }
-  const path = join4(baselineDir(options), EDITOR_BASELINE);
+  const path = join5(baselineDir(options), EDITOR_BASELINE);
   const baseline = readBaselineText(path);
   const current = info.version;
   section.baseline = baseline;
@@ -477,7 +692,7 @@ function detectPackages(options, errors) {
     updated: [],
     action: null
   };
-  const manifestPath = join4(options.projectRoot, "Packages", "manifest.json");
+  const manifestPath = join5(options.projectRoot, "Packages", "manifest.json");
   const manifest = readManifestDependencies(manifestPath);
   if (!manifest.present) {
     section.status = "unavailable";
@@ -490,7 +705,7 @@ function detectPackages(options, errors) {
   }
   const current = manifest.dependencies;
   section.count = Object.keys(current).length;
-  const path = join4(baselineDir(options), PACKAGE_BASELINE);
+  const path = join5(baselineDir(options), PACKAGE_BASELINE);
   if (!fileExists(path)) {
     if (!writeBaseline(errors, path, () => writeJson(path, { schemaVersion: 1, generatedAt: options.now, packages: current }))) {
       section.status = "unknown";
@@ -538,7 +753,7 @@ function captureCommands(options, probe, section, errors, cliVersion, failureMes
     }
     return false;
   }
-  const path = join4(baselineDir(options), CLI_COMMANDS_BASELINE);
+  const path = join5(baselineDir(options), CLI_COMMANDS_BASELINE);
   if (!writeBaseline(errors, path, () => writeCommandsBaseline(options, commands, cliVersion)))
     return false;
   section.commandCount = commands.length;
@@ -572,7 +787,7 @@ function detectCli(options, errors) {
     return section;
   }
   section.current = cliVersion;
-  const versionPath = join4(baselineDir(options), CLI_VERSION_BASELINE);
+  const versionPath = join5(baselineDir(options), CLI_VERSION_BASELINE);
   const baseline = readBaselineText(versionPath);
   section.baseline = baseline;
   if (baseline === null) {
@@ -592,7 +807,7 @@ function detectCli(options, errors) {
   }
   if (baseline === cliVersion) {
     section.status = "unchanged";
-    if (!fileExists(join4(baselineDir(options), CLI_COMMANDS_BASELINE))) {
+    if (!fileExists(join5(baselineDir(options), CLI_COMMANDS_BASELINE))) {
       captureCommands(options, probe, section, errors, cliVersion, "Unity CLI version unchanged but the command catalog could not be captured");
     }
     return section;
@@ -607,14 +822,14 @@ function detectCli(options, errors) {
     section.action = `Review CLI command catalog changes for ${baseline} → ${cliVersion} and update context files/docs that enumerate Unity CLI commands.`;
     return section;
   }
-  const base = readCommandsBaseline(join4(baselineDir(options), CLI_COMMANDS_BASELINE));
+  const base = readCommandsBaseline(join5(baselineDir(options), CLI_COMMANDS_BASELINE));
   const baselineCommands = base.commands ?? [];
   const currentSet = new Set(commands);
   const baseSet = new Set(baselineCommands);
   section.commandsAdded = commands.filter((command) => !baseSet.has(command)).sort();
   section.commandsRemoved = baselineCommands.filter((command) => !currentSet.has(command)).sort();
   section.commandCount = commands.length;
-  if (writeBaseline(errors, join4(baselineDir(options), CLI_COMMANDS_BASELINE), () => writeCommandsBaseline(options, commands, cliVersion))) {
+  if (writeBaseline(errors, join5(baselineDir(options), CLI_COMMANDS_BASELINE), () => writeCommandsBaseline(options, commands, cliVersion))) {
     section.updated.push(baselineRelPath(CLI_COMMANDS_BASELINE));
   }
   section.actionFiles = findCliCommandDocs(options.opencodeDir);
@@ -636,12 +851,12 @@ function findCliCommandDocs(root, limit = 25) {
     for (const entry of entries) {
       if (entry.isDirectory()) {
         if (!CLI_DOC_SKIP_DIRS.has(entry.name))
-          walk(join4(dir, entry.name), depth + 1);
+          walk(join5(dir, entry.name), depth + 1);
         continue;
       }
       if (!entry.isFile() || !entry.name.endsWith(".md"))
         continue;
-      const full = join4(dir, entry.name);
+      const full = join5(dir, entry.name);
       const text = readText(full);
       if (!text || !CLI_COMMAND_DOC_PATTERN.test(text))
         continue;
@@ -656,6 +871,24 @@ function findCliCommandDocs(root, limit = 25) {
   if (extra > 0)
     found.push(`(+${extra} more)`);
   return found;
+}
+function detectOptionalSkills(options) {
+  const enabled = loadStudioConfig(join5(options.opencodeDir, "unity-studio.json")).config.toggles.unitySkills === true;
+  const path = vendorPath(options.opencodeDir);
+  const installed = existsSync3(path);
+  const commit = installed ? readInstalledCommit(path) : null;
+  if (!enabled)
+    return { status: "disabled", enabled, installed, path, commit, action: null };
+  if (installed)
+    return { status: "installed", enabled, installed, path, commit, action: null };
+  return {
+    status: "missing",
+    enabled,
+    installed,
+    path,
+    commit,
+    action: "Unity skills are enabled but the vendor path is absent. Run `/unity-skills install`, or turn `toggles.unitySkills` off and re-apply to restore the base agents."
+  };
 }
 function emptyEditor() {
   return { status: "not_checked", current: null, baseline: null, revision: null, updated: [], action: null };
@@ -819,6 +1052,17 @@ function renderCli(section) {
     lines.push(`  → ACTION REQUIRED: ${section.action}`);
   return lines;
 }
+function renderOptionalSkills(section) {
+  if (section.status === "disabled")
+    return ["[Optional skills] Disabled (Unity `unity-skills` not enabled)"];
+  if (section.status === "installed") {
+    return [`[Optional skills] Installed (${section.path}${section.commit ? ` @ ${section.commit}` : ""})`];
+  }
+  if (section.status === "missing") {
+    return ["[Optional skills] Enabled but not installed", `  → ACTION REQUIRED: ${section.action}`];
+  }
+  return ["[Optional skills] not checked"];
+}
 function renderReport(result) {
   const lines = ["=== Session-Start Version Check ===", ""];
   if (result.cadence.skipped) {
@@ -826,14 +1070,14 @@ function renderReport(result) {
     return lines.join(`
 `);
   }
-  lines.push(...renderEditor(result.editor), ...renderPackages(result.packages), ...renderCli(result.cli));
+  lines.push(...renderEditor(result.editor), ...renderPackages(result.packages), ...renderCli(result.cli), ...renderOptionalSkills(result.optionalSkills));
   return lines.join(`
 `);
 }
 function runVersionDrift(options) {
   const errors = [];
   const dir = baselineDir(options);
-  const lastRunUtc = readLastRun(join4(dir, LAST_RUN));
+  const lastRunUtc = readLastRun(join5(dir, LAST_RUN));
   const cadence = computeCadence(options, lastRunUtc);
   if (cadence.skipped) {
     const skipped = {
@@ -842,6 +1086,14 @@ function runVersionDrift(options) {
       editor: emptyEditor(),
       packages: emptyPackages(),
       cli: emptyCli(),
+      optionalSkills: {
+        status: "not_checked",
+        enabled: false,
+        installed: false,
+        path: vendorPath(options.opencodeDir),
+        commit: null,
+        action: null
+      },
       actions: [],
       baselinesUpdated: [],
       report: ""
@@ -852,12 +1104,13 @@ function runVersionDrift(options) {
   const editor = detectEditor(options, errors);
   const packages = detectPackages(options, errors);
   const cli = detectCli(options, errors);
+  const optionalSkills = detectOptionalSkills(options);
   try {
-    writeJson(join4(dir, LAST_RUN), { schemaVersion: 1, lastRunUtc: options.now });
+    writeJson(join5(dir, LAST_RUN), { schemaVersion: 1, lastRunUtc: options.now });
   } catch (error) {
     errors.push(`could not record last-run: ${messageOf(error)}`);
   }
-  const actions = [editor.action, packages.action, cli.action].filter((action) => action !== null);
+  const actions = [editor.action, packages.action, cli.action, optionalSkills.action].filter((action) => action !== null);
   const baselinesUpdated = [...editor.updated, ...packages.updated, ...cli.updated];
   const status = overallStatus(editor, packages, cli);
   const route = cli.available && cli.current !== null ? "batch" : "offline";
@@ -867,6 +1120,7 @@ function runVersionDrift(options) {
     editor,
     packages,
     cli,
+    optionalSkills,
     actions,
     baselinesUpdated,
     report: ""

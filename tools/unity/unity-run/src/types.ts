@@ -20,7 +20,7 @@ const RUN_ABILITY_NAMES = [
   'runtime-debugging',
   'runtime-ui-validation',
   'performance-diagnostics',
-  'uitk-interaction',
+  'ui-interaction',
 ] as const;
 
 export type RunAbility = (typeof RUN_ABILITY_NAMES)[number];
@@ -33,7 +33,7 @@ export const RUNTIME_ABILITIES: RuntimeAbility[] = [
   'runtime-debugging',
   'runtime-ui-validation',
   'performance-diagnostics',
-  'uitk-interaction',
+  'ui-interaction',
 ];
 
 export type RunMode = 'offline' | 'live' | 'both';
@@ -46,7 +46,7 @@ export const RUN_MODES: Record<RunAbility, RunMode> = {
   'runtime-debugging': 'live',
   'runtime-ui-validation': 'live',
   'performance-diagnostics': 'live',
-  'uitk-interaction': 'live',
+  'ui-interaction': 'live',
 };
 
 export type RunStatus =
@@ -84,7 +84,7 @@ export const RUN_SAFETY_GATES: Record<RunAbility, DeclaredRunSafetyGate> = {
   'runtime-debugging': { requiresEditor: true, requiresApproval: true },
   'runtime-ui-validation': { requiresEditor: true, requiresApproval: false },
   'performance-diagnostics': { requiresEditor: true, requiresApproval: false },
-  'uitk-interaction': { requiresEditor: true, requiresApproval: false },
+  'ui-interaction': { requiresEditor: true, requiresApproval: false },
 };
 
 export interface RunBase {

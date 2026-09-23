@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "base": "UnityImplementer",
+  "installAs": "agent/subagents/unity/implementer.md",
+  "axes": [
+    {
+      "id": "unity_skills",
+      "values": {
+        "sk": true,
+        "nsk": false
+      },
+      "default": "nsk"
+    }
+  ],
+  "output": "{{BASE_NAME}}.{{unity_skills}}.md",
+  "conditionals": {
+    "ATTRIBUTION_COMMENT": "unity_skills == sk",
+    "SKILL_REFERENCES_BLOCK": "unity_skills == sk",
+    "UNITY_SKILL_RULE": "unity_skills == sk"
+  },
+  "substitutions": {
+    "ATTRIBUTION_COMMENT": {
+      "sk": "<!--\nAttribution: This agent optionally loads the Unity \"unity-cli\", \"unity-package-management\", \"new-unity-project\", \"physics-3d-collision\", \"localization\", \"implement-in-app-purchases\", \"levelplay-unity-integration\", \"setup-multiplayer-services\", \"setup-vivox-voice-chat\", \"initialize-ai-navigation\", \"audio-setup-mixers\", \"optimize-audio\", \"optimize-text-mesh-pro\", \"optimize-web\" skill(s) from\nUnity-Technologies/skills (https://github.com/Unity-Technologies/skills).\nOriginal Work Copyright © Unity Technologies.\nLicensed under the Unity Companion License for Unity-dependent projects:\nhttps://unity3d.com/legal/licenses/unity_companion_license\n\nThis OAC agent file is original content authored for this repository. It references the Unity\nWork by path and does not incorporate Unity text, so no derivative-work assignment is triggered.\nSee Attribution.md for the full license text and repository-level provenance.\n-->\n",
+      "nsk": ""
+    },
+    "SKILL_REFERENCES_BLOCK": {
+      "sk": "<skill_references>\n  <skill id=\"unity-cli\" source=\".opencode/xdomains/vendor/unity-skills/skills/unity-cli/SKILL.md\" optional=\"true\">\n    Unity `unity-cli` skill. Load only if the install path exists. Also read the skill's\n    `references/*.md` files on demand.\n  </skill>\n  <skill id=\"unity-package-management\" source=\".opencode/xdomains/vendor/unity-skills/skills/unity-package-management/SKILL.md\" optional=\"true\">\n    Unity `unity-package-management` skill. Load only if the install path exists. Also read the skill's\n    `references/*.md` files on demand.\n  </skill>\n  <skill id=\"new-unity-project\" source=\".opencode/xdomains/vendor/unity-skills/skills/new-unity-project/SKILL.md\" optional=\"true\">\n    Unity `new-unity-project` skill. Load only if the install path exists. Also read the skill's\n    `references/*.md` files on demand.\n  </skill>\n  <skill id=\"physics-3d-collision\" source=\".opencode/xdomains/vendor/unity-skills/skills/physics-3d-collision/SKILL.md\" optional=\"true\">\n    Unity `physics-3d-collision` skill. Load only if the install path exists. Also read the skill's\n    `references/*.md` files on demand.\n  </skill>\n  <skill id=\"localization\" source=\".opencode/xdomains/vendor/unity-skills/skills/localization/SKILL.md\" optional=\"true\">\n    Unity `localization` skill. Load only if the install path exists. Also read the skill's\n    `references/*.md` files on demand.\n  </skill>\n  <skill id=\"implement-in-app-purchases\" source=\".opencode/xdomains/vendor/unity-skills/skills/implement-in-app-purchases/SKILL.md\" optional=\"true\">\n    Unity `implement-in-app-purchases` skill. Load only if the install path exists. Also read the skill's\n    `references/*.md` files on demand.\n  </skill>\n  <skill id=\"levelplay-unity-integration\" source=\".opencode/xdomains/vendor/unity-skills/skills/levelplay-unity-integration/SKILL.md\" optional=\"true\">\n    Unity `levelplay-unity-integration` skill. Load only if the install path exists. Also read the skill's\n    `references/*.md` files on demand.\n  </skill>\n  <skill id=\"setup-multiplayer-services\" source=\".opencode/xdomains/vendor/unity-skills/skills/setup-multiplayer-services/SKILL.md\" optional=\"true\">\n    Unity `setup-multiplayer-services` skill. Load only if the install path exists. Also read the skill's\n    `references/*.md` files on demand.\n  </skill>\n  <skill id=\"setup-vivox-voice-chat\" source=\".opencode/xdomains/vendor/unity-skills/skills/setup-vivox-voice-chat/SKILL.md\" optional=\"true\">\n    Unity `setup-vivox-voice-chat` skill. Load only if the install path exists. Also read the skill's\n    `references/*.md` files on demand.\n  </skill>\n  <skill id=\"initialize-ai-navigation\" source=\".opencode/xdomains/vendor/unity-skills/skills/initialize-ai-navigation/SKILL.md\" optional=\"true\">\n    Unity `initialize-ai-navigation` skill. Load only if the install path exists. Also read the skill's\n    `references/*.md` files on demand.\n  </skill>\n  <skill id=\"audio-setup-mixers\" source=\".opencode/xdomains/vendor/unity-skills/skills/audio-setup-mixers/SKILL.md\" optional=\"true\">\n    Unity `audio-setup-mixers` skill. Load only if the install path exists. Also read the skill's\n    `references/*.md` files on demand.\n  </skill>\n  <skill id=\"optimize-audio\" source=\".opencode/xdomains/vendor/unity-skills/skills/optimize-audio/SKILL.md\" optional=\"true\">\n    Unity `optimize-audio` skill. Load only if the install path exists. Also read the skill's\n    `references/*.md` files on demand.\n  </skill>\n  <skill id=\"optimize-text-mesh-pro\" source=\".opencode/xdomains/vendor/unity-skills/skills/optimize-text-mesh-pro/SKILL.md\" optional=\"true\">\n    Unity `optimize-text-mesh-pro` skill. Load only if the install path exists. Also read the skill's\n    `references/*.md` files on demand.\n  </skill>\n  <skill id=\"optimize-web\" source=\".opencode/xdomains/vendor/unity-skills/skills/optimize-web/SKILL.md\" optional=\"true\">\n    Unity `optimize-web` skill. Load only if the install path exists. Also read the skill's\n    `references/*.md` files on demand.\n  </skill>\n</skill_references>\n",
+      "nsk": ""
+    },
+    "UNITY_SKILL_RULE": {
+      "sk": "  <rule id=\"unity_skill_path\">\n    Before starting work, check whether `.opencode/xdomains/vendor/unity-skills/` exists. If it\n    does, read the `unity-cli`/`unity-package-management`/`new-unity-project`/`physics-3d-collision`/`localization`/`implement-in-app-purchases`/`levelplay-unity-integration`/`setup-multiplayer-services`/`setup-vivox-voice-chat`/`initialize-ai-navigation`/`audio-setup-mixers`/`optimize-audio`/`optimize-text-mesh-pro`/`optimize-web` SKILL.md and follow its instructions. If it does not, proceed using\n    only this agent's base instructions and inform the user the optional Unity skill is not\n    installed. Never copy Unity skill text into this file; reference it by path only.\n  </rule>\n",
+      "nsk": ""
+    }
+  }
+}

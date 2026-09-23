@@ -41,7 +41,8 @@ describe('studio config schema', () => {
       schemaVersion: 1,
       studioMode: 'full',
       reviewIntensity: 'solo',
-      toggles: { tdd: true, ftf: false },
+      uiStack: 'ugui',
+      toggles: { tdd: true, ftf: false, unitySkills: true },
       patterns: ['tdd', 'factory'],
       packages: ['com.unity.inputsystem'],
       modelTiers: { router: 'model-a', specialist: 'model-b' },
@@ -51,7 +52,8 @@ describe('studio config schema', () => {
       schemaVersion: 1,
       studioMode: 'full',
       reviewIntensity: 'solo',
-      toggles: { tdd: true, ftf: false },
+      uiStack: 'ugui',
+      toggles: { tdd: true, ftf: false, unitySkills: true },
       patterns: ['tdd', 'factory'],
       packages: ['com.unity.inputsystem'],
       modelTiers: { router: 'model-a', specialist: 'model-b' },
@@ -63,7 +65,7 @@ describe('studio config schema', () => {
     expect(problems).toEqual([]);
     expect(parsed.studioMode).toBe('lean');
     expect(parsed.reviewIntensity).toBe('full');
-    expect(parsed.toggles).toEqual({ tdd: false, ftf: false });
+    expect(parsed.toggles).toEqual({ tdd: false, ftf: false, unitySkills: false });
     expect(parsed.patterns).toEqual([]);
     expect(parsed.modelTiers).toEqual({});
   });
@@ -104,7 +106,7 @@ describe('studio config schema', () => {
     expect(fields).toContain('bogus');
     expect(parsed.studioMode).toBe('lean');
     expect(parsed.reviewIntensity).toBe('full');
-    expect(parsed.toggles).toEqual({ tdd: false, ftf: false });
+    expect(parsed.toggles).toEqual({ tdd: false, ftf: false, unitySkills: false });
     expect(parsed.patterns).toEqual([]);
     expect(parsed.packages).toEqual(['com.x']);
   });
@@ -165,7 +167,7 @@ describe('domain default config', () => {
     expect(load.problems).toEqual([]);
     expect(load.config.studioMode).toBe('lean');
     expect(load.config.reviewIntensity).toBe('full');
-    expect(load.config.toggles).toEqual({ tdd: false, ftf: false });
+    expect(load.config.toggles).toEqual({ tdd: false, ftf: false, unitySkills: false });
   });
 });
 
@@ -285,7 +287,7 @@ describe('registry studio config integration', () => {
     expect(registry.studioConfig.path).toBe(join(unity3dDir, 'unity-studio.json'));
     expect(registry.studioConfig.studioMode).toBe('lean');
     expect(registry.studioConfig.reviewIntensity).toBe('full');
-    expect(registry.studioConfig.toggles).toEqual({ tdd: false, ftf: false });
+    expect(registry.studioConfig.toggles).toEqual({ tdd: false, ftf: false, unitySkills: false });
     expect(registry.studioConfig.patterns).toEqual([]);
     expect(registry.studioConfig.valid).toBe(true);
     // The catalog is found via the `domainDir` candidate, so no catalog problem
@@ -311,7 +313,7 @@ describe('registry studio config integration', () => {
       expect(registry.studioConfig.present).toBe(true);
       expect(registry.studioConfig.studioMode).toBe('full');
       expect(registry.studioConfig.reviewIntensity).toBe('lean');
-      expect(registry.studioConfig.toggles).toEqual({ tdd: true, ftf: true });
+      expect(registry.studioConfig.toggles).toEqual({ tdd: true, ftf: true, unitySkills: false });
       expect(registry.studioConfig.patterns).toEqual(['dependency-injection', 'factory']);
       expect(registry.studioConfig.packages).toEqual(['com.unity.inputsystem']);
       expect(registry.studioConfig.valid).toBe(true);

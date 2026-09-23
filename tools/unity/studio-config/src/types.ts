@@ -19,9 +19,17 @@ export type ModelTier = (typeof MODEL_TIERS)[number];
 // Sparse tier -> model id map. An absent tier resolves to no model.
 export type ModelTiers = Partial<Record<ModelTier, string>>;
 
+// The project's UI stack, selecting which multi-axis UI agent variant installs
+// (ADR-0020). `mixed` means the project uses more than one stack.
+export const UI_STACKS = ['uitk', 'ugui', 'mixed'] as const;
+export type UiStack = (typeof UI_STACKS)[number];
+
 export interface StudioToggles {
   tdd: boolean;
   ftf: boolean;
+  // Optional Unity `unity-skills` install (ADR-0019). Off by default; enabling
+  // it selects the `sk` variants of the skill-bearing agents.
+  unitySkills: boolean;
 }
 
 // The only schema version this loader understands. An unknown version is
@@ -32,6 +40,7 @@ export interface StudioConfig {
   schemaVersion: number;
   studioMode: StudioMode;
   reviewIntensity: ReviewIntensity;
+  uiStack: UiStack;
   toggles: StudioToggles;
   patterns: string[];
   packages: string[];
@@ -39,12 +48,13 @@ export interface StudioConfig {
 }
 
 // The fail-soft default when the file is missing or unreadable: Lean hierarchy,
-// full review, no patterns/packages, both toggles off.
+// full review, UI Toolkit stack, all toggles off.
 export const DEFAULT_STUDIO_CONFIG: StudioConfig = {
   schemaVersion: STUDIO_CONFIG_SCHEMA_VERSION,
   studioMode: 'lean',
   reviewIntensity: 'full',
-  toggles: { tdd: false, ftf: false },
+  uiStack: 'uitk',
+  toggles: { tdd: false, ftf: false, unitySkills: false },
   patterns: [],
   packages: [],
   modelTiers: {},

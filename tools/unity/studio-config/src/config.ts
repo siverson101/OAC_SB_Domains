@@ -14,6 +14,7 @@ import {
   REVIEW_INTENSITIES,
   STUDIO_CONFIG_SCHEMA_VERSION,
   STUDIO_MODES,
+  UI_STACKS,
   type ConfigProblem,
   type ModelTier,
   type ModelTiers,
@@ -21,6 +22,7 @@ import {
   type StudioConfig,
   type StudioMode,
   type StudioToggles,
+  type UiStack,
 } from './types';
 
 const KNOWN_KEYS = new Set([
@@ -28,13 +30,14 @@ const KNOWN_KEYS = new Set([
   'schemaVersion',
   'studioMode',
   'reviewIntensity',
+  'uiStack',
   'toggles',
   'patterns',
   'packages',
   'modelTiers',
 ]);
 
-const KNOWN_TOGGLE_KEYS = new Set(['tdd', 'ftf']);
+const KNOWN_TOGGLE_KEYS = new Set(['tdd', 'ftf', 'unitySkills']);
 
 export interface StudioConfigLoad {
   // True when the file exists and parsed as JSON (even if it had problems).
@@ -94,12 +97,21 @@ function parseIntensity(value: unknown, problems: ConfigProblem[]): ReviewIntens
   return DEFAULT_STUDIO_CONFIG.reviewIntensity;
 }
 
+function parseUiStack(value: unknown, problems: ConfigProblem[]): UiStack {
+  if (value === undefined) return DEFAULT_STUDIO_CONFIG.uiStack;
+  if (typeof value === 'string' && (UI_STACKS as readonly string[]).includes(value)) {
+    return value as UiStack;
+  }
+  problems.push({ field: 'uiStack', message: `expected one of ${UI_STACKS.join('|')}, got ${JSON.stringify(value)}` });
+  return DEFAULT_STUDIO_CONFIG.uiStack;
+}
+
 function parseToggles(value: unknown, problems: ConfigProblem[]): StudioToggles {
   const toggles: StudioToggles = { ...DEFAULT_STUDIO_CONFIG.toggles };
   if (value === undefined) return toggles;
   const record = asRecord(value);
   if (!record) {
-    problems.push({ field: 'toggles', message: 'expected an object with boolean tdd/ftf flags' });
+    problems.push({ field: 'toggles', message: 'expected an object with boolean tdd/ftf/unitySkills flags' });
     return toggles;
   }
   for (const key of Object.keys(record)) {
@@ -173,6 +185,7 @@ export function parseStudioConfig(value: unknown): { config: StudioConfig; probl
     schemaVersion,
     studioMode: parseMode(record.studioMode, problems),
     reviewIntensity: parseIntensity(record.reviewIntensity, problems),
+    uiStack: parseUiStack(record.uiStack, problems),
     toggles: parseToggles(record.toggles, problems),
     patterns: parseStringArray(record.patterns, 'patterns', problems),
     packages: parseStringArray(record.packages, 'packages', problems),

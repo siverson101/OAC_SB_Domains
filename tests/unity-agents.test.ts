@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { buildRegistry, type Registry } from '../tools/shared/registry/src/build';
+import { buildRegistry, buildTemplateOverlay, readAgentSource, type Registry } from '../tools/shared/registry/src/build';
 import { frontmatterString, frontmatterStringArray, parseFrontmatter } from '../tools/shared/registry/src/frontmatter';
 import { claimResource, emptyBoard } from '../tools/unity/unity-compose/src/coordination-board';
 
@@ -38,8 +38,10 @@ function agentId(rel: string): string {
   return rel.slice(rel.lastIndexOf('/') + 1).replace(/\.md$/, '');
 }
 
+const templateOverlay = buildTemplateOverlay(unity3dDir, manifest as never);
+
 function readAgent(rel: string): { content: string; fm: ReturnType<typeof parseFrontmatter> } {
-  const content = readFileSync(join(unity3dDir, rel), 'utf8');
+  const content = readAgentSource(unity3dDir, rel, templateOverlay).content;
   return { content, fm: parseFrontmatter(content) };
 }
 
@@ -120,7 +122,7 @@ describe('Lean agent registry edges', () => {
     expect(hasEdge('unity-3d-orchestrator', 'coordination-board')).toBe(true);
     expect(hasEdge('implementer', 'script-scaffolding')).toBe(true);
     expect(hasEdge('scene', 'scene-editing')).toBe(true);
-    expect(hasEdge('uitk', 'uitk-interaction')).toBe(true);
+    expect(hasEdge('ui', 'ui-interaction')).toBe(true);
     expect(hasEdge('animator', 'asset-intelligence')).toBe(true);
     expect(hasEdge('shadervfx', 'shader-helper')).toBe(true);
     expect(hasEdge('artasset', 'asset-intelligence')).toBe(true);
