@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
+import { buildTemplateOverlay, readAgentSource } from '../tools/shared/registry/src/build';
 import { frontmatterString, frontmatterStringArray, parseFrontmatter } from '../tools/shared/registry/src/frontmatter';
 
 const repoRoot = resolve(import.meta.dir, '..');
@@ -9,8 +10,18 @@ const fullStudioDir = join(unity3dDir, 'agent', 'full-studio');
 
 const manifest = JSON.parse(readFileSync(join(unity3dDir, 'sb-domain.json'), 'utf8')) as {
   abilities: string[];
+  templates?: { installAs?: string; template?: string; manifest?: string }[];
 };
 const knownAbilities = new Set(manifest.abilities);
+const templateOverlay = buildTemplateOverlay(unity3dDir, manifest as never);
+
+// Multi-axis templates (ADR-0020) live beside the roster agents; their template
+// and resolved variants must not be counted as roster agents.
+const fullStudioTemplateBases = (manifest.templates ?? [])
+  .filter((entry) => entry.installAs?.startsWith('agent/full-studio/'))
+  .map((entry) => (JSON.parse(readFileSync(join(unity3dDir, entry.manifest ?? ''), 'utf8')) as { base: string }).base);
+const isTemplateSource = (name: string): boolean =>
+  fullStudioTemplateBases.some((base) => name === `${base}.md` || name.startsWith(`${base}.`));
 
 // The 18-agent roster: filename stem -> frontmatter `name`.
 const EXPECTED: Record<string, string> = {
@@ -59,11 +70,20 @@ function walkMarkdown(dir: string, out: string[] = []): string[] {
   return out;
 }
 
-const agentFiles = walkMarkdown(fullStudioDir).sort();
-const agentIds = agentFiles.map((file) => basename(file, '.md')).sort();
+const templatedStems = new Set(
+  (manifest.templates ?? [])
+    .filter((entry) => entry.installAs?.startsWith('agent/full-studio/'))
+    .map((entry) => basename(entry.installAs ?? '', '.md'))
+);
+
+const diskAgentIds = walkMarkdown(fullStudioDir)
+  .filter((file) => !isTemplateSource(basename(file)))
+  .map((file) => basename(file, '.md'))
+  .sort();
+const agentIds = Object.keys(EXPECTED).sort();
 
 function readAgent(id: string): string {
-  return readFileSync(join(fullStudioDir, `${id}.md`), 'utf8');
+  return readAgentSource(unity3dDir, `agent/full-studio/${id}.md`, templateOverlay).content;
 }
 
 // The registry frontmatter parser is shallow and cannot read quoted glob keys
@@ -102,8 +122,13 @@ function permissionRules(content: string): Record<string, Record<string, string>
 
 describe('Full Studio hierarchy', () => {
   test('ships exactly the 18-agent roster', () => {
-    expect(agentFiles).toHaveLength(18);
+    expect(agentIds).toHaveLength(18);
     expect(agentIds).toEqual(Object.keys(EXPECTED).sort());
+    // The non-templated agents are plain files; the templated ones are source
+    // templates resolved at install. No stray agent files beyond those.
+    const expectedDisk = agentIds.filter((id) => !templatedStems.has(id)).sort();
+    expect(diskAgentIds).toEqual(expectedDisk);
+    for (const id of templatedStems) expect(EXPECTED[id], `${id} is not a roster agent`).toBeDefined();
   });
 
   test('every agent declares valid frontmatter and a Delegation Map', () => {

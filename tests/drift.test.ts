@@ -14,6 +14,7 @@ interface Manifest {
   agents?: string[];
   subagents?: string[];
   studioModes?: Record<string, { agents?: string[]; subagents?: string[]; optional?: (string | { path?: string })[] }>;
+  templates?: { installAs?: string; template?: string; manifest?: string }[];
   commands?: string[];
   abilities?: string[];
   recipes?: string[];
@@ -98,11 +99,38 @@ describe('declared counts match the files on disk', () => {
 
   test('agents and subagents', () => {
     const agentDir = join(unity3dDir, 'agent');
-    const disk = walkFiles(agentDir, unity3dDir).filter((rel) => rel.endsWith('.md')).sort();
+    // Multi-axis templates (ADR-0020) are source files declared via
+    // `manifest.templates`, not roster agents; their resolved variants live
+    // beside them. Exclude both from the roster-vs-disk comparison.
+    const templateBases = (manifest.templates ?? []).map((entry) => {
+      const meta = JSON.parse(readFileSync(join(unity3dDir, entry.manifest ?? ''), 'utf8')) as { base: string };
+      return { dir: (entry.template ?? '').replace(/\/[^/]+$/, ''), base: meta.base };
+    });
+    const isTemplateSource = (rel: string): boolean =>
+      templateBases.some(({ dir, base }) => {
+        if (!rel.startsWith(`${dir}/`)) return false;
+        const file = rel.split('/').pop() ?? '';
+        return file === `${base}.md` || file.startsWith(`${base}.`);
+      });
+
+    const templatedInstalls = new Set((manifest.templates ?? []).map((entry) => entry.installAs));
+    const disk = walkFiles(agentDir, unity3dDir)
+      .filter((rel) => rel.endsWith('.md') && !isTemplateSource(rel))
+      .sort();
     // Reuse the registry's own roster union so the drift check cannot diverge
-    // from what the engine actually installs.
-    const declared = [...new Set(allStudioAgents(manifest))].sort();
+    // from what the engine actually installs. A templated agent has no plain
+    // source file (its variant is resolved at install), so it is excluded here
+    // and covered by the template/manifest existence checks below.
+    const declared = [...new Set(allStudioAgents(manifest))]
+      .filter((rel) => !templatedInstalls.has(rel))
+      .sort();
     expect(declared).toEqual(disk);
+
+    // Every declared templated agent has its template + manifest on disk.
+    for (const entry of manifest.templates ?? []) {
+      expect(existsSync(join(unity3dDir, entry.template ?? ''))).toBe(true);
+      expect(existsSync(join(unity3dDir, entry.manifest ?? ''))).toBe(true);
+    }
   });
 
   test('recipes', () => {

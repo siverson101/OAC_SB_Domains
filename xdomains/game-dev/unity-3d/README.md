@@ -10,8 +10,8 @@ under `.opencode/xdomains/game-dev/unity-3d/`; applied into `.opencode/` by `/bu
 - Shared context: `context/domain/unity-common.md` (declared in `sharedContext`)
 - Starter context: `context/domain/unity-3d.md`
 - Agent: `agent/unity-3d-orchestrator.md`
-- Subagents: `agent/subagents/unity/{implementer,scene,uitk,animator,shadervfx,artasset,qa}.md`
-- Commands: `command/{unity-setup,unity-brainstorm,unity-plan,unity-implement,unity-debug,unity-polish,unity-review,unity-scene,unity-test,unity-build,unity-architecture,unity-animator,unity-vfx,unity-ase,uitk,unity-runtime-target,unity-prefab-sweep,unity-performance,workflow-catalog}.md`
+- Subagents: `agent/subagents/unity/{implementer,scene,ui,animator,shadervfx,artasset,qa}.md` (templated: `UnityUI.md`, `UnityImplementer.md`, ...)
+- Commands: `command/{unity-setup,unity-brainstorm,unity-plan,unity-implement,unity-debug,unity-polish,unity-review,unity-scene,unity-test,unity-build,unity-architecture,unity-animator,unity-vfx,unity-ase,ui,ugui,uitk,unity-skills,unity-runtime-target,unity-prefab-sweep,unity-performance,workflow-catalog}.md`
 - Context library: `context/unity-3d/{navigation.md,concepts,guides,lookup,examples,errors,workflows}`
 - Hooks: `hooks/instead/stage-{3,4,5,7}-*.md`
 - Projection: `context-projections.json` + `scripts/build-project-context.js`

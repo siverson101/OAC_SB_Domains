@@ -47,7 +47,7 @@ permission:
 - **Reports to**: `Unity3DOrchestrator`
 - **Implements from**: native sub-project requests and orchestrator task briefs
 - **Escalation targets**: `Unity3DOrchestrator` for scope changes, blocked work, or approval
-- **Siblings**: `UnityImplementer`, `UnityScene`, `UnityUITK`, `UnityAnimator`, `UnityShaderVFX`, `UnityArtAsset`, `UnityQA`, `UnityTddSpecialist`
+- **Siblings**: `UnityImplementer`, `UnityScene`, `UnityUI`, `UnityAnimator`, `UnityShaderVFX`, `UnityArtAsset`, `UnityQA`, `UnityTddSpecialist`
 
 <workflow>
   <stage id="1" name="Scope">Identify the native capability, target platforms, and the C# call sites it must serve.</stage>

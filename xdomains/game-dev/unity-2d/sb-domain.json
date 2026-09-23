@@ -23,7 +23,7 @@
   "subagents": [
     "agent/subagents/unity/implementer.md",
     "agent/subagents/unity/scene.md",
-    "agent/subagents/unity/uitk.md",
+    "agent/subagents/unity/ui.md",
     "agent/subagents/unity/animator.md",
     "agent/subagents/unity/shadervfx.md",
     "agent/subagents/unity/artasset.md",
@@ -38,7 +38,10 @@
     "command/unity-animator.md",
     "command/unity-vfx.md",
     "command/unity-ase.md",
-    "command/uitk.md"
+    "command/uitk.md",
+    "command/ui.md",
+    "command/ugui.md",
+    "command/unity-skills.md"
   ],
   "context": [
     "context/domain/unity-2d.md",
@@ -48,19 +51,55 @@
     "unity-read-project",
     "gather-unity-context",
     "unity-build",
-    "unity-run-tests"
+    "unity-run-tests",
+    "unity-skills",
+    "ui-interaction",
+    "ugui-interaction",
+    "uitk-interaction"
   ],
   "skills": [],
   "tools": [
     "unity-cli-wrapper"
   ],
-    "scripts": [
-      "scripts/setup-unity-env.sh",
-      "scripts/build-project-context.js"
-    ],
+  "scripts": [
+    "scripts/setup-unity-env.sh",
+    "scripts/build-project-context.js"
+  ],
   "compatibility": {
     "opencode_min_version": "1.0.0",
-    "unity_versions": ["6.0", "6.3", "6.5", "LTS+"]
+    "unity_versions": [
+      "6.0",
+      "6.3",
+      "6.5",
+      "LTS+"
+    ]
   },
-  "description": "Unity 2D sub-domain of the game-dev domain. Ships shared Unity common context plus a Unity 2D system: orchestrator, 7 specialist subagents, 9 commands, and a function-based context library (concepts, guides, lookup, examples, errors, workflows)."
+  "description": "Unity 2D sub-domain of the game-dev domain. Ships shared Unity common context plus a Unity 2D system: orchestrator, 7 specialist subagents, 9 commands, and a function-based context library (concepts, guides, lookup, examples, errors, workflows).",
+  "templates": [
+    {
+      "installAs": "agent/subagents/unity/ui.md",
+      "template": "agent/subagents/unity/UnityUI.md",
+      "manifest": "agent/subagents/unity/UnityUI_manifest.json"
+    },
+    {
+      "installAs": "agent/subagents/unity/implementer.md",
+      "template": "agent/subagents/unity/UnityImplementer.md",
+      "manifest": "agent/subagents/unity/UnityImplementer_manifest.json"
+    },
+    {
+      "installAs": "agent/subagents/unity/shadervfx.md",
+      "template": "agent/subagents/unity/UnityShaderVFX.md",
+      "manifest": "agent/subagents/unity/UnityShaderVFX_manifest.json"
+    },
+    {
+      "installAs": "agent/subagents/unity/artasset.md",
+      "template": "agent/subagents/unity/UnityArtAsset.md",
+      "manifest": "agent/subagents/unity/UnityArtAsset_manifest.json"
+    },
+    {
+      "installAs": "agent/subagents/unity/qa.md",
+      "template": "agent/subagents/unity/UnityQA.md",
+      "manifest": "agent/subagents/unity/UnityQA_manifest.json"
+    }
+  ]
 }

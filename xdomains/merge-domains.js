@@ -25,9 +25,15 @@
 
 const fs = require('fs');
 const path = require('path');
+const { spawnSync } = require('node:child_process');
 
 const DEFAULT_MANIFEST = 'sb-domain.json';
 const STUDIO_MODES = ['lean', 'full'];
+
+// The shared multi-axis templating tool (ADR-0020), bundled next to this file.
+// The apply engine calls it to resolve each templated agent; it never
+// implements its own placeholder substitution.
+const TEMPLATE_TOOL = path.join(__dirname, 'scripts', 'shared', 'template-agent.mjs');
 
 // ---------------------------------------------------------------------------
 // Studio-mode selection
@@ -193,6 +199,66 @@ function resolveGating(opencodeDir) {
   };
 }
 
+// The axis selection for the multi-axis agent templates (ADR-0020). `ui_stack`
+// comes from the project's `uiStack`; `unity_skills` is `sk` only when the
+// optional install toggle is on. A manifest that does not declare an axis simply
+// ignores it (the tool resolves per the manifest's own axes).
+function readAxisSelection(opencodeDir) {
+  const config = readStudioConfig(opencodeDir) || {};
+  const toggles = config.toggles && typeof config.toggles === 'object' ? config.toggles : {};
+  const uiStack = typeof config.uiStack === 'string' && config.uiStack ? config.uiStack : 'uitk';
+  return {
+    ui_stack: uiStack,
+    unity_skills: toggles.unitySkills === true ? 'sk' : 'nsk',
+  };
+}
+
+// `sb-domain.json` `templates`: installAs -> { template, manifest }. The
+// installed agent name is what the hierarchy lists; the template+manifest are
+// the source of truth it resolves from.
+function readTemplates(manifest) {
+  const map = new Map();
+  for (const entry of manifest.templates || []) {
+    if (!entry || !entry.installAs || !entry.template || !entry.manifest) continue;
+    map.set(entry.installAs, entry);
+  }
+  return map;
+}
+
+function readTemplateBase(domainDir, entry) {
+  try {
+    const parsed = readJson(path.join(domainDir, entry.manifest));
+    return typeof parsed.base === 'string' ? parsed.base : undefined;
+  } catch (_) {
+    return undefined;
+  }
+}
+
+// Resolve one templated agent by invoking the shared tool. Returns true on
+// success; a failure is recorded by the caller and never throws.
+function resolveTemplateAsset(domainDir, entry, selection, dest) {
+  if (!isFile(TEMPLATE_TOOL)) {
+    return { ok: false, reason: `templating tool not found: ${TEMPLATE_TOOL}` };
+  }
+  const axes = Object.entries(selection).map(([key, value]) => `${key}=${value}`).join(',');
+  const result = spawnSync(
+    process.execPath,
+    [
+      TEMPLATE_TOOL,
+      '--template', path.join(domainDir, entry.template),
+      '--manifest', path.join(domainDir, entry.manifest),
+      '--axes', axes,
+      '--out', dest,
+    ],
+    { encoding: 'utf8' }
+  );
+  if (result.status !== 0) {
+    const message = (result.stderr || result.stdout || '').trim() || `exit ${result.status}`;
+    return { ok: false, reason: message };
+  }
+  return { ok: true };
+}
+
 function persistStudioMode(opencodeDir, studioMode, warnings) {
   const file = path.join(opencodeDir, 'unity-studio.json');
   let config = readStudioConfig(opencodeDir);
@@ -327,9 +393,26 @@ function collectAssets(domainDir, manifest, warnings, options) {
   const opts = options || {};
   const assets = [];
   const seen = new Set();
+  // Derived from the manifest when the caller does not pass one, so a direct
+  // `collectAssets(domainDir, manifest, warnings)` call still resolves
+  // templated agents.
+  const templates = opts.templates || readTemplates(manifest);
 
   const addFile = (rel) => {
     if (!rel || seen.has(rel)) return;
+    // A templated agent is declared by its installed name, not a committed
+    // file; the template + manifest are its source and are resolved at install.
+    const template = templates.get(rel);
+    if (template) {
+      seen.add(rel);
+      assets.push({
+        rel,
+        src: path.join(domainDir, template.template),
+        template,
+        name: readTemplateBase(domainDir, template),
+      });
+      return;
+    }
     const src = path.join(domainDir, rel);
     if (isFile(src)) {
       seen.add(rel);
@@ -443,7 +526,7 @@ function registerMetadata(opencodeDir, domain, subdomain, assets, copied, warnin
 
     metadata.agents[id] = {
       id,
-      name: fm.name || id,
+      name: asset.name || fm.name || id,
       category,
       type: isSubagent ? 'subagent' : 'agent',
       version: '1.0.0',
@@ -563,8 +646,10 @@ async function main() {
     console.error(`  warning: overwriting existing studioMode '${existingMode}' with '${studioMode}'`);
   }
   const gating = resolveGating(opencodeDir);
+  const templates = readTemplates(manifest);
+  const axisSelection = readAxisSelection(opencodeDir);
 
-  const assets = collectAssets(domainDir, manifest, warnings, { studioMode, gating });
+  const assets = collectAssets(domainDir, manifest, warnings, { studioMode, gating, templates });
 
   const adaptations = readAdaptations(domainDir);
   const copied = new Set();
@@ -583,7 +668,15 @@ async function main() {
     }
 
     fs.mkdirSync(path.dirname(dest), { recursive: true });
-    fs.copyFileSync(asset.src, dest);
+    if (asset.template) {
+      const resolved = resolveTemplateAsset(domainDir, asset.template, axisSelection, dest);
+      if (!resolved.ok) {
+        warnings.push(`could not resolve templated agent ${asset.rel}: ${resolved.reason}`);
+        continue;
+      }
+    } else {
+      fs.copyFileSync(asset.src, dest);
+    }
     copied.add(asset.rel);
 
     if (doRewrite && !isLocalOpencodeDir(opencodeDir) && dest.endsWith('.md')) {
@@ -638,6 +731,8 @@ module.exports = {
   readExistingStudioMode,
   detectNativeSubproject,
   resolveGating,
+  readAxisSelection,
+  readTemplates,
   persistStudioMode,
   computeDestination,
   collectAssets,

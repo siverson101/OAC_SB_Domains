@@ -46,9 +46,9 @@ const LEAN_ROUTING: RoutingTable = {
     tier: 'specialist',
     abilities: ['coordination-board', 'prefab-automation', 'primitive-composition', 'scene-editing', 'unity-read-project'],
   },
-  uitk: {
+  ui: {
     tier: 'specialist',
-    abilities: ['coordination-board', 'runtime-ui-validation', 'script-scaffolding', 'uitk-interaction', 'unity-read-project'],
+    abilities: ['coordination-board', 'runtime-ui-validation', 'script-scaffolding', 'ui-interaction', 'unity-read-project'],
   },
   animator: {
     tier: 'specialist',
@@ -183,7 +183,7 @@ const FULL_ROUTING: RoutingTable = {
   },
   'ui-programmer': {
     tier: 'specialist',
-    abilities: ['code-navigation', 'compile-and-verify-project', 'runtime-ui-validation', 'script-scaffolding', 'uitk-interaction'],
+    abilities: ['code-navigation', 'compile-and-verify-project', 'runtime-ui-validation', 'script-scaffolding', 'ui-interaction'],
   },
   'performance-analyst': {
     tier: 'specialist',

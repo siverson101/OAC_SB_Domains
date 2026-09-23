@@ -30,6 +30,8 @@ _Last updated 2026-09-19. Decisions this plan encodes live in `docs/adr/` (0011�
 | Native-plugin specialist | native sub-project detected by `sub-projects.ts` | auto |
 | Unity CLI runtime (pipeline + stdio MCP) | Unity CLI availability | CLI direct; MCP optional (Phase 6) |
 | Visual verification gate | always-on per ticket 12 | on |
+| Optional Unity `unity-skills` | `/unity-skills install` / `off` (`.opencode/unity-studio.json` `toggles.unitySkills`) | off |
+| UI stack (UI agent variants) | `.opencode/unity-studio.json` `uiStack` | `uitk` |
 
 ---
 
@@ -153,7 +155,7 @@ typecheck.
 
 - **Context:** ADR-0015/0018, AIBridge `unity-change-implementation` recipe, UAX profiling commands
   (`Runtime/Profiling/*.cs`). Implement `unity-change-loop`, `runtime-debugging`,
-  `runtime-ui-validation`, `performance-diagnostics`, `uitk-interaction`. These need the Unity CLI
+  `runtime-ui-validation`, `performance-diagnostics`, `ui-interaction`. These need the Unity CLI
   live channel from 2.1; until then they're gated.
 - **Completion:** the change-loop ability runs compile → `get_logs --logType Error` → tests → observe
   and cites evidence; runtime abilities report `unavailable` without a Unity CLI/Editor (fail-soft).
@@ -222,6 +224,69 @@ gate test; attribution file completeness test.
   only. Add per-file headers on any substantial adapted source.
 - **Completion:** `docs/Attribution.md` lists every imported component; a test asserts each
   imported/reused file carries the required notice.
+
+---
+
+## Phase 3.5 — Optional Unity `unity-skills` integration & multi-axis agent templates
+
+**Goals:** add an optional, user-initiated integration with Unity Technologies' `unity-skills`
+repository (Model B: no redistribution), and generalise agent authoring into a multi-axis template
+system so an agent can vary along the UI stack (`uitk`/`ugui`/`mixed`) and whether Unity skills are
+installed (`sk`/`nsk`) without hand-maintained combinations.
+
+**Requirements:** FR9, LR4; ADR-0019 (optional install), ADR-0020 (multi-axis templates).
+
+**Tests:** template→variant parity, placeholder absence, filename conformance, conditional
+attribution/skill-reference presence, stack-rule presence, tool parity, attribution-file parity,
+gitignore assertion; installer consent/license-verification/gitignore tests.
+
+### Step 3.5.1 — Shared multi-axis templating tool
+
+- **Context:** a template `<Base>.md` with `{{...}}` placeholders + `<Base>_manifest.json` (axes,
+  substitution map, conditionals, output pattern, `installAs`), a per-sub-domain
+  `agent/template_manifest.json`, and one shared resolver (`tools/shared/templating/` →
+  `xdomains/scripts/shared/template-agent.mjs`) used by the apply engine and CI. Fails fast on any
+  unresolved placeholder; no agent-specific templating logic.
+- **Completion:** the tool resolves every axis combination and `--generate` writes the committed
+  variants; a parity test regenerates and byte-compares.
+
+### Step 3.5.2 — `UnityUI` rename + UI-stack axis
+
+- **Context:** rename the UI agent `UnityUITK` → `UnityUI` (installed `ui.md`); commands `/ui`
+  (main) with `/ugui` and `/uitk` hint aliases; ability `ui-interaction` with `uitk-interaction` /
+  `ugui-interaction` hint aliases; multi-axis template `[ui_stack, unity_skills]` with
+  stack-specific rules. Applies to `unity-2d` and `unity-3d`.
+- **Completion:** the apply engine installs the stack-correct variant; the orchestrator routes UI
+  work to `UnityUI`.
+
+### Step 3.5.3 — Unity-skills axis for the remaining skill-bearing agents
+
+- **Context:** the evaluation pass maps each agent to the Unity skill ids it consumes (spec
+  `unity-skills` §Agent ↔ Unity skill map). Each such agent becomes a template with the
+  `unity_skills` axis; `sk` variants add the attribution comment, `<skill_references>`, and the
+  `unity_skill_path` fallback rule; `nsk` variants add none. Variants keep the base frontmatter
+  (the skill *supplements*; it never narrows). The agents evaluated with no Unity-skill overlap —
+  `UnityScene`, `UnityAnimator`, `UnityTddSpecialist`, `UnityNativePlugin` — are recorded as
+  *evaluated, no overlap* and ship no template.
+- **Completion:** every mapped agent has a template + manifest + `sk`/`nsk` variants; the registry
+  resolves the default variant.
+
+### Step 3.5.4 — Installer, config gate, download, gitignore
+
+- **Context:** `.opencode/unity-studio.json` gains `uiStack` and `toggles.unitySkills`; a
+  `/unity-skills` command (ability `unity-skills`) with `install` / `off` / `status`; a
+  cross-platform installer that prompts, downloads `Unity-Technologies/skills` into
+  `.opencode/xdomains/vendor/unity-skills/`, verifies `LICENSE.md`, ensures the vendor path is
+  gitignored, then re-applies (the apply engine calls the shared tool).
+- **Completion:** consent-declined is a no-op; a license mismatch aborts and leaves no partial
+  install; the vendor path is ignored.
+
+### Step 3.5.5 — Version-drift, attribution & docs
+
+- **Context:** `version-drift` gains an `optionalSkills` section (enabled-but-absent → ACTION
+  REQUIRED); `docs/Attribution.md` records the optional install + full Unity Companion License text;
+  `docs/Requirements.md` gains FR9/LR4.
+- **Completion:** version-drift reports the optional-skill state offline; attribution tests pass.
 
 ---
 
@@ -445,3 +510,16 @@ docs in lockstep.
 | 5 | gate delta honesty; TDD red→green→refactor; dedup; visual extraction |
 | 6 | recipe validation; change-loop E2E (opt-in); prefab dry-run; runtime handshake |
 | 7 | version matrix; swap round-trip; doc-drift |
+| 3.5 | template→variant parity; conditional attribution; installer consent/license; gitignore |
+
+---
+
+## Update log
+
+- **2026-09-23 — Phase 3.5 added:** optional Unity `unity-skills` integration and the multi-axis
+  agent templating system (FR9/LR4; ADR-0019/0020). The Unity Companion License is treated as an
+  **optional-install exception**, not a permissive dependency: the Work is downloaded by the user
+  into a gitignored vendor path, never redistributed by this repository, and referenced by path
+  (so no derivative-work assignment under §3.2 is triggered). Placed as Phase 3.5 (between Phase 3
+  and Phase 4) so the merged phases 4–7 keep their numbers.
+- **2026-09-19 — plan authored** (Goals 4–9, seven phases).

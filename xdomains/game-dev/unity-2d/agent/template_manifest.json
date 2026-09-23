@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "templates": [
+    "subagents/unity/UnityArtAsset.md",
+    "subagents/unity/UnityImplementer.md",
+    "subagents/unity/UnityQA.md",
+    "subagents/unity/UnityShaderVFX.md",
+    "subagents/unity/UnityUI.md"
+  ]
+}

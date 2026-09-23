@@ -52,14 +52,14 @@ export const ABILITY_OPERATIONS: Record<RuntimeAbility, string[]> = {
   'runtime-debugging': ['get_logs', 'execute-code'],
   'runtime-ui-validation': ['ui_snapshot', 'ui_find', 'ui_click', 'ui_key'],
   'performance-diagnostics': ['profiler_counters', 'profiler_snapshot'],
-  'uitk-interaction': ['uitk_tree', 'uitk_click'],
+  'ui-interaction': ['uitk_tree', 'uitk_click'],
 };
 
 export const DEFAULT_OPERATION: Record<RuntimeAbility, string> = {
   'runtime-debugging': 'get_logs',
   'runtime-ui-validation': 'ui_snapshot',
   'performance-diagnostics': 'profiler_counters',
-  'uitk-interaction': 'uitk_tree',
+  'ui-interaction': 'uitk_tree',
 };
 
 export function isRuntimeAbility(ability: string): ability is RuntimeAbility {

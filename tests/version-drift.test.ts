@@ -462,6 +462,64 @@ describe('version-drift: output contract', () => {
   });
 });
 
+describe('version-drift: optional Unity skills (ADR-0019)', () => {
+  function writeStudioConfig(fixture: Fixture, unitySkills: boolean): void {
+    writeFileSync(
+      join(fixture.opencodeDir, 'unity-studio.json'),
+      JSON.stringify({ schemaVersion: 1, studioMode: 'lean', toggles: { tdd: false, ftf: false, unitySkills } })
+    );
+  }
+
+  test('disabled by default — no action', () => {
+    const fixture = makeFixture();
+    unchangedBaselines(fixture);
+    const result = runVersionDrift(options(fixture));
+    expect(result.optionalSkills.status).toBe('disabled');
+    expect(result.optionalSkills.action).toBeNull();
+    expect(result.actions.some((action) => action.includes('/unity-skills install'))).toBe(false);
+  });
+
+  test('enabled but absent surfaces an ACTION REQUIRED offering install or off', () => {
+    const fixture = makeFixture();
+    unchangedBaselines(fixture);
+    writeStudioConfig(fixture, true);
+    const result = runVersionDrift(options(fixture));
+    expect(result.optionalSkills.status).toBe('missing');
+    expect(result.optionalSkills.enabled).toBe(true);
+    expect(result.optionalSkills.installed).toBe(false);
+    expect(result.optionalSkills.action).toContain('/unity-skills install');
+    expect(result.actions.join(' ')).toContain('/unity-skills install');
+    expect(result.report).toContain('ACTION REQUIRED');
+  });
+
+  test('enabled and present reports the path and the recorded commit', () => {
+    const fixture = makeFixture();
+    unchangedBaselines(fixture);
+    writeStudioConfig(fixture, true);
+    const vendor = join(fixture.opencodeDir, 'xdomains', 'vendor', 'unity-skills');
+    mkdirSync(vendor, { recursive: true });
+    writeFileSync(
+      join(vendor, '.oac-unity-skills.json'),
+      JSON.stringify({ schemaVersion: 1, repo: 'https://github.com/Unity-Technologies/skills', commit: 'abc123' })
+    );
+    const result = runVersionDrift(options(fixture));
+    expect(result.optionalSkills.status).toBe('installed');
+    expect(result.optionalSkills.installed).toBe(true);
+    expect(result.optionalSkills.commit).toBe('abc123');
+    expect(result.optionalSkills.action).toBeNull();
+    expect(result.report).toContain('abc123');
+  });
+
+  test('a skipped run reports not_checked', () => {
+    const fixture = makeFixture();
+    unchangedBaselines(fixture);
+    runVersionDrift(options(fixture));
+    const skipped = runVersionDrift(options(fixture, { ifDue: true, now: '2026-09-21T01:00:00.000Z' }));
+    expect(skipped.cadence.skipped).toBe(true);
+    expect(skipped.optionalSkills.status).toBe('not_checked');
+  });
+});
+
 describe('version-drift: cadence', () => {
   test('--if-due skips a fresh run and runs once the window lapses', () => {
     const fixture = makeFixture();

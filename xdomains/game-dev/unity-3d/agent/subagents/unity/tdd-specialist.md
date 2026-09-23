@@ -47,7 +47,7 @@ permission:
 - **Reports to**: `Unity3DOrchestrator`
 - **Implements from**: `/unity-implement` and `/unity-test` specs and orchestrator task briefs
 - **Escalation targets**: `Unity3DOrchestrator` for scope changes, blocked work, or approval
-- **Siblings**: `UnityImplementer`, `UnityScene`, `UnityUITK`, `UnityAnimator`, `UnityShaderVFX`, `UnityArtAsset`, `UnityQA`, `UnityNativePlugin`
+- **Siblings**: `UnityImplementer`, `UnityScene`, `UnityUI`, `UnityAnimator`, `UnityShaderVFX`, `UnityArtAsset`, `UnityQA`, `UnityNativePlugin`
 
 <workflow>
   <stage id="1" name="Scope">Identify the behaviour to change and the test seam. Confirm the observable contract before writing anything.</stage>

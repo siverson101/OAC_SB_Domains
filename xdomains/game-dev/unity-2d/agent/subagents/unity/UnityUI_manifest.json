@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "base": "UnityUI",
+  "installAs": "agent/subagents/unity/ui.md",
+  "axes": [
+    {
+      "id": "ui_stack",
+      "values": {
+        "uitk": "UI Toolkit",
+        "ugui": "UGUI",
+        "mixed": "Mixed"
+      },
+      "default": "uitk"
+    },
+    {
+      "id": "unity_skills",
+      "values": {
+        "sk": true,
+        "nsk": false
+      },
+      "default": "nsk"
+    }
+  ],
+  "output": "{{BASE_NAME}}.{{ui_stack}}.{{unity_skills}}.md",
+  "conditionals": {
+    "ATTRIBUTION_COMMENT": "unity_skills == sk",
+    "SKILL_REFERENCES_BLOCK": "unity_skills == sk",
+    "UNITY_SKILL_RULE": "unity_skills == sk"
+  },
+  "substitutions": {
+    "UI_STACK": {
+      "uitk": "UI Toolkit",
+      "ugui": "UGUI",
+      "mixed": "Mixed"
+    },
+    "ATTRIBUTION_COMMENT": {
+      "sk": "<!--\nAttribution: This agent optionally loads the Unity \"ui-uitk\", \"ui\", \"ui-imgui\", and \"ui-ugui\"\nskills from Unity-Technologies/skills (https://github.com/Unity-Technologies/skills).\nOriginal Work Copyright © Unity Technologies.\nLicensed under the Unity Companion License for Unity-dependent projects:\nhttps://unity3d.com/legal/licenses/unity_companion_license\n\nThis OAC agent file is original content authored for this repository. It references the Unity\nWork by path and does not incorporate Unity text, so no derivative-work assignment is triggered.\nSee Attribution.md for the full license text and repository-level provenance.\n-->\n",
+      "nsk": ""
+    },
+    "SKILL_REFERENCES_BLOCK": {
+      "sk": "<skill_references>\n  <skill id=\"ui-uitk\" source=\".opencode/xdomains/vendor/unity-skills/skills/ui-uitk/SKILL.md\" optional=\"true\">\n    Unity UI Toolkit authoring patterns (UXML/USS), runtime data binding, world-space panels,\n    UXML upgrades, element reference inspection, and the don't-over-edit rule.\n    Load only if the install path exists. Also read the skill's `references/*.md` files on demand.\n  </skill>\n  <skill id=\"ui\" source=\".opencode/xdomains/vendor/unity-skills/skills/ui/SKILL.md\" optional=\"true\">\n    Cross-stack Unity UI guidance: choosing between UI Toolkit, UGUI, and IMGUI for a screen.\n    Load only if the install path exists.\n  </skill>\n  <skill id=\"ui-imgui\" source=\".opencode/xdomains/vendor/unity-skills/skills/ui-imgui/SKILL.md\" optional=\"true\">\n    Immediate-mode GUI (IMGUI) editor tooling patterns. Load only if the install path exists.\n  </skill>\n  <skill id=\"ui-ugui\" source=\".opencode/xdomains/vendor/unity-skills/skills/ui-ugui/SKILL.md\" optional=\"true\">\n    UGUI authoring patterns (Canvas, Canvas Scaler, RectTransform, MonoBehaviour controllers).\n    Load only if the install path exists.\n  </skill>\n</skill_references>\n",
+      "nsk": ""
+    },
+    "UNITY_SKILL_RULE": {
+      "sk": "  <rule id=\"unity_skill_path\">\n    Before starting UI work, check whether `.opencode/xdomains/vendor/unity-skills/` exists. If it\n    does, read the `ui-uitk`/`ui`/`ui-imgui`/`ui-ugui` SKILL.md that matches the target stack and\n    follow its instructions. If it does not, proceed using only this agent's base instructions and\n    inform the user the optional Unity skill is not installed. Never copy Unity skill text into this\n    file; reference it by path only.\n  </rule>\n",
+      "nsk": ""
+    },
+    "STACK_SPECIFIC_RULES": {
+      "uitk": "  <rule id=\"uitk_authoring\">\n    Prefer UXML/USS authoring: keep layout in UXML, style in USS, logic in a C# controller.\n    Validate UXML/USS in the Editor; prefer runtime data binding only on Unity 6+.\n  </rule>\n",
+      "ugui": "  <rule id=\"ugui_authoring\">\n    Prefer Canvas, Canvas Scaler, and RectTransform patterns; author MonoBehaviour UI controllers.\n    Validate prefab and canvas references in the Editor; do not mix UGUI and UITK event systems\n    without explicit coordination.\n  </rule>\n",
+      "mixed": "  <rule id=\"mixed_authoring\">\n    Document explicitly which parts of the screen use UGUI and which use UITK; ensure event systems\n    do not conflict and theming is consistent across both stacks; require orchestrator approval\n    before crossing stack boundaries in a single screen.\n  </rule>\n"
+    }
+  }
+}

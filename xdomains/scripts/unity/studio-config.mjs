@@ -183,7 +183,9 @@ function renderStudioConfigLines(view) {
   const lines = [];
   lines.push(`- Studio mode: ${view.studioMode}`);
   lines.push(`- Review intensity: ${view.reviewIntensity}`);
-  lines.push(`- Toggles: tdd=${view.toggles.tdd}, ftf=${view.toggles.ftf}`);
+  if (view.uiStack)
+    lines.push(`- UI stack: ${view.uiStack}`);
+  lines.push(`- Toggles: tdd=${view.toggles.tdd}, ftf=${view.toggles.ftf}, unitySkills=${view.toggles.unitySkills}`);
   lines.push(`- Enabled patterns: ${formatIds(view.patterns)}`);
   lines.push(`- Enabled packages: ${formatIds(view.packages)}`);
   if (view.conflicts.length > 0) {
@@ -216,12 +218,14 @@ function asRecord(value) {
 var STUDIO_MODES = ["lean", "full"];
 var REVIEW_INTENSITIES = ["full", "lean", "solo"];
 var MODEL_TIERS = ["router", "lead", "specialist"];
+var UI_STACKS = ["uitk", "ugui", "mixed"];
 var STUDIO_CONFIG_SCHEMA_VERSION = 1;
 var DEFAULT_STUDIO_CONFIG = {
   schemaVersion: STUDIO_CONFIG_SCHEMA_VERSION,
   studioMode: "lean",
   reviewIntensity: "full",
-  toggles: { tdd: false, ftf: false },
+  uiStack: "uitk",
+  toggles: { tdd: false, ftf: false, unitySkills: false },
   patterns: [],
   packages: [],
   modelTiers: {}
@@ -233,12 +237,13 @@ var KNOWN_KEYS = new Set([
   "schemaVersion",
   "studioMode",
   "reviewIntensity",
+  "uiStack",
   "toggles",
   "patterns",
   "packages",
   "modelTiers"
 ]);
-var KNOWN_TOGGLE_KEYS = new Set(["tdd", "ftf"]);
+var KNOWN_TOGGLE_KEYS = new Set(["tdd", "ftf", "unitySkills"]);
 function defaultStudioConfig() {
   return {
     ...DEFAULT_STUDIO_CONFIG,
@@ -288,13 +293,22 @@ function parseIntensity(value, problems) {
   });
   return DEFAULT_STUDIO_CONFIG.reviewIntensity;
 }
+function parseUiStack(value, problems) {
+  if (value === undefined)
+    return DEFAULT_STUDIO_CONFIG.uiStack;
+  if (typeof value === "string" && UI_STACKS.includes(value)) {
+    return value;
+  }
+  problems.push({ field: "uiStack", message: `expected one of ${UI_STACKS.join("|")}, got ${JSON.stringify(value)}` });
+  return DEFAULT_STUDIO_CONFIG.uiStack;
+}
 function parseToggles(value, problems) {
   const toggles = { ...DEFAULT_STUDIO_CONFIG.toggles };
   if (value === undefined)
     return toggles;
   const record = asRecord(value);
   if (!record) {
-    problems.push({ field: "toggles", message: "expected an object with boolean tdd/ftf flags" });
+    problems.push({ field: "toggles", message: "expected an object with boolean tdd/ftf/unitySkills flags" });
     return toggles;
   }
   for (const key of Object.keys(record)) {
@@ -369,6 +383,7 @@ function parseStudioConfig(value) {
     schemaVersion,
     studioMode: parseMode(record.studioMode, problems),
     reviewIntensity: parseIntensity(record.reviewIntensity, problems),
+    uiStack: parseUiStack(record.uiStack, problems),
     toggles: parseToggles(record.toggles, problems),
     patterns: parseStringArray(record.patterns, "patterns", problems),
     packages: parseStringArray(record.packages, "packages", problems),

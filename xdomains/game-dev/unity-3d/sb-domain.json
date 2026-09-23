@@ -1,94 +1,97 @@
 {
-    "name": "unity-3d",
-    "displayName": "Unity 3D",
-    "version": "0.2.0",
-    "domain": "game-dev",
-    "subdomain": "unity-3d",
-    "sharedContext": [
-      "context/domain/unity-common.md"
-    ],
-    "config": [
-      "unity-studio.json"
-    ],
-    "paths": {
-      "agent": "agent/",
-      "context": "context/",
-      "templates": "templates/",
-      "command": "command/",
-      "abilities": "abilities/",
-      "skills": "skills/",
-      "tools": "tools/",
-      "scripts": "scripts/"
+  "name": "unity-3d",
+  "displayName": "Unity 3D",
+  "version": "0.2.0",
+  "domain": "game-dev",
+  "subdomain": "unity-3d",
+  "sharedContext": [
+    "context/domain/unity-common.md"
+  ],
+  "config": [
+    "unity-studio.json"
+  ],
+  "paths": {
+    "agent": "agent/",
+    "context": "context/",
+    "templates": "templates/",
+    "command": "command/",
+    "abilities": "abilities/",
+    "skills": "skills/",
+    "tools": "tools/",
+    "scripts": "scripts/"
+  },
+  "studioModes": {
+    "lean": {
+      "agents": [
+        "agent/unity-3d-orchestrator.md"
+      ],
+      "subagents": [
+        "agent/subagents/unity/implementer.md",
+        "agent/subagents/unity/scene.md",
+        "agent/subagents/unity/ui.md",
+        "agent/subagents/unity/animator.md",
+        "agent/subagents/unity/shadervfx.md",
+        "agent/subagents/unity/artasset.md",
+        "agent/subagents/unity/qa.md"
+      ],
+      "optional": [
+        "agent/subagents/unity/tdd-specialist.md",
+        "agent/subagents/unity/native-plugin.md"
+      ]
     },
-    "studioModes": {
-      "lean": {
-        "agents": [
-          "agent/unity-3d-orchestrator.md"
-        ],
-        "subagents": [
-          "agent/subagents/unity/implementer.md",
-          "agent/subagents/unity/scene.md",
-          "agent/subagents/unity/uitk.md",
-          "agent/subagents/unity/animator.md",
-          "agent/subagents/unity/shadervfx.md",
-          "agent/subagents/unity/artasset.md",
-          "agent/subagents/unity/qa.md"
-        ],
-        "optional": [
-          "agent/subagents/unity/tdd-specialist.md",
-          "agent/subagents/unity/native-plugin.md"
-        ]
-      },
-      "full": {
-        "agents": [
-          "agent/full-studio/full-studio-orchestrator.md"
-        ],
-        "subagents": [
-          "agent/full-studio/art-director.md",
-          "agent/full-studio/art-lead.md",
-          "agent/full-studio/audio-specialist.md",
-          "agent/full-studio/creative-director.md",
-          "agent/full-studio/game-designer.md",
-          "agent/full-studio/gameplay-programmer.md",
-          "agent/full-studio/lead-programmer.md",
-          "agent/full-studio/level-designer.md",
-          "agent/full-studio/native-plugin.md",
-          "agent/full-studio/performance-analyst.md",
-          "agent/full-studio/producer.md",
-          "agent/full-studio/qa-lead.md",
-          "agent/full-studio/shader-specialist.md",
-          "agent/full-studio/tdd-specialist.md",
-          "agent/full-studio/technical-artist.md",
-          "agent/full-studio/technical-director.md",
-          "agent/full-studio/ui-programmer.md"
-        ]
-      }
-    },
-    "commands": [
-      "command/unity-setup.md",
-      "command/unity-brainstorm.md",
-      "command/unity-plan.md",
-      "command/unity-implement.md",
-      "command/unity-debug.md",
-      "command/unity-polish.md",
-      "command/unity-review.md",
-      "command/unity-scene.md",
-      "command/unity-test.md",
-      "command/unity-build.md",
-      "command/unity-architecture.md",
-      "command/unity-animator.md",
-      "command/unity-vfx.md",
-      "command/unity-ase.md",
-      "command/uitk.md",
-      "command/unity-runtime-target.md",
-      "command/unity-prefab-sweep.md",
-      "command/unity-performance.md",
-      "command/workflow-catalog.md"
-    ],
-    "context": [
-      "context/domain/unity-3d.md",
-      "context/unity-3d/"
-    ],
+    "full": {
+      "agents": [
+        "agent/full-studio/full-studio-orchestrator.md"
+      ],
+      "subagents": [
+        "agent/full-studio/art-director.md",
+        "agent/full-studio/art-lead.md",
+        "agent/full-studio/audio-specialist.md",
+        "agent/full-studio/creative-director.md",
+        "agent/full-studio/game-designer.md",
+        "agent/full-studio/gameplay-programmer.md",
+        "agent/full-studio/lead-programmer.md",
+        "agent/full-studio/level-designer.md",
+        "agent/full-studio/native-plugin.md",
+        "agent/full-studio/performance-analyst.md",
+        "agent/full-studio/producer.md",
+        "agent/full-studio/qa-lead.md",
+        "agent/full-studio/shader-specialist.md",
+        "agent/full-studio/tdd-specialist.md",
+        "agent/full-studio/technical-artist.md",
+        "agent/full-studio/technical-director.md",
+        "agent/full-studio/ui-programmer.md"
+      ]
+    }
+  },
+  "commands": [
+    "command/unity-setup.md",
+    "command/unity-brainstorm.md",
+    "command/unity-plan.md",
+    "command/unity-implement.md",
+    "command/unity-debug.md",
+    "command/unity-polish.md",
+    "command/unity-review.md",
+    "command/unity-scene.md",
+    "command/unity-test.md",
+    "command/unity-build.md",
+    "command/unity-architecture.md",
+    "command/unity-animator.md",
+    "command/unity-vfx.md",
+    "command/unity-ase.md",
+    "command/uitk.md",
+    "command/unity-runtime-target.md",
+    "command/unity-prefab-sweep.md",
+    "command/unity-performance.md",
+    "command/workflow-catalog.md",
+    "command/ui.md",
+    "command/ugui.md",
+    "command/unity-skills.md"
+  ],
+  "context": [
+    "context/domain/unity-3d.md",
+    "context/unity-3d/"
+  ],
   "abilities": [
     "unity-read-project",
     "gather-unity-context",
@@ -117,6 +120,7 @@
     "runtime-ui-validation",
     "performance-diagnostics",
     "uitk-interaction",
+    "ui-interaction",
     "coordination-board",
     "primitive-composition",
     "contract-aware-design",
@@ -126,24 +130,93 @@
     "test-deduplication",
     "workflow-catalog",
     "version-matrix",
-    "unity-studio-mode"
+    "unity-studio-mode",
+    "ugui-interaction",
+    "unity-skills"
   ],
-    "recipes": [
-      "recipes/unity-change-loop.json",
-      "recipes/unity-prefab-scene.json"
-    ],
-    "skills": [],
-    "tools": [
-      "unity-cli-wrapper"
-    ],
-    "scripts": [
-      "scripts/setup-unity-env.sh",
-      "scripts/build-project-context.js",
-      "scripts/unity-studio-mode.js"
-    ],
-    "compatibility": {
-      "opencode_min_version": "1.0.0",
-      "unity_versions": ["6.0", "6.3", "6.5", "LTS+"]
+  "recipes": [
+    "recipes/unity-change-loop.json",
+    "recipes/unity-prefab-scene.json"
+  ],
+  "skills": [],
+  "tools": [
+    "unity-cli-wrapper"
+  ],
+  "scripts": [
+    "scripts/setup-unity-env.sh",
+    "scripts/build-project-context.js",
+    "scripts/unity-studio-mode.js"
+  ],
+  "compatibility": {
+    "opencode_min_version": "1.0.0",
+    "unity_versions": [
+      "6.0",
+      "6.3",
+      "6.5",
+      "LTS+"
+    ]
+  },
+  "description": "Unity 3D sub-domain of the game-dev domain. Ships shared Unity common context plus a Unity 3D system: orchestrator, 7 specialist subagents, 19 commands (lifecycle, domain, runtime loops and the workflow catalog), and a function-based context library (concepts, guides, lookup, examples, errors, workflows).",
+  "templates": [
+    {
+      "installAs": "agent/subagents/unity/ui.md",
+      "template": "agent/subagents/unity/UnityUI.md",
+      "manifest": "agent/subagents/unity/UnityUI_manifest.json"
     },
-    "description": "Unity 3D sub-domain of the game-dev domain. Ships shared Unity common context plus a Unity 3D system: orchestrator, 7 specialist subagents, 19 commands (lifecycle, domain, runtime loops and the workflow catalog), and a function-based context library (concepts, guides, lookup, examples, errors, workflows)."
-  }
+    {
+      "installAs": "agent/subagents/unity/implementer.md",
+      "template": "agent/subagents/unity/UnityImplementer.md",
+      "manifest": "agent/subagents/unity/UnityImplementer_manifest.json"
+    },
+    {
+      "installAs": "agent/subagents/unity/shadervfx.md",
+      "template": "agent/subagents/unity/UnityShaderVFX.md",
+      "manifest": "agent/subagents/unity/UnityShaderVFX_manifest.json"
+    },
+    {
+      "installAs": "agent/subagents/unity/artasset.md",
+      "template": "agent/subagents/unity/UnityArtAsset.md",
+      "manifest": "agent/subagents/unity/UnityArtAsset_manifest.json"
+    },
+    {
+      "installAs": "agent/subagents/unity/qa.md",
+      "template": "agent/subagents/unity/UnityQA.md",
+      "manifest": "agent/subagents/unity/UnityQA_manifest.json"
+    },
+    {
+      "installAs": "agent/full-studio/ui-programmer.md",
+      "template": "agent/full-studio/UiProgrammer.md",
+      "manifest": "agent/full-studio/UiProgrammer_manifest.json"
+    },
+    {
+      "installAs": "agent/full-studio/gameplay-programmer.md",
+      "template": "agent/full-studio/GameplayProgrammer.md",
+      "manifest": "agent/full-studio/GameplayProgrammer_manifest.json"
+    },
+    {
+      "installAs": "agent/full-studio/shader-specialist.md",
+      "template": "agent/full-studio/ShaderSpecialist.md",
+      "manifest": "agent/full-studio/ShaderSpecialist_manifest.json"
+    },
+    {
+      "installAs": "agent/full-studio/technical-artist.md",
+      "template": "agent/full-studio/TechnicalArtist.md",
+      "manifest": "agent/full-studio/TechnicalArtist_manifest.json"
+    },
+    {
+      "installAs": "agent/full-studio/level-designer.md",
+      "template": "agent/full-studio/LevelDesigner.md",
+      "manifest": "agent/full-studio/LevelDesigner_manifest.json"
+    },
+    {
+      "installAs": "agent/full-studio/audio-specialist.md",
+      "template": "agent/full-studio/AudioSpecialist.md",
+      "manifest": "agent/full-studio/AudioSpecialist_manifest.json"
+    },
+    {
+      "installAs": "agent/full-studio/technical-director.md",
+      "template": "agent/full-studio/TechnicalDirector.md",
+      "manifest": "agent/full-studio/TechnicalDirector_manifest.json"
+    }
+  ]
+}

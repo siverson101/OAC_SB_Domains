@@ -5,7 +5,8 @@ family: sense
 mode: both
 description: Offline Editor/package drift detection plus a best-effort Unity CLI probe. Reads ProjectSettings/ProjectVersion.txt and Packages/manifest.json, compares them to version-baselines/, and surfaces breaking-change and changelog reviews. Never silently upgrades.
 inputs: { projectRoot: "string", opencodeDir: "string", ifDue: "boolean?", maxAgeHours: "number?", now: "string?", cliCommand: "string?" }
-outputs: { safetyGate: "object", cadence: "object", editor: "object", packages: "object", cli: "object", actions: "array", baselinesUpdated: "array", report: "string" }
+outputs: { safetyGate: "object", cadence: "object", editor: "object", packages: "object", cli: "object", optionalSkills: "object", actions: "array", baselinesUpdated: "array", report: "string" }
+# optionalSkills: { status, enabled, installed, path, commit, action }
 sideEffects: ["writes version-baselines/*.json", "writes version-baselines/*.txt"]
 safetyGate: { mutates: false, requiresEditor: false, requiresApproval: false, writesState: true }
 provides: [version-drift]

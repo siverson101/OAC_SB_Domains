@@ -16,11 +16,11 @@ records the tools we consciously did **not** implement, with the reason and a re
 | Asset intelligence, offline reads | `asset-intelligence`, `offline-project-inspection`, `gather-unity-context` | sense |
 | Typed editor workflows (scene/prefab/script) | `scene-editing`, `prefab-automation`, `script-scaffolding`, `shader-helper` | act |
 | Gate / validation, compile + tests | `compile-and-verify-project`, `run-edit-mode-tests`, `run-play-mode-tests`, `gate-review` | verify |
-| Diagnostics, logs, profiling, runtime UI | `unity-change-loop`, `runtime-debugging`, `runtime-ui-validation`, `performance-diagnostics`, `uitk-interaction` | run |
+| Diagnostics, logs, profiling, runtime UI | `unity-change-loop`, `runtime-debugging`, `runtime-ui-validation`, `performance-diagnostics`, `ui-interaction` | run |
 | CI baselines, coordination board, composition/contract checks | `ci-status-baseline`, `coordination-board`, `primitive-composition`, `contract-aware-design` | compose |
 
 Representative upstream tools that map to a covered ability: `get_ui_tree` / `click_ui` →
-`uitk-interaction`; `list_profiler_counters` / `sample_profiler_counters` / `get_frame_timing` /
+`ui-interaction`; `list_profiler_counters` / `sample_profiler_counters` / `get_frame_timing` /
 `get_top_profiler_markers` / `get_profiler_call_tree` → `performance-diagnostics`; `scaffold_script` →
 `script-scaffolding`; `lookup_api` → `unity-api-lookup`; `shader_helper` → `shader-helper`;
 `platform_info` → `platform-info`; `whos_here` / `post_status` / `read_board` / `hold` / `release`
@@ -37,6 +37,6 @@ Representative upstream tools that map to a covered ability: `get_ui_tree` / `cl
 | General runtime code execution | Arbitrary Player code is unsafe. Only `runtime-debugging --operation execute-code` is allowed, behind the explicit approval gate (ADR-0018). No blanket eval surface. | Never broaden without a new ADR. |
 | Raw AssetDatabase write / bulk import operations | Every mutation must run checkpoint → mutate → validate → delta (ADR-0015); raw asset-DB writes bypass the gate and the honesty rules. | Never; wrap the specific mutation instead. |
 | Deep memory snapshot capture (`capture_memory_snapshot`) | `performance-diagnostics` reads counters/timing first; deep snapshots are large and rarely actionable in an agent loop. | Phase 4, if a profiling workflow needs it. |
-| UI Toolkit authoring (UXML/USS generation) | `uitk-interaction` covers the runtime tree/click surface; authoring is design-time and belongs with scene/prefab automation. | Phase 3, alongside the snippet/template registry. |
+| UI Toolkit authoring (UXML/USS generation) | `ui-interaction` covers the runtime tree/click surface; authoring is design-time and belongs with scene/prefab automation. | Phase 3, alongside the snippet/template registry. |
 | Test authoring / dedup tools | These are TDD *workflows*, not Unity tools; they belong to subagents and skills, not the MCP surface. | Phase 4 (agents & coordination). |
 | CI orchestration / multi-project build farm | Out of scope: OAC is a solo-dev, single-project workflow. `ci-status-baseline` only records the last known status. | Only if OAC grows a hosted CI integration. |

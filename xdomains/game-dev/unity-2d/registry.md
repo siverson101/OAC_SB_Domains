@@ -26,7 +26,7 @@ Subagents
 |------|------|------|--------|------|---------|
 | UnityImplementer | subagent | `agent/subagents/unity/implementer.md` | oac-build | csharp-conventions, navigation | Orchestrator; feature-delivery workflow |
 | UnityScene | subagent | `agent/subagents/unity/scene.md` | oac-build | scene-prefab-safety, project-layout | Orchestrator; scene-assembly workflow |
-| UnityUITK | subagent | `agent/subagents/unity/uitk.md` | oac-build | navigation | Orchestrator; `/uitk` |
+| UnityUI | subagent | `agent/subagents/unity/ui.md` | oac-build (template `UnityUI.md`) | navigation | Orchestrator; `/ui`, `/ugui`, `/uitk` |
 | UnityAnimator | subagent | `agent/subagents/unity/animator.md` | oac-build | navigation | Orchestrator; `/unity-animator` |
 | UnityShaderVFX | subagent | `agent/subagents/unity/shadervfx.md` | oac-build | performance-budgets, navigation | Orchestrator; `/unity-vfx`, `/unity-ase` |
 | UnityArtAsset | subagent | `agent/subagents/unity/artasset.md` | oac-build | project-layout, performance-budgets | Orchestrator; scene/art tasks |
@@ -44,7 +44,10 @@ Commands
 | `/unity-animator` | `command/unity-animator.md` | oac-build | navigation, UnityAnimator | User |
 | `/unity-vfx` | `command/unity-vfx.md` | oac-build | performance-budgets, UnityShaderVFX | User |
 | `/unity-ase` | `command/unity-ase.md` | oac-build | performance-budgets, UnityShaderVFX | User |
-| `/uitk` | `command/uitk.md` | oac-build | navigation, UnityUITK | User |
+| `/ui` | `command/ui.md` | oac-build | navigation, UnityUI, ui-interaction | User |
+| `/ugui` | `command/ugui.md` | oac-build | navigation, UnityUI (UGUI hint) | User |
+| `/uitk` | `command/uitk.md` | oac-build | navigation, UnityUI (UI Toolkit hint) | User |
+| `/unity-skills` | `command/unity-skills.md` | oac-build (Phase 3.5) | unity-skills ability | User |
 
 Context (knowledge)
 -------------------

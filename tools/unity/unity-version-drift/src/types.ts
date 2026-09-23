@@ -38,6 +38,22 @@ export interface VersionDriftBase
   safetyGate: VersionDriftSafetyGate;
 }
 
+// The optional Unity `unity-skills` install state (ADR-0019). `disabled` means
+// the toggle is off; `missing` means enabled but the vendor path is absent (an
+// ACTION REQUIRED); `installed` means the vendor path exists. `not_checked` is
+// used when the cadence skipped the run.
+export type OptionalSkillsStatus = 'disabled' | 'installed' | 'missing' | 'not_checked';
+
+export interface OptionalSkillsSection {
+  status: OptionalSkillsStatus;
+  enabled: boolean;
+  installed: boolean;
+  path: string;
+  // The commit recorded by the installer marker, when present.
+  commit: string | null;
+  action: string | null;
+}
+
 export interface CliVersionProbe {
   available: boolean;
   version: string | null;

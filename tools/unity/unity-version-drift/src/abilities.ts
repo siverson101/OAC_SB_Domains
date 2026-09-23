@@ -4,10 +4,12 @@
 // only when `unity` resolves. The ability writes *only* the baseline files under
 // `project-data/version-baselines/`; anything needing judgement is surfaced as
 // ACTION REQUIRED, never applied silently.
-import { mkdirSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, relative } from 'node:path';
 import { asArray, asRecord, str } from '../../../shared/json-helpers';
 import { fileExists, readJson, readText, toPosix, writeJson } from '../../../shared/io';
+import { readInstalledCommit, vendorPath } from '../../../shared/optional-unity-skills';
+import { loadStudioConfig } from '../../studio-config/src/config';
 import { editorVersionInfo, findExecutable, run, stripAnsi } from '../../../shared/toolchain';
 import { readManifestDependencies } from '../../../shared/unity-manifest';
 import type { Route } from '../../../shared/tool-routing';
@@ -24,6 +26,7 @@ import {
 import type {
   CliProbe,
   CliVersionProbe,
+  OptionalSkillsSection,
   VersionDriftBase,
   VersionDriftChange,
   VersionDriftOptions,
@@ -85,6 +88,7 @@ export interface VersionDriftResult extends VersionDriftBase {
   editor: EditorSection;
   packages: PackagesSection;
   cli: CliSection;
+  optionalSkills: OptionalSkillsSection;
   actions: string[];
   baselinesUpdated: string[];
   report: string;
@@ -539,6 +543,32 @@ function findCliCommandDocs(root: string, limit = 25): string[] {
 }
 
 // ---------------------------------------------------------------------------
+// Optional Unity skills (ADR-0019)
+// ---------------------------------------------------------------------------
+
+// Reads the project config through the studio-config loader (single source of
+// truth for the toggle) and the vendor path through the shared optional-install
+// helper. Offline, read-only; the version-drift script never downloads. An
+// enabled-but-absent install is an ACTION REQUIRED pointing at `/unity-skills`.
+function detectOptionalSkills(options: VersionDriftOptions): OptionalSkillsSection {
+  const enabled = loadStudioConfig(join(options.opencodeDir, 'unity-studio.json')).config.toggles.unitySkills === true;
+  const path = vendorPath(options.opencodeDir);
+  const installed = existsSync(path);
+  const commit = installed ? readInstalledCommit(path) : null;
+  if (!enabled) return { status: 'disabled', enabled, installed, path, commit, action: null };
+  if (installed) return { status: 'installed', enabled, installed, path, commit, action: null };
+  return {
+    status: 'missing',
+    enabled,
+    installed,
+    path,
+    commit,
+    action:
+      'Unity skills are enabled but the vendor path is absent. Run `/unity-skills install`, or turn `toggles.unitySkills` off and re-apply to restore the base agents.',
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Dispatcher
 // ---------------------------------------------------------------------------
 
@@ -710,13 +740,29 @@ function renderCli(section: CliSection): string[] {
   return lines;
 }
 
+function renderOptionalSkills(section: OptionalSkillsSection): string[] {
+  if (section.status === 'disabled') return ['[Optional skills] Disabled (Unity `unity-skills` not enabled)'];
+  if (section.status === 'installed') {
+    return [`[Optional skills] Installed (${section.path}${section.commit ? ` @ ${section.commit}` : ''})`];
+  }
+  if (section.status === 'missing') {
+    return ['[Optional skills] Enabled but not installed', `  → ACTION REQUIRED: ${section.action}`];
+  }
+  return ['[Optional skills] not checked'];
+}
+
 function renderReport(result: VersionDriftResult): string {
   const lines = ['=== Session-Start Version Check ===', ''];
   if (result.cadence.skipped) {
     lines.push(`Not due — last run ${result.cadence.lastRunUtc} is within ${result.cadence.maxAgeHours}h.`);
     return lines.join('\n');
   }
-  lines.push(...renderEditor(result.editor), ...renderPackages(result.packages), ...renderCli(result.cli));
+  lines.push(
+    ...renderEditor(result.editor),
+    ...renderPackages(result.packages),
+    ...renderCli(result.cli),
+    ...renderOptionalSkills(result.optionalSkills)
+  );
   return lines.join('\n');
 }
 
@@ -737,6 +783,14 @@ export function runVersionDrift(options: VersionDriftOptions): VersionDriftResul
       editor: emptyEditor(),
       packages: emptyPackages(),
       cli: emptyCli(),
+      optionalSkills: {
+        status: 'not_checked',
+        enabled: false,
+        installed: false,
+        path: vendorPath(options.opencodeDir),
+        commit: null,
+        action: null,
+      },
       actions: [],
       baselinesUpdated: [],
       report: '',
@@ -748,6 +802,7 @@ export function runVersionDrift(options: VersionDriftOptions): VersionDriftResul
   const editor = detectEditor(options, errors);
   const packages = detectPackages(options, errors);
   const cli = detectCli(options, errors);
+  const optionalSkills = detectOptionalSkills(options);
 
   // The only cadence write; fail-soft so a read-only install still reports.
   try {
@@ -756,7 +811,9 @@ export function runVersionDrift(options: VersionDriftOptions): VersionDriftResul
     errors.push(`could not record last-run: ${messageOf(error)}`);
   }
 
-  const actions = [editor.action, packages.action, cli.action].filter((action): action is string => action !== null);
+  const actions = [editor.action, packages.action, cli.action, optionalSkills.action].filter(
+    (action): action is string => action !== null
+  );
   const baselinesUpdated = [...editor.updated, ...packages.updated, ...cli.updated];
   const status = overallStatus(editor, packages, cli);
   // The route reflects what actually ran: `batch` once the Unity CLI probe
@@ -768,6 +825,7 @@ export function runVersionDrift(options: VersionDriftOptions): VersionDriftResul
     editor,
     packages,
     cli,
+    optionalSkills,
     actions,
     baselinesUpdated,
     report: '',

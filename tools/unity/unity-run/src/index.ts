@@ -8,7 +8,7 @@
 //     --code "return 1+1;" --approve-code-execution --json
 //   unity-run ... --ability runtime-ui-validation --operation ui_click --json
 //   unity-run ... --ability performance-diagnostics --json
-//   unity-run ... --ability uitk-interaction --json
+//   unity-run ... --ability ui-interaction --json
 //   unity-run --list
 //
 // The change loop is fail-soft and offline; it refuses "done" without green

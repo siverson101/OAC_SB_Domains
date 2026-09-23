@@ -38,6 +38,7 @@ this. All ability, command, and tool references below are kebab-case.
 | 7 | Agents & coordination — Lean + Full Studio, selection, coordination board | Planned |
 | 8 | Testing & gates — gate/verify, TDD toggle, test plans, dedup, visual | Planned |
 | 9 | Workflows & change loop — recipes, change loop, prefab/scene, Unity CLI runtime | Planned |
+| 10 | Optional Unity `unity-skills` integration + multi-axis agent templates | Planned |
 
 ---
 
@@ -379,6 +380,16 @@ prefab/scene automation via inspector → `prefab patch --dryRun` → YAML escal
 - **FR8: Documentation and onboarding.** Maintain generated docs under `.opencode/`: build context,
   ability/command registry, agent-system blueprint, category system, pattern toggles, version
   matrix, and attribution.
+- **FR9: Optional Unity `unity-skills` integration.** The system shall offer the user, at install
+  time, the option to install Unity Technologies' `Unity-Technologies/skills` repository. Installation
+  is **user-initiated only**: the installer downloads into a **gitignored** vendor path
+  (`.opencode/xdomains/vendor/unity-skills/`), verifies `LICENSE.md` (the Unity Companion License)
+  and aborts on mismatch, and never copies Unity source into tracked paths. When installed, the
+  system shall deploy **path-referencing agent variants** (original OAC content that points to the
+  Work by path, copying no Unity text) selected by the shared multi-axis templating tool
+  (ADR-0020). Agent variants keep their base abilities and only *supplement* them. The system shall
+  also expose a multi-axis UI agent (`UnityUI`, `/ui` with `/ugui`/`/uitk` hint aliases) whose UI
+  stack is the project's `uiStack` choice. No Unity source is redistributed by this repository.
 
 ## Licensing and attribution (MIT)
 
@@ -388,6 +399,13 @@ prefab/scene automation via inspector → `prefab patch --dryRun` → YAML escal
   source files carry the original copyright + MIT text.
 - **LR3: Plan integration.** Track upstream components used and update attribution docs whenever
   upstream code is imported or modified. Central file: `docs/Attribution.md`.
+- **LR4: Optional-install exception.** The Unity Companion License (`LicenseRef-Unity-Companion`) is
+  a permitted **optional-install exception** to the permissive-only posture: not vendored, not
+  redistributed, user-initiated only, and never added to the primitive import allowlist
+  (`tools/unity/primitives/src/license-gate.ts`). The full license text, the holder, and the
+  Engine-License prerequisite (Unity Companion License §1) are recorded in `docs/Attribution.md`.
+  The path-referencing agent variants are original OAC content, so no derivative-work assignment
+  under §3.2 is triggered (ADR-0019).
 
 ## Non-functional requirements
 
@@ -408,7 +426,7 @@ used. The MCP status reporter reads the CLI's MCP client config (`unity mcp conf
 
 | Source | Original surface | OAC mapping |
 |--------|------------------|-------------|
-| Unity CLI + pipeline | CLI verbs, UAX tools | Commands: `unity-build`, `unity-test`, `unity-run`, `unity-command`, `unity-status`, `unity-list`. Abilities: `gather-unity-context`, `unity-run-tests`, `performance-diagnostics`, `uitk-interaction`, `input-automation`. |
+| Unity CLI + pipeline | CLI verbs, UAX tools | Commands: `unity-build`, `unity-test`, `unity-run`, `unity-command`, `unity-status`, `unity-list`. Abilities: `gather-unity-context`, `unity-run-tests`, `performance-diagnostics`, `ui-interaction`, `input-automation`. |
 | DevTools `.cmd`/`.ps1` | compile, test, gate, native build | Commands: `devtools-*` invocations. Abilities: `compile-and-verify-project`, `run-edit-mode-tests`, `run-play-mode-tests`, `gate-review`, `build-native-sub-project`, `project-status`. |
 | Unity-Open-MCP | asset intelligence, gate/verify, offline reads | Abilities: `asset-intelligence`, `offline-project-inspection`, `gate-and-verify-changes`. OAC implements the gate/verify surface itself via the Verify family (`compile-and-verify-project`, `run-edit-mode-tests`, `run-play-mode-tests`, `gate-review`); see `xdomains/game-dev/unity-3d/unity-open-mcp-missing-tools.md`. Design-reference only — not an MCP dependency. |
 | AIBridge | runtime bridge, workflows | Abilities: `unity-change-loop`, `prefab-automation`, `runtime-debugging`, `runtime-ui-validation` (run through the Unity CLI runtime). |
@@ -435,8 +453,9 @@ state. Never invoke bare `unity mcp` in a shell (it starts a stdio server).
 Superseded by **`docs/Plan.md`** (Goals 4–9, seven phases, each with goals/requirements/tests and
 per-step context + completion criteria). Summary: Phase 1 capability contract + registry; Phase 2
 five families + Unity CLI runtime + gather extensions; Phase 3 knowledge/primitives/toggles/attribution;
-Phase 4 agents + coordination; Phase 5 testing + gates; Phase 6 workflows + change loop + runtime;
-Phase 7 version conditionals + swap command + hardening.
+**Phase 3.5 optional Unity `unity-skills` integration + multi-axis agent templates**; Phase 4 agents +
+coordination; Phase 5 testing + gates; Phase 6 workflows + change loop + runtime; Phase 7 version
+conditionals + swap command + hardening.
 
 ## Multi-agent concurrency (resolved — ADR-0011)
 

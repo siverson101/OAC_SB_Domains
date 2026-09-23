@@ -1,10 +1,10 @@
 ---
-description: Build Unity UI Toolkit screens (UXML/USS/C#) - runtime UI, HUD, menus, editor UI
+description: Alias for /ui with a UI Toolkit stack hint - build UI Toolkit screens (UXML/USS/C#)
 ---
 
-# Unity UI Toolkit Command
+# Unity UI Toolkit Command (hint alias)
 
-Routes to the Unity 3D Orchestrator → UnityUITK.
+Alias for `/ui`. Routes to the Unity 3D Orchestrator → UnityUI with the **UI Toolkit** stack hint.
 
 ## Usage
 
@@ -16,11 +16,8 @@ Example: `/uitk build a health + stamina HUD panel for the player`
 
 ## Workflow
 
-1. Load context: `.opencode/context/unity-3d/navigation.md`
-2. Scope the UI: runtime (HUD/menus) or editor UI; gather layout + interactions
-3. Author UXML structure + USS styling (tokens, responsive) via `UnityUITK`
-4. Write C# UI controller (bind elements, events)
-5. Validate UXML/USS parse + controller compiles; tell user how to preview in UI Builder
+Run the `/ui` workflow with the stack hint `uitk` (pass `--stack uitk` to `ui-interaction` for live
+interaction). See `command/ui.md`.
 
 ## Success Criteria
 

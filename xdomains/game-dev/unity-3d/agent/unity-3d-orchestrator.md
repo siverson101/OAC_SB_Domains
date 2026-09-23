@@ -72,7 +72,7 @@ BEFORE any implementation, load:
     |--------------|----------|---------|
     | Gameplay/feature C# code | UnityImplementer | "add player controller with Rigidbody" |
     | Scene/prefab create or change | UnityScene | "set up Main scene with spawn points" |
-    | UI Toolkit panels/controls | UnityUITK | "build a health HUD with UI Toolkit" |
+    | UI Toolkit panels/controls | UnityUI | "build a health HUD with UI Toolkit" |
     | Animation controllers/retargeting | UnityAnimator | "retarget humanoid walk to NPC" |
     | Shaders / VFX / Amplify graphs | UnityShaderVFX | "make a dissolve shader in ASE" |
     | Import settings/materials/LOD/art | UnityArtAsset | "set correct import settings for model" |
